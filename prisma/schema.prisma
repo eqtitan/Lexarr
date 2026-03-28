@@ -1,0 +1,63 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String?   @unique
+  password     String?
+  plexId       String?   @unique
+  jellyfinId   String?   @unique
+  avatar       String?
+  role         String    @default("user") // "admin" | "user"
+  autoApprove  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  requests     Request[]
+}
+
+model Request {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  mediaType    String           // "movie" | "tv" | "music" | "book"
+  externalId   String           // TMDB ID, MusicBrainz release-group ID, Open Library key
+  externalId2  String?          // Secondary ID: MusicBrainz artist UUID for Lidarr
+  title        String
+  year         String?
+  posterPath   String?
+  status       String           @default("pending")
+  arrId        Int?             // ID in the *arr system after submission
+  approvedAt   DateTime?
+  availableAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  events       PipelineEvent[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model PipelineEvent {
+  id         String   @id @default(cuid())
+  requestId  String
+  request    Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  event      String   // "submitted" | "approved" | "denied" | "sent_to_arr" | "downloading" | "available" | "failed"
+  detail     String?  // JSON blob: indexer, download client, file size, quality, errors
+  createdAt  DateTime @default(now())
+
+  @@index([requestId])
+  @@index([event])
+  @@index([createdAt])
+}
+
+model ServiceConfig {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}

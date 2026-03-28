@@ -1,0 +1,25 @@
+services:
+  lexarr:
+    build: .
+    container_name: lexarr
+    ports:
+      - "5056:5056"
+    environment:
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:5056}
+      - ARR_HOST=${ARR_HOST}
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      - SONARR_API_KEY=${SONARR_API_KEY}
+      - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - LAZYLIBRARIAN_API_KEY=${LAZYLIBRARIAN_API_KEY}
+      - LAZYLIBRARIAN_PORT=${LAZYLIBRARIAN_PORT:-5299}
+      - PROWLARR_API_KEY=${PROWLARR_API_KEY}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - PLEX_CLIENT_ID=${PLEX_CLIENT_ID:-lexarr}
+      - JELLYFIN_URL=${JELLYFIN_URL}
+    volumes:
+      - lexarr-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  lexarr-data:

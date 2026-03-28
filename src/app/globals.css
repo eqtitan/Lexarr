@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f0f0f;
+  --foreground: #e5e5e5;
+  --card: #1a1a2e;
+  --card-hover: #16213e;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --muted: #6b7280;
+  --border: #2d2d44;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --movie: #ef4444;
+  --tv: #3b82f6;
+  --music: #a855f7;
+  --book: #22c55e;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
