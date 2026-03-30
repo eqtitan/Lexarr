@@ -39,7 +39,7 @@ export interface QueueItemDTO {
   indexer: string | null;
   downloadClient: string | null;
   /** Which *arr service owns this */
-  source: "radarr" | "sonarr" | "lidarr";
+  source: "radarr" | "sonarr" | "lidarr" | "whisparr";
   /** The arr-internal content ID (movieId / seriesId / artistId) */
   contentId: number | null;
   statusMessages: string[];
@@ -52,6 +52,8 @@ export interface ServiceHealthDTO {
   healthy: boolean;
   responseMs: number;
   error?: string;
+  url?: string;
+  category?: "arr" | "download" | "media" | "utility";
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────

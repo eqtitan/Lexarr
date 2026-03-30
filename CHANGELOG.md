@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.1.1] — 2026-03-29
+
+### Added
+- Whisparr integration (later removed in 0.3.0)
+- Detail drawer for search results
+- Full service health dashboard
+
+### Fixed
+- Docker production build: TS/ESLint errors no longer block builds
+
 ## [0.1.0] — 2026-03-27
 
 ### Added

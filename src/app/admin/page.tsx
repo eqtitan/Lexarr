@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 interface ServiceStatus {
   name: string;
@@ -27,9 +29,19 @@ const typeLabels: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  const { data: session, status: sessionStatus } = useSession();
+  const role = (session?.user as any)?.role;
+  const router = useRouter();
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (sessionStatus === "loading") return;
+    if (!session || role !== "admin") {
+      router.replace("/");
+    }
+  }, [session, sessionStatus, role, router]);
 
   useEffect(() => {
     Promise.all([

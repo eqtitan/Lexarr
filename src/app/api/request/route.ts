@@ -4,14 +4,24 @@ import { prisma } from "@/lib/db";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
+import * as whisparr from "@/lib/arr/whisparr";
 import type { MediaType } from "@/types";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  const userId = (session?.user as any)?.id || "system";
+  const userId = (session?.user as any)?.id;
+  if (!session || !userId) {
+    return NextResponse.json({ error: "Sign in to make requests" }, { status: 401 });
+  }
 
   const body = await req.json();
-  const { mediaType, externalId, title, year, posterUrl, artistId } = body as {
+
+  // Admin-only guard for adult content
+  if (body.mediaType === "adult" && (session.user as any)?.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { mediaType, externalId, title, year, posterUrl, artistId, downloadUrl, protocol } = body as {
     mediaType: MediaType;
     externalId: string;
     title: string;
@@ -19,6 +29,8 @@ export async function POST(req: NextRequest) {
     posterUrl?: string;
     artist?: string;
     artistId?: string; // MusicBrainz artist UUID for Lidarr
+    downloadUrl?: string;
+    protocol?: string;
   };
 
   if (!mediaType || !externalId || !title) {
@@ -92,6 +104,40 @@ export async function POST(req: NextRequest) {
       }
       case "book": {
         // LazyLibrarian integration - TODO when port/key confirmed
+        break;
+      }
+      case "adult": {
+        if (externalId.startsWith("prowlarr:")) {
+          // Direct grab via Prowlarr → download client
+          if (!downloadUrl) throw new Error("Missing downloadUrl for prowlarr grab");
+          if (protocol === "usenet") {
+            const { addNzbFromUrl } = await import("@/lib/arr/nzbget");
+            await addNzbFromUrl(downloadUrl, "adult-movies");
+          } else {
+            const { addTorrentFromUrl } = await import("@/lib/arr/qbittorrent");
+            await addTorrentFromUrl(downloadUrl, "/data/media/movies-adult", "adult-movies");
+          }
+          // arrResult stays undefined — no arr tracking ID for direct grabs
+          // Update status manually
+          await prisma.request.update({
+            where: { id: request.id },
+            data: { status: "downloading" },
+          });
+          request.status = "downloading";
+          await prisma.pipelineEvent.create({
+            data: { requestId: request.id, event: "sent_to_arr", detail: JSON.stringify({ protocol, direct: true }) },
+          });
+          break;
+        }
+        // Existing site: prefix handling
+        const isSite = externalId.startsWith("site:");
+        const foreignId = externalId.replace(/^(site|movie):/, "");
+        if (isSite) {
+          arrResult = await whisparr.addSite(foreignId, title);
+        } else {
+          // movie: prefix — Whisparr has no movie endpoint, treat as site fallback
+          arrResult = await whisparr.addSite(foreignId, title);
+        }
         break;
       }
     }

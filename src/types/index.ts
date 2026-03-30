@@ -1,4 +1,4 @@
-export type MediaType = "movie" | "tv" | "music" | "book";
+export type MediaType = "movie" | "tv" | "music" | "book" | "adult";
 
 export interface SearchResult {
   id: string;
@@ -10,6 +10,12 @@ export interface SearchResult {
   rating?: number;
   artist?: string; // music: artist name, book: author
   artistId?: string; // music: MusicBrainz artist UUID for Lidarr
+  subType?: "site" | "movie" | "prowlarr"; // adult content only
+  size?: number;       // file size in bytes (prowlarr results)
+  seeders?: number;    // torrent seeders
+  protocol?: "torrent" | "usenet";
+  downloadUrl?: string; // prowlarr direct download URL
+  indexer?: string;    // indexer name
 }
 
 export interface RequestStatus {

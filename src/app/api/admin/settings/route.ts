@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth/config";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
@@ -14,6 +15,12 @@ async function checkService(name: string, healthFn: () => Promise<any>) {
 }
 
 export async function GET() {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const services = await Promise.all([
     checkService("Radarr", radarr.health),
     checkService("Sonarr", sonarr.health),

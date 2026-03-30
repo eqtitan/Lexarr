@@ -1,4 +1,5 @@
 FROM node:20-alpine AS base
+RUN apk add --no-cache openssl
 
 # Install dependencies
 FROM base AS deps
@@ -13,6 +14,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN mkdir -p public
 RUN npm run build
 
 # Production image
@@ -28,8 +30,8 @@ RUN adduser --system --uid 1001 nextjs
 
 # Create data directory for SQLite DB (mountable volume)
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+RUN mkdir -p /app/public
 
-COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
@@ -42,4 +44,4 @@ USER nextjs
 EXPOSE 5056
 
 # Initialize DB on first run, then start
-CMD npx prisma db push --skip-generate 2>/dev/null; node server.js
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --skip-generate || echo 'DB migration skipped'; node server.js"]

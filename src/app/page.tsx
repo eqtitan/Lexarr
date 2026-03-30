@@ -1,14 +1,19 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import SearchBar from "@/components/SearchBar";
 import MediaCard from "@/components/MediaCard";
+import DetailPanel from "@/components/DetailPanel";
 import type { SearchResult, MediaType } from "@/types";
 
 export default function Home() {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as any)?.role === "admin";
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
 
   const handleSearch = useCallback(async (query: string, filter: MediaType | null) => {
     if (query.length < 2) {
@@ -31,6 +36,28 @@ export default function Home() {
     }
   }, []);
 
+  const handleDetailRequest = useCallback(async () => {
+    if (!selectedResult) return;
+    try {
+      await fetch("/api/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaType: selectedResult.mediaType,
+          externalId: selectedResult.id,
+          title: selectedResult.title,
+          year: selectedResult.year,
+          posterUrl: selectedResult.posterUrl,
+          artist: selectedResult.artist,
+          artistId: selectedResult.artistId,
+          downloadUrl: selectedResult.downloadUrl,
+          protocol: selectedResult.protocol,
+        }),
+      });
+    } catch {}
+    setSelectedResult(null);
+  }, [selectedResult]);
+
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -38,11 +65,13 @@ export default function Home() {
           <span className="text-[var(--accent)]">Lex</span>arr
         </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Search and request movies, TV, music, and books
+          {isAdmin
+            ? "Search and request movies, TV, music, books, and adult content"
+            : "Search and request movies, TV, music, and books"}
         </p>
       </div>
 
-      <SearchBar onSearch={handleSearch} />
+      <SearchBar onSearch={handleSearch} isAdmin={isAdmin} />
 
       {loading && (
         <div className="flex justify-center py-12">
@@ -53,7 +82,11 @@ export default function Home() {
       {!loading && results.length > 0 && (
         <div className="grid gap-3 overflow-hidden sm:grid-cols-2">
           {results.map((r) => (
-            <MediaCard key={`${r.mediaType}-${r.id}`} result={r} />
+            <MediaCard
+              key={`${r.mediaType}-${r.id}`}
+              result={r}
+              onClick={() => setSelectedResult(r)}
+            />
           ))}
         </div>
       )}
@@ -74,6 +107,14 @@ export default function Home() {
           </div>
           <p>Search for anything across your media stack</p>
         </div>
+      )}
+
+      {selectedResult && (
+        <DetailPanel
+          result={selectedResult}
+          onClose={() => setSelectedResult(null)}
+          onRequest={handleDetailRequest}
+        />
       )}
     </div>
   );

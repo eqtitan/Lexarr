@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { auth } from "@/lib/auth/config";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
 
 // GET: List pending requests
 export async function GET() {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const requests = await prisma.request.findMany({
     where: { status: "pending" },
     include: { user: { select: { name: true, avatar: true } } },
@@ -16,6 +23,12 @@ export async function GET() {
 
 // PATCH: Approve or deny a request
 export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const { requestId, action } = await req.json();
   if (!requestId || !["approve", "deny"].includes(action)) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

@@ -6,6 +6,7 @@ import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
 import { computeAnalytics } from "@/lib/dashboard/analytics";
 import { generateWarnings } from "@/lib/dashboard/warnings";
+import { SERVICE_REGISTRY } from "@/lib/dashboard/services";
 import type {
   DashboardData,
   PipelineRequestDTO,
@@ -66,22 +67,19 @@ export async function GET() {
     radarrQueueResult,
     sonarrQueueResult,
     lidarrQueueResult,
-    radarrHealthResult,
-    sonarrHealthResult,
-    lidarrHealthResult,
     radarrIndexerResult,
     sonarrIndexerResult,
     lidarrIndexerResult,
+    ...healthSettled
   ] = await Promise.allSettled([
     radarr.getQueueDetails(),
     sonarr.getQueue(),
     lidarr.getQueue(),
-    checkServiceHealth("Radarr", radarr.health),
-    checkServiceHealth("Sonarr", sonarr.health),
-    checkServiceHealth("Lidarr", lidarr.health),
     radarr.getIndexerStats(),
     sonarr.getIndexerStats(),
     lidarr.getIndexerStats(),
+    // Health checks for all services in SERVICE_REGISTRY order
+    ...SERVICE_REGISTRY.map((svc) => checkServiceHealth(svc.name, svc.health)),
   ]);
 
   // ── Queue ──────────────────────────────────────────────────────────
@@ -99,13 +97,13 @@ export async function GET() {
   for (const r of lidarrRecords) queue.push(normalizeQueueItem(r, "lidarr"));
 
   // ── Services ───────────────────────────────────────────────────────
-  const services: ServiceHealthDTO[] = [];
-  if (radarrHealthResult.status === "fulfilled") services.push(radarrHealthResult.value);
-  else services.push({ name: "Radarr", healthy: false, responseMs: 0, error: "Health check failed" });
-  if (sonarrHealthResult.status === "fulfilled") services.push(sonarrHealthResult.value);
-  else services.push({ name: "Sonarr", healthy: false, responseMs: 0, error: "Health check failed" });
-  if (lidarrHealthResult.status === "fulfilled") services.push(lidarrHealthResult.value);
-  else services.push({ name: "Lidarr", healthy: false, responseMs: 0, error: "Health check failed" });
+  const services: ServiceHealthDTO[] = SERVICE_REGISTRY.map((svc, i) => {
+    const result = healthSettled[i];
+    if (result.status === "fulfilled") {
+      return { ...result.value, url: svc.url, category: svc.category };
+    }
+    return { name: svc.name, healthy: false, responseMs: 0, error: "Health check failed", url: svc.url, category: svc.category };
+  });
 
   // ── Pipeline (DB) ──────────────────────────────────────────────────
   const pendingRequests = await prisma.request.findMany({

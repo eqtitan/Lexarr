@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth/config";
 import { prisma } from "@/lib/db";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
 
-// Poll *arr queues and update request statuses
+// Poll *arr queues and update request statuses (admin only)
 export async function POST() {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
   const activeRequests = await prisma.request.findMany({
     where: { status: { in: ["approved", "downloading"] }, arrId: { not: null } },
   });

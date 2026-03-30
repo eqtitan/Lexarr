@@ -15,7 +15,7 @@ export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?:
     select: { mediaType: true, status: true, approvedAt: true, availableAt: true, createdAt: true, userId: true },
   });
 
-  const byType: Record<MediaType, number> = { movie: 0, tv: 0, music: 0, book: 0 };
+  const byType: Record<MediaType, number> = { movie: 0, tv: 0, music: 0, book: 0, adult: 0 };
   const byStatus: Record<string, number> = {};
 
   for (const r of allRequests) {

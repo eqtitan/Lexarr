@@ -6,7 +6,7 @@ const KEY = process.env.TMDB_API_KEY || "";
 export async function search(query: string): Promise<SearchResult[]> {
   if (!KEY) return [];
   const res = await fetch(
-    `${BASE}/search/multi?query=${encodeURIComponent(query)}&api_key=${KEY}&page=1`
+    `${BASE}/search/multi?query=${encodeURIComponent(query)}&api_key=${KEY}&page=1&with_original_language=en`
   );
   if (!res.ok) return [];
   const data = await res.json();

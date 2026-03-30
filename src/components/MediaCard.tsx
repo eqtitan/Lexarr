@@ -17,12 +17,19 @@ const typeLabels: Record<string, string> = {
   book: "Book",
 };
 
-export default function MediaCard({ result }: { result: SearchResult }) {
+export default function MediaCard({
+  result,
+  onClick,
+}: {
+  result: SearchResult;
+  onClick?: () => void;
+}) {
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState(false);
   const [error, setError] = useState<string>();
 
-  async function handleRequest() {
+  async function handleRequest(e: React.MouseEvent) {
+    e.stopPropagation();
     setRequesting(true);
     setError(undefined);
     try {
@@ -37,6 +44,8 @@ export default function MediaCard({ result }: { result: SearchResult }) {
           posterUrl: result.posterUrl,
           artist: result.artist,
           artistId: result.artistId,
+          downloadUrl: result.downloadUrl,
+          protocol: result.protocol,
         }),
       });
       if (res.status === 409) {
@@ -53,7 +62,11 @@ export default function MediaCard({ result }: { result: SearchResult }) {
   }
 
   return (
-    <div className="group flex min-w-0 gap-4 rounded-xl bg-[var(--card)] p-3 ring-1 ring-[var(--border)] transition-all hover:bg-[var(--card-hover)] hover:ring-[var(--accent)]/30">
+    <div
+      className="group flex min-w-0 gap-4 rounded-xl bg-[var(--card)] p-3 ring-1 ring-[var(--border)] transition-all hover:bg-[var(--card-hover)] hover:ring-[var(--accent)]/30 hover:-translate-y-0.5 transition-transform duration-150"
+      onClick={onClick}
+      style={{ cursor: onClick ? "pointer" : undefined }}
+    >
       {/* Poster */}
       <div className="relative h-36 w-24 shrink-0 overflow-hidden rounded-lg bg-[var(--border)]">
         {result.posterUrl ? (
@@ -63,17 +76,46 @@ export default function MediaCard({ result }: { result: SearchResult }) {
             className="h-full w-full object-cover"
             loading="lazy"
           />
+        ) : result.subType === "prowlarr" ? (
+          <div className="flex h-full w-full items-center justify-center bg-[var(--card)] rounded-l-xl text-[var(--muted)]">
+            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+            </svg>
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted)]">
             No Image
           </div>
         )}
-        <span
-          className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
-          style={{ background: typeColors[result.mediaType] }}
-        >
-          {typeLabels[result.mediaType]}
-        </span>
+        {/* Media type badge (top-left) */}
+        {result.mediaType !== "adult" && (
+          <span
+            className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+            style={{ background: typeColors[result.mediaType] }}
+          >
+            {typeLabels[result.mediaType]}
+          </span>
+        )}
+        {/* Adult subType badge (top-right) */}
+        {result.mediaType === "adult" && result.subType && (
+          <span
+            className="absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+            style={{
+              background: result.subType === "site" ? "#9333ea" : result.subType === "prowlarr" ? "#6b7280" : "#db2777",
+            }}
+          >
+            {result.subType === "site" ? "SITE" : result.subType === "prowlarr" ? "GRAB" : "MOVIE"}
+          </span>
+        )}
+        {/* Adult label (top-left) when no subType fallback */}
+        {result.mediaType === "adult" && !result.subType && (
+          <span
+            className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+            style={{ background: "#9333ea" }}
+          >
+            Adult
+          </span>
+        )}
       </div>
 
       {/* Info */}

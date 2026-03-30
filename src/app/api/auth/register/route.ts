@@ -9,6 +9,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name and password required" }, { status: 400 });
   }
 
+  if (typeof name !== "string" || name.length < 2 || name.length > 50) {
+    return NextResponse.json({ error: "Name must be 2-50 characters" }, { status: 400 });
+  }
+
+  if (typeof password !== "string" || password.length < 8) {
+    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+  }
+
+  if (email && (typeof email !== "string" || !email.includes("@"))) {
+    return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+  }
+
   if (email) {
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
