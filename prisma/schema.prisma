@@ -17,37 +17,48 @@ model User {
   avatar       String?
   role         String    @default("user") // "admin" | "user"
   autoApprove  Boolean   @default(false)
+  maxRequests  Int       @default(0) // 0 = unlimited
   createdAt    DateTime  @default(now())
   requests     Request[]
+  auditLogs    AuditLog[]
 }
 
 model Request {
-  id           String           @id @default(cuid())
-  userId       String
-  user         User             @relation(fields: [userId], references: [id])
-  mediaType    String           // "movie" | "tv" | "music" | "book"
-  externalId   String           // TMDB ID, MusicBrainz release-group ID, Open Library key
-  externalId2  String?          // Secondary ID: MusicBrainz artist UUID for Lidarr
-  title        String
-  year         String?
-  posterPath   String?
-  status       String           @default("pending")
-  arrId        Int?             // ID in the *arr system after submission
-  approvedAt   DateTime?
-  availableAt  DateTime?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  events       PipelineEvent[]
+  id              String           @id @default(cuid())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id])
+  mediaType       String           // "movie" | "tv" | "music" | "book" | "adult"
+  externalId      String           // TMDB ID, MusicBrainz release-group ID, Open Library key
+  externalId2     String?          // Secondary ID: MusicBrainz artist UUID for Lidarr
+  title           String
+  year            String?
+  posterPath      String?
+  status          String           @default("pending") // pending | approved | downloading | available | denied | failed | stalled
+  adminNote       String?          // Admin note when approving/denying
+  arrId           Int?             // ID in the *arr system after submission
+  torrentHash     String?          // qBittorrent info hash for direct-grab adult torrents
+  retryCount      Int              @default(0)
+  lastError       String?          // Last error message from *arr submission
+  approvedAt      DateTime?
+  availableAt     DateTime?
+  lastCheckedAt   DateTime?        // Last time status was synced from *arr or qBittorrent
+  qaPassed        Boolean?         // Whether QA check passed (file exists, size ok, subtitles ready)
+  qaCheckedAt     DateTime?        // Last time QA was evaluated
+  source          String           @default("lexarr") // "lexarr" | "overseerr" | "system"
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  events          PipelineEvent[]
 
   @@index([userId])
   @@index([status])
+  @@index([source])
 }
 
 model PipelineEvent {
   id         String   @id @default(cuid())
   requestId  String
   request    Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  event      String   // "submitted" | "approved" | "denied" | "sent_to_arr" | "downloading" | "available" | "failed"
+  event      String   // "submitted" | "approved" | "denied" | "sent_to_arr" | "downloading" | "available" | "failed" | "stalled" | "retried"
   detail     String?  // JSON blob: indexer, download client, file size, quality, errors
   createdAt  DateTime @default(now())
 
@@ -60,4 +71,29 @@ model ServiceConfig {
   id    String @id @default(cuid())
   key   String @unique
   value String
+}
+
+model NotificationChannel {
+  id        String   @id @default(cuid())
+  name      String                        // Display name: "Discord #requests", "Slack General"
+  type      String                        // "discord" | "slack" | "webhook"
+  webhookUrl String
+  events    String   @default("all")      // Comma-separated: "all" | "submitted,approved,available,failed"
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String   // "approve_request" | "deny_request" | "update_user" | "add_notification" | "retry_request" | "login"
+  targetType String?  // "request" | "user" | "notification"
+  targetId   String?  // ID of the affected entity
+  detail     String?  // JSON context
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

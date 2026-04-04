@@ -31,7 +31,7 @@ export default function SearchBar({
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         onSearch(value, activeFilter === "all" ? null : activeFilter);
-      }, 350);
+      }, 250);
     },
     [activeFilter, onSearch]
   );

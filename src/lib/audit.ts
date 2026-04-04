@@ -1,0 +1,35 @@
+/**
+ * Audit logging utility.
+ * Records admin actions for accountability and debugging.
+ */
+import { prisma } from "./db";
+
+type AuditAction =
+  | "approve_request"
+  | "deny_request"
+  | "retry_request"
+  | "update_user"
+  | "add_notification"
+  | "remove_notification"
+  | "login";
+
+export async function logAudit(
+  userId: string | null,
+  action: AuditAction,
+  target?: { type: string; id: string },
+  detail?: Record<string, any>
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action,
+        targetType: target?.type,
+        targetId: target?.id,
+        detail: detail ? JSON.stringify(detail) : undefined,
+      },
+    });
+  } catch {
+    // Audit logging should never break the calling operation
+  }
+}

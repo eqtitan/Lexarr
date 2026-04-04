@@ -26,6 +26,7 @@ export default function MediaCard({
 }) {
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState(false);
+  const [alreadyRequested, setAlreadyRequested] = useState(false);
   const [error, setError] = useState<string>();
 
   async function handleRequest(e: React.MouseEvent) {
@@ -49,7 +50,7 @@ export default function MediaCard({
         }),
       });
       if (res.status === 409) {
-        setRequested(true);
+        setAlreadyRequested(true);
         return;
       }
       if (!res.ok) throw new Error("Request failed");
@@ -146,19 +147,23 @@ export default function MediaCard({
           )}
           <button
             onClick={handleRequest}
-            disabled={requesting || requested}
-            className="ml-auto rounded-lg px-4 py-1.5 text-sm font-medium transition-all disabled:opacity-50"
+            disabled={requesting || requested || alreadyRequested}
+            className="ml-auto rounded-lg px-4 py-1.5 text-sm font-medium transition-all disabled:opacity-60"
             style={{
               background: requested
                 ? "var(--success)"
+                : alreadyRequested
+                ? "var(--warning)"
                 : error
                 ? "var(--danger)"
                 : "var(--accent)",
-              color: "white",
+              color: alreadyRequested ? "#000" : "white",
             }}
           >
             {requested
               ? "Requested ✓"
+              : alreadyRequested
+              ? "Already Requested"
               : requesting
               ? "..."
               : error

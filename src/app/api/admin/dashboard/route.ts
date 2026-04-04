@@ -125,7 +125,7 @@ export async function GET() {
   });
 
   const recentRequests = await prisma.request.findMany({
-    where: { status: { in: ["available", "denied"] } },
+    where: { status: { in: ["available", "denied", "failed", "stalled"] } },
     include: {
       user: { select: { name: true, avatar: true } },
       events: { orderBy: { createdAt: "asc" } },
@@ -153,6 +153,9 @@ export async function GET() {
         detail: e.detail,
         createdAt: e.createdAt.toISOString(),
       })),
+      retryCount: r.retryCount ?? 0,
+      lastError: r.lastError ?? null,
+      adminNote: r.adminNote ?? null,
       queueItem: null,
     };
 

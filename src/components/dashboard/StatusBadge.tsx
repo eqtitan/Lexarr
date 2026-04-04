@@ -7,6 +7,7 @@ const statusConfig: Record<string, { bg: string; text: string; label: string }> 
   available: { bg: "var(--success)", text: "#fff", label: "Available" },
   denied: { bg: "var(--danger)", text: "#fff", label: "Denied" },
   failed: { bg: "var(--danger)", text: "#fff", label: "Failed" },
+  stalled: { bg: "var(--warning)", text: "#000", label: "Stalled" },
 };
 
 interface StatusBadgeProps {

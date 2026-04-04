@@ -1,5 +1,25 @@
 export type MediaType = "movie" | "tv" | "music" | "book" | "adult";
 
+export type RequestStatusValue =
+  | "pending"
+  | "approved"
+  | "downloading"
+  | "available"
+  | "denied"
+  | "failed"
+  | "stalled";
+
+export type PipelineEventType =
+  | "submitted"
+  | "approved"
+  | "denied"
+  | "sent_to_arr"
+  | "downloading"
+  | "available"
+  | "failed"
+  | "stalled"
+  | "retried";
+
 export interface SearchResult {
   id: string;
   mediaType: MediaType;
@@ -23,7 +43,7 @@ export interface RequestStatus {
   mediaType: MediaType;
   title: string;
   posterUrl?: string;
-  status: "pending" | "approved" | "downloading" | "available" | "denied";
+  status: RequestStatusValue;
   createdAt: string;
 }
 

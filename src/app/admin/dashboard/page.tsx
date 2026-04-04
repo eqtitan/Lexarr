@@ -60,20 +60,29 @@ export default function DashboardPage() {
     };
   }, [autoPoll, role, fetchDashboard]);
 
-  async function handleApprove(id: string) {
+  async function handleApprove(id: string, note?: string) {
     await fetch("/api/admin/requests", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: id, action: "approve" }),
+      body: JSON.stringify({ requestId: id, action: "approve", note }),
     });
     fetchDashboard();
   }
 
-  async function handleDeny(id: string) {
+  async function handleDeny(id: string, note?: string) {
     await fetch("/api/admin/requests", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: id, action: "deny" }),
+      body: JSON.stringify({ requestId: id, action: "deny", note }),
+    });
+    fetchDashboard();
+  }
+
+  async function handleRetry(id: string) {
+    await fetch("/api/admin/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: id }),
     });
     fetchDashboard();
   }
@@ -168,6 +177,7 @@ export default function DashboardPage() {
       <PipelineTable
         title="Recently Completed"
         requests={data.pipeline.recent}
+        onRetry={handleRetry}
       />
 
       {/* Analytics */}

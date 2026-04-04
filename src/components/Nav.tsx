@@ -8,7 +8,13 @@ import { useState, useRef, useEffect } from "react";
 const links = [
   { href: "/", label: "Search" },
   { href: "/requests", label: "Requests" },
-  { href: "/admin/dashboard", label: "Admin", adminOnly: true },
+];
+
+const adminLinks = [
+  { href: "/admin/dashboard", label: "Dashboard" },
+  { href: "/admin/users", label: "Users" },
+  { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/audit", label: "Audit" },
 ];
 
 export default function Nav() {
@@ -17,6 +23,8 @@ export default function Nav() {
   const role = (session?.user as any)?.role;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const isAdminPage = pathname.startsWith("/admin");
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -43,24 +51,33 @@ export default function Nav() {
           <span className="text-[var(--accent)]">Lex</span>arr
         </Link>
         <div className="flex items-center gap-1">
-          {links
-            .filter((l) => !l.adminOnly || role === "admin")
-            .map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  pathname === l.href
-                    ? "bg-[var(--accent)] text-white"
-                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                {l.label}
-              </Link>
-            ))}
+          {links.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                pathname === l.href
+                  ? "bg-[var(--accent)] text-white"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+          {role === "admin" && (
+            <Link
+              href="/admin/dashboard"
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                isAdminPage
+                  ? "bg-[var(--accent)] text-white"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Admin
+            </Link>
+          )}
           {session ? (
             <div ref={menuRef} className="relative ml-2">
-              {/* User button — visible border + background so it looks interactive */}
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:ring-[var(--accent)]/50 hover:bg-[var(--card)]"
@@ -90,7 +107,6 @@ export default function Nav() {
 
               {menuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-52 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl bg-[var(--card)] ring-1 ring-[var(--border)] shadow-xl shadow-black/30 z-50">
-                  {/* User info header */}
                   <div className="border-b border-[var(--border)] px-4 py-3">
                     <p className="truncate text-sm font-semibold">{session.user?.name}</p>
                     <p className="truncate text-xs text-[var(--muted)]">
@@ -103,7 +119,6 @@ export default function Nav() {
                     )}
                   </div>
 
-                  {/* Menu items */}
                   <div className="py-1">
                     <Link
                       href="/requests"
@@ -128,7 +143,6 @@ export default function Nav() {
                     </button>
                   </div>
 
-                  {/* Sign out — separated */}
                   <div className="border-t border-[var(--border)] py-1">
                     <button
                       onClick={() => {
@@ -156,6 +170,27 @@ export default function Nav() {
           )}
         </div>
       </div>
+
+      {/* Admin sub-navigation */}
+      {isAdminPage && role === "admin" && (
+        <div className="border-t border-[var(--border)] bg-[var(--card)]/50">
+          <div className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto px-4 py-1.5">
+            {adminLinks.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  pathname === l.href
+                    ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

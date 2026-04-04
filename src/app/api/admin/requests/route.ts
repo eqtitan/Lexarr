@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
-import * as radarr from "@/lib/arr/radarr";
-import * as sonarr from "@/lib/arr/sonarr";
-import * as lidarr from "@/lib/arr/lidarr";
+import { routeToArr } from "@/lib/arr/router";
+import { notify } from "@/lib/notifications";
+import { logAudit } from "@/lib/audit";
+import type { MediaType } from "@/types";
 
 // GET: List pending requests
 export async function GET() {
@@ -25,11 +26,12 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   const role = (session?.user as any)?.role;
+  const adminId = (session?.user as any)?.id;
   if (role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const { requestId, action } = await req.json();
+  const { requestId, action, note } = await req.json();
   if (!requestId || !["approve", "deny"].includes(action)) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -37,62 +39,133 @@ export async function PATCH(req: NextRequest) {
   if (action === "deny") {
     const request = await prisma.request.update({
       where: { id: requestId },
-      data: { status: "denied" },
+      data: { status: "denied", adminNote: note || undefined },
     });
     await prisma.pipelineEvent.create({
-      data: { requestId, event: "denied" },
+      data: { requestId, event: "denied", detail: note ? JSON.stringify({ note }) : undefined },
     });
+
+    logAudit(adminId, "deny_request", { type: "request", id: requestId }, { note });
+
+    notify({
+      event: "denied",
+      title: request.title,
+      mediaType: request.mediaType as MediaType,
+      status: "denied",
+      user: (session.user as any)?.name || "Admin",
+      detail: note,
+    });
+
     return NextResponse.json({ request });
   }
 
-  // Approve: send to *arr
+  // Approve: update status then send to *arr
   const request = await prisma.request.update({
     where: { id: requestId },
-    data: { status: "approved", approvedAt: new Date() },
+    data: { status: "approved", approvedAt: new Date(), adminNote: note || undefined },
   });
   await prisma.pipelineEvent.create({
-    data: { requestId, event: "approved" },
+    data: { requestId, event: "approved", detail: note ? JSON.stringify({ note }) : undefined },
   });
 
-  let arrResult: { id: number; alreadyExists?: boolean } | undefined;
+  logAudit(adminId, "approve_request", { type: "request", id: requestId }, { note });
+
+  notify({
+    event: "approved",
+    title: request.title,
+    mediaType: request.mediaType as MediaType,
+    status: "approved",
+    user: (session.user as any)?.name || "Admin",
+  });
+
   try {
-    switch (request.mediaType) {
-      case "movie": {
-        arrResult = await radarr.addMovie(Number(request.externalId), request.title);
-        break;
+    const result = await routeToArr({
+      mediaType: request.mediaType as MediaType,
+      externalId: request.externalId,
+      externalId2: request.externalId2,
+      title: request.title,
+    });
+
+    if (result.needsReRequest) {
+      await prisma.request.update({
+        where: { id: request.id },
+        data: { status: "failed", lastError: "Prowlarr direct-grab cannot be re-sent — downloadUrl not stored. User must re-request." },
+      });
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "failed",
+          detail: JSON.stringify({ error: "Prowlarr direct-grab cannot be re-sent from admin panel — downloadUrl not stored. User must re-request." }),
+        },
+      });
+      return NextResponse.json({ request, arrError: "Re-request required" });
+    }
+
+    if (result.torrentHash !== undefined) {
+      await prisma.request.update({
+        where: { id: request.id },
+        data: { status: "downloading", torrentHash: result.torrentHash || null },
+      });
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "sent_to_arr",
+          detail: JSON.stringify({ direct: true, torrentHash: result.torrentHash ?? null }),
+        },
+      });
+    } else if (result.arrId !== undefined) {
+      // For books, store the LazyLibrarian ID
+      if (request.mediaType === "book") {
+        await prisma.request.update({
+          where: { id: request.id },
+          data: { externalId2: String(result.arrId) },
+        });
       }
-      case "tv": {
-        arrResult = await sonarr.addSeries(Number(request.externalId), request.title);
-        break;
-      }
-      case "music": {
-        // Use externalId2 (artist UUID) if available, fall back to externalId
-        const lidarrId = request.externalId2 || request.externalId;
-        arrResult = await lidarr.addArtist(lidarrId, request.title);
-        break;
+
+      const alreadyAvailable = result.alreadyExists && request.mediaType !== "adult";
+      const newStatus = alreadyAvailable ? "available" : "downloading";
+      await prisma.request.update({
+        where: { id: request.id },
+        data: {
+          arrId: result.arrId || null,
+          status: newStatus,
+          torrentHash: result.torrentHash || undefined,
+          availableAt: alreadyAvailable ? new Date() : undefined,
+        },
+      });
+
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "sent_to_arr",
+          detail: JSON.stringify({ arrId: result.arrId, alreadyExists: result.alreadyExists }),
+        },
+      });
+
+      if (alreadyAvailable) {
+        await prisma.pipelineEvent.create({
+          data: { requestId: request.id, event: "available", detail: JSON.stringify({ alreadyExists: true }) },
+        });
+        notify({
+          event: "available",
+          title: request.title,
+          mediaType: request.mediaType as MediaType,
+          status: "available",
+          user: (session.user as any)?.name || "Admin",
+          detail: "Already in library",
+        });
       }
     }
   } catch (err: any) {
     console.error(`Failed to add to *arr: ${err.message}`);
-  }
-
-  if (arrResult) {
-    const newStatus = arrResult.alreadyExists ? "available" : "downloading";
     await prisma.request.update({
       where: { id: request.id },
-      data: {
-        arrId: arrResult.id,
-        status: newStatus,
-        availableAt: arrResult.alreadyExists ? new Date() : undefined,
-      },
+      data: { lastError: err.message },
     });
     await prisma.pipelineEvent.create({
-      data: {
-        requestId: request.id,
-        event: "sent_to_arr",
-        detail: JSON.stringify({ arrId: arrResult.id, alreadyExists: arrResult.alreadyExists }),
-      },
+      data: { requestId: request.id, event: "failed", detail: JSON.stringify({ error: err.message }) },
     });
+    return NextResponse.json({ request, arrError: err.message });
   }
 
   return NextResponse.json({ request });

@@ -1,16 +1,24 @@
 const BASE = `${process.env.ARR_HOST}:7878`;
 const KEY = process.env.RADARR_API_KEY!;
+const TIMEOUT_MS = 15000;
 
 async function api(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: { "X-Api-Key": KEY, "Content-Type": "application/json", ...options?.headers },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Radarr ${path}: ${res.status} ${body}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: { "X-Api-Key": KEY, "Content-Type": "application/json", ...options?.headers },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Radarr ${path}: ${res.status} ${body}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 export async function health() {
@@ -23,8 +31,8 @@ export async function lookup(term: string) {
 
 /** Check if a movie already exists in Radarr by TMDB ID */
 export async function getMovieByTmdbId(tmdbId: number) {
-  const movies: any[] = await api("/api/v3/movie");
-  return movies.find((m) => m.tmdbId === tmdbId) || null;
+  const movies: any[] = await api(`/api/v3/movie?tmdbId=${tmdbId}`);
+  return movies[0] || null;
 }
 
 export async function addMovie(tmdbId: number, title: string) {

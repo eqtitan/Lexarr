@@ -22,6 +22,9 @@ export interface PipelineRequestDTO {
   availableAt: string | null;
   user: { name: string; avatar: string | null };
   events: PipelineEventDTO[];
+  retryCount?: number;
+  lastError?: string | null;
+  adminNote?: string | null;
   /** Merged from live *arr queue */
   queueItem?: QueueItemDTO | null;
 }

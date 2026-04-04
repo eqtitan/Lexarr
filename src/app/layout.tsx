@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Nav from "@/components/Nav";
 import SessionProvider from "@/components/SessionProvider";
+import { ToastProvider } from "@/components/Toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,8 +14,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <SessionProvider>
-          <Nav />
-          <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+          <ToastProvider>
+            <Nav />
+            <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+          </ToastProvider>
         </SessionProvider>
       </body>
     </html>

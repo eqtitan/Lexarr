@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import SearchBar from "@/components/SearchBar";
 import MediaCard from "@/components/MediaCard";
 import DetailPanel from "@/components/DetailPanel";
+import { useToast } from "@/components/Toast";
 import type { SearchResult, MediaType } from "@/types";
 
 export default function Home() {
@@ -14,6 +15,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const { toast } = useToast();
 
   const handleSearch = useCallback(async (query: string, filter: MediaType | null) => {
     if (query.length < 2) {
@@ -38,8 +40,9 @@ export default function Home() {
 
   const handleDetailRequest = useCallback(async () => {
     if (!selectedResult) return;
+    setSelectedResult(null);
     try {
-      await fetch("/api/request", {
+      const res = await fetch("/api/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -54,9 +57,18 @@ export default function Home() {
           protocol: selectedResult.protocol,
         }),
       });
-    } catch {}
-    setSelectedResult(null);
-  }, [selectedResult]);
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        toast("Already requested", "info");
+      } else if (!res.ok) {
+        toast(data.error || "Request failed", "error");
+      } else {
+        toast(`Requested: ${selectedResult.title}`, "success");
+      }
+    } catch {
+      toast("Network error", "error");
+    }
+  }, [selectedResult, toast]);
 
   return (
     <div className="space-y-6">
@@ -74,8 +86,20 @@ export default function Home() {
       <SearchBar onSearch={handleSearch} isAdmin={isAdmin} />
 
       {loading && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <div className="space-y-3">
+          <p className="text-center text-sm text-[var(--muted)]">Searching...</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex gap-4 rounded-xl p-3 ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
+                <div className="skeleton h-36 w-24 shrink-0 rounded-lg" />
+                <div className="flex flex-1 flex-col gap-2 py-1">
+                  <div className="skeleton h-4 w-3/4 rounded" />
+                  <div className="skeleton h-3 w-1/2 rounded" />
+                  <div className="skeleton mt-auto h-8 w-24 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -116,6 +140,7 @@ export default function Home() {
           onRequest={handleDetailRequest}
         />
       )}
+
     </div>
   );
 }

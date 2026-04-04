@@ -5,30 +5,39 @@ import { search as musicSearch } from "@/lib/search/musicbrainz";
 import { search as bookSearch } from "@/lib/search/openlib";
 import * as whisparr from "@/lib/arr/whisparr";
 import * as prowlarr from "@/lib/arr/prowlarr";
+import { searchCache } from "@/lib/cache";
 import type { SearchResult, MediaType } from "@/types";
 
 async function whisparrSearch(query: string): Promise<SearchResult[]> {
   // 1. Try Whisparr series/site lookup (TPDB)
   const sites: any[] = await whisparr.lookup(query).catch(() => []);
   if (sites.length > 0) {
-    return sites.slice(0, 20).map((s) => ({
-      id: `site:${String(s.foreignId ?? s.tpdbId ?? s.id)}`,
-      mediaType: "adult" as MediaType,
-      subType: "site" as const,
-      title: s.title,
-      year: s.year ? String(s.year) : undefined,
-      overview: s.overview,
-      posterUrl:
-        s.images?.find((i: any) => i.coverType === "poster")?.remoteUrl ??
-        s.remotePoster,
-    }));
+    return sites
+      .slice(0, 20)
+      .map((s) => {
+        const rawId = s.foreignId ?? s.tpdbId ?? s.id;
+        if (rawId == null || String(rawId) === "undefined" || String(rawId).trim() === "") {
+          return null;
+        }
+        return {
+          id: `site:${String(rawId)}`,
+          mediaType: "adult" as MediaType,
+          subType: "site" as const,
+          title: s.title,
+          year: s.year ? String(s.year) : undefined,
+          overview: s.overview,
+          posterUrl:
+            s.images?.find((i: any) => i.coverType === "poster")?.remoteUrl ??
+            s.remotePoster,
+        };
+      })
+      .filter(Boolean) as SearchResult[];
   }
 
-  // 2. Fall back to Prowlarr indexer search (for content not in TPDB)
+  // 2. Fall back to Prowlarr indexer search
   const prowlarrResults = await prowlarr.searchAdult(query).catch(() => []);
   if (prowlarrResults.length === 0) return [];
 
-  // De-duplicate by normalized title and pick best quality per unique title
   const seen = new Set<string>();
   const deduped: prowlarr.ProwlarrResult[] = [];
   for (const r of prowlarrResults) {
@@ -63,6 +72,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ results: [] });
   }
 
+  const cacheKey = `search:${filter || "all"}:${query.toLowerCase().trim()}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached) {
+    return NextResponse.json({ results: cached, cached: true });
+  }
+
   // Adult search is admin-only
   if (filter === "adult") {
     const session = await auth();
@@ -70,6 +85,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ results: [] });
     }
     const results = await whisparrSearch(query).catch(() => []);
+    searchCache.set(cacheKey, results);
     return NextResponse.json({ results });
   }
 
@@ -88,5 +104,6 @@ export async function GET(req: NextRequest) {
   const resultArrays = await Promise.all(searches);
   const results = resultArrays.flat();
 
+  searchCache.set(cacheKey, results);
   return NextResponse.json({ results });
 }

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { prisma } from "@/lib/db";
-import * as radarr from "@/lib/arr/radarr";
-import * as sonarr from "@/lib/arr/sonarr";
-import * as lidarr from "@/lib/arr/lidarr";
-import * as whisparr from "@/lib/arr/whisparr";
+import { routeToArr } from "@/lib/arr/router";
+import { notify } from "@/lib/notifications";
 import type { MediaType } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -21,20 +19,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { mediaType, externalId, title, year, posterUrl, artistId, downloadUrl, protocol } = body as {
+  const {
+    mediaType,
+    externalId,
+    title,
+    year,
+    posterUrl,
+    artistId,
+    downloadUrl,
+    protocol,
+  } = body as {
     mediaType: MediaType;
     externalId: string;
     title: string;
     year?: string;
     posterUrl?: string;
     artist?: string;
-    artistId?: string; // MusicBrainz artist UUID for Lidarr
+    artistId?: string;
     downloadUrl?: string;
     protocol?: string;
   };
 
   if (!mediaType || !externalId || !title) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  // Guard: reject adult requests with a missing/undefined externalId
+  if (
+    mediaType === "adult" &&
+    (externalId === "site:undefined" || externalId === "movie:undefined" || externalId.endsWith(":undefined"))
+  ) {
+    return NextResponse.json(
+      { error: "Invalid content ID — search result was missing an ID from TPDB. Try searching again." },
+      { status: 400 }
+    );
   }
 
   // Check for duplicate request
@@ -45,10 +63,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Already requested", request: existing }, { status: 409 });
   }
 
-  // Determine approval status based on user settings
-  const dbUser = userId !== "system"
-    ? await prisma.user.findUnique({ where: { id: userId } })
-    : null;
+  // Check request quota
+  const dbUser =
+    userId !== "system"
+      ? await prisma.user.findUnique({ where: { id: userId } })
+      : null;
+
+  if (dbUser && dbUser.maxRequests > 0 && dbUser.role !== "admin") {
+    const currentMonth = new Date();
+    currentMonth.setDate(1);
+    currentMonth.setHours(0, 0, 0, 0);
+    const monthlyCount = await prisma.request.count({
+      where: { userId, createdAt: { gte: currentMonth } },
+    });
+    if (monthlyCount >= dbUser.maxRequests) {
+      return NextResponse.json(
+        { error: `Monthly request limit reached (${dbUser.maxRequests})` },
+        { status: 429 }
+      );
+    }
+  }
+
   const autoApprove = dbUser?.autoApprove || dbUser?.role === "admin" || userId === "system";
 
   // Create the request in our DB
@@ -63,12 +98,23 @@ export async function POST(req: NextRequest) {
       posterPath: posterUrl,
       status: autoApprove ? "approved" : "pending",
       approvedAt: autoApprove ? new Date() : undefined,
+      source: "lexarr",
     },
   });
 
-  // Log "submitted" pipeline event
+  // Log pipeline events
   await prisma.pipelineEvent.create({
     data: { requestId: request.id, event: "submitted" },
+  });
+
+  // Fire notification
+  notify({
+    event: "submitted",
+    title,
+    mediaType: mediaType as MediaType,
+    status: autoApprove ? "approved" : "pending",
+    user: dbUser?.name || "Unknown",
+    posterUrl,
   });
 
   if (autoApprove) {
@@ -77,102 +123,107 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Only send to *arr if auto-approved
   if (!autoApprove) {
     return NextResponse.json({ request });
   }
 
   // Route to the correct *arr app
-  let arrResult: { id: number; alreadyExists?: boolean } | undefined;
   let arrError: string | undefined;
 
   try {
-    switch (mediaType) {
-      case "movie": {
-        arrResult = await radarr.addMovie(Number(externalId), title);
-        break;
+    const result = await routeToArr({
+      mediaType: mediaType as MediaType,
+      externalId,
+      externalId2: artistId,
+      title,
+      downloadUrl,
+      protocol,
+    });
+
+    if (result.needsReRequest) {
+      arrError = "Re-request required";
+    } else if (result.torrentHash !== undefined) {
+      // Prowlarr direct grab
+      await prisma.request.update({
+        where: { id: request.id },
+        data: { status: "downloading", torrentHash: result.torrentHash || null },
+      });
+      request.status = "downloading";
+
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "sent_to_arr",
+          detail: JSON.stringify({ protocol, direct: true, torrentHash: result.torrentHash ?? null }),
+        },
+      });
+    } else if (result.arrId !== undefined) {
+      // *arr managed
+      // For books, store the LazyLibrarian ID for polling
+      if (mediaType === "book") {
+        await prisma.request.update({
+          where: { id: request.id },
+          data: { externalId2: String(result.arrId) },
+        });
       }
-      case "tv": {
-        arrResult = await sonarr.addSeries(Number(externalId), title);
-        break;
-      }
-      case "music": {
-        // Music: use artistId (MusicBrainz artist UUID) to add to Lidarr
-        const lidarrId = artistId || externalId;
-        arrResult = await lidarr.addArtist(lidarrId, title);
-        break;
-      }
-      case "book": {
-        // LazyLibrarian integration - TODO when port/key confirmed
-        break;
-      }
-      case "adult": {
-        if (externalId.startsWith("prowlarr:")) {
-          // Direct grab via Prowlarr → download client
-          if (!downloadUrl) throw new Error("Missing downloadUrl for prowlarr grab");
-          if (protocol === "usenet") {
-            const { addNzbFromUrl } = await import("@/lib/arr/nzbget");
-            await addNzbFromUrl(downloadUrl, "adult-movies");
-          } else {
-            const { addTorrentFromUrl } = await import("@/lib/arr/qbittorrent");
-            await addTorrentFromUrl(downloadUrl, "/data/media/movies-adult", "adult-movies");
-          }
-          // arrResult stays undefined — no arr tracking ID for direct grabs
-          // Update status manually
-          await prisma.request.update({
-            where: { id: request.id },
-            data: { status: "downloading" },
-          });
-          request.status = "downloading";
-          await prisma.pipelineEvent.create({
-            data: { requestId: request.id, event: "sent_to_arr", detail: JSON.stringify({ protocol, direct: true }) },
-          });
-          break;
-        }
-        // Existing site: prefix handling
-        const isSite = externalId.startsWith("site:");
-        const foreignId = externalId.replace(/^(site|movie):/, "");
-        if (isSite) {
-          arrResult = await whisparr.addSite(foreignId, title);
-        } else {
-          // movie: prefix — Whisparr has no movie endpoint, treat as site fallback
-          arrResult = await whisparr.addSite(foreignId, title);
-        }
-        break;
+
+      const alreadyAvailable = result.alreadyExists && mediaType !== "adult";
+      const newStatus = alreadyAvailable ? "available" : "downloading";
+      await prisma.request.update({
+        where: { id: request.id },
+        data: {
+          arrId: result.arrId || null,
+          status: newStatus,
+          availableAt: alreadyAvailable ? new Date() : undefined,
+        },
+      });
+      request.arrId = result.arrId;
+      request.status = newStatus;
+
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "sent_to_arr",
+          detail: JSON.stringify({ arrId: result.arrId, alreadyExists: result.alreadyExists }),
+        },
+      });
+
+      if (alreadyAvailable) {
+        await prisma.pipelineEvent.create({
+          data: { requestId: request.id, event: "available", detail: JSON.stringify({ alreadyExists: true }) },
+        });
+        notify({
+          event: "available",
+          title,
+          mediaType: mediaType as MediaType,
+          status: "available",
+          user: dbUser?.name || "Unknown",
+          posterUrl,
+          detail: "Already in library",
+        });
       }
     }
   } catch (err: any) {
     arrError = err.message;
     console.error(`Failed to add to *arr: ${err.message}`);
-  }
 
-  // Update request with *arr tracking info
-  if (arrResult) {
-    const newStatus = arrResult.alreadyExists ? "available" : "downloading";
     await prisma.request.update({
       where: { id: request.id },
-      data: {
-        arrId: arrResult.id,
-        status: newStatus,
-        availableAt: arrResult.alreadyExists ? new Date() : undefined,
-      },
+      data: { status: "failed", lastError: err.message },
     });
-    request.arrId = arrResult.id;
-    request.status = newStatus;
 
     await prisma.pipelineEvent.create({
-      data: {
-        requestId: request.id,
-        event: "sent_to_arr",
-        detail: JSON.stringify({ arrId: arrResult.id, alreadyExists: arrResult.alreadyExists }),
-      },
+      data: { requestId: request.id, event: "failed", detail: JSON.stringify({ error: err.message }) },
     });
 
-    if (arrResult.alreadyExists) {
-      await prisma.pipelineEvent.create({
-        data: { requestId: request.id, event: "available", detail: JSON.stringify({ alreadyExists: true }) },
-      });
-    }
+    notify({
+      event: "failed",
+      title,
+      mediaType: mediaType as MediaType,
+      status: "failed",
+      user: dbUser?.name || "Unknown",
+      detail: err.message,
+    });
   }
 
   return NextResponse.json({ request, arrError });

@@ -24,12 +24,22 @@ interface PipelineTableProps {
   title: string;
   requests: PipelineRequestDTO[];
   showProgress?: boolean;
+  onRetry?: (id: string) => void;
 }
 
-export default function PipelineTable({ title, requests, showProgress = false }: PipelineTableProps) {
+export default function PipelineTable({ title, requests, showProgress = false, onRetry }: PipelineTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   if (requests.length === 0) return null;
+
+  async function handleRetry(id: string) {
+    if (!onRetry) return;
+    setRetryingId(id);
+    onRetry(id);
+    // Reset after a brief delay (parent will refresh data)
+    setTimeout(() => setRetryingId(null), 2000);
+  }
 
   return (
     <div className="rounded-xl ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
@@ -45,6 +55,8 @@ export default function PipelineTable({ title, requests, showProgress = false }:
           const isExpanded = expandedId === req.id;
           const progress = req.queueItem?.progress ?? 0;
           const eta = req.queueItem?.eta;
+          const isStuckApproved = req.status === "approved" && !req.arrId && !req.queueItem;
+          const canRetry = ((req.status === "failed" || req.status === "stalled") && (req.retryCount ?? 0) < 3) || isStuckApproved;
 
           return (
             <div key={req.id}>
@@ -80,6 +92,11 @@ export default function PipelineTable({ title, requests, showProgress = false }:
                       {typeLabels[req.mediaType] || req.mediaType}
                     </span>
                     <span className="text-xs text-[var(--muted)]">{req.user.name}</span>
+                    {(req.retryCount ?? 0) > 0 && (
+                      <span className="text-[10px] text-[var(--warning)]">
+                        Retry {req.retryCount}/3
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -91,6 +108,18 @@ export default function PipelineTable({ title, requests, showProgress = false }:
                       {progress.toFixed(0)}%{eta ? ` - ${eta}` : ""}
                     </p>
                   </div>
+                )}
+
+                {/* Retry button (inline, stops propagation) */}
+                {canRetry && onRetry && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRetry(req.id); }}
+                    disabled={retryingId === req.id}
+                    className="flex-shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    {retryingId === req.id ? "..." : "Retry"}
+                  </button>
                 )}
 
                 {/* Status badge */}
@@ -110,9 +139,23 @@ export default function PipelineTable({ title, requests, showProgress = false }:
                 </svg>
               </button>
 
-              {/* Expanded: timeline */}
+              {/* Expanded: timeline + error + details */}
               {isExpanded && (
                 <div className="border-t border-[var(--border)] px-4 py-3" style={{ background: "var(--background)" }}>
+                  {/* Error message for failed requests */}
+                  {req.lastError && (req.status === "failed" || req.status === "stalled") && (
+                    <div className="mb-3 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}>
+                      <span className="font-semibold">Error: </span>{req.lastError}
+                    </div>
+                  )}
+
+                  {/* Admin note */}
+                  {req.adminNote && (
+                    <div className="mb-3 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(99,102,241,0.1)", color: "var(--accent)" }}>
+                      <span className="font-semibold">Note: </span>{req.adminNote}
+                    </div>
+                  )}
+
                   <PipelineTimeline events={req.events} currentStatus={req.status} />
                   {req.queueItem && (
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--muted)] sm:grid-cols-4">
