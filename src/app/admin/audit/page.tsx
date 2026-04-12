@@ -46,7 +46,7 @@ function timeAgo(iso: string): string {
 export default function AuditPage() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
 
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);

@@ -15,16 +15,6 @@ interface Album {
   year?: string;
 }
 
-interface Episode {
-  id: number;
-  title: string;
-  airDate?: string;
-  season: number;
-  episode: number;
-  overview?: string;
-  hasFile?: boolean;
-}
-
 interface DetailData {
   // Common
   overview?: string;
@@ -37,15 +27,11 @@ interface DetailData {
   cast?: CastMember[];
   // TV
   seasons?: number;
-  episodes?: number | Episode[];
+  episodes?: number;
   network?: string;
   status?: string;
   // Music
   albums?: Album[];
-  // Adult movie
-  studio?: string;
-  // Adult site
-  whisparrId?: number;
 }
 
 export default function DetailPanel({
@@ -92,7 +78,6 @@ export default function DetailPanel({
     tv: "var(--tv)",
     music: "var(--music)",
     book: "var(--book)",
-    adult: "#9333ea",
   };
 
   const mediaTypeLabel: Record<string, string> = {
@@ -100,12 +85,9 @@ export default function DetailPanel({
     tv: "TV Show",
     music: "Artist",
     book: "Book",
-    adult: result.subType === "prowlarr" ? "Adult Grab" : result.subType === "movie" ? "Adult Movie" : "Adult Site",
   };
 
   const accentColor = mediaTypeColor[result.mediaType] || "var(--accent)";
-
-  const episodeList: Episode[] = Array.isArray(detail?.episodes) ? (detail.episodes as Episode[]) : [];
 
   return (
     <>
@@ -171,11 +153,10 @@ export default function DetailPanel({
               {detail?.network && (
                 <p className="text-xs text-[var(--muted)] mt-0.5">{detail.network}</p>
               )}
-              {(detail?.seasons != null || detail?.runtime != null || detail?.studio) && (
+              {(detail?.seasons != null || detail?.runtime != null) && (
                 <p className="text-xs text-[var(--muted)] mt-1">
                   {detail.runtime != null && `${detail.runtime} min`}
                   {detail.seasons != null && typeof detail.seasons === "number" && `${detail.seasons} season${detail.seasons !== 1 ? "s" : ""}`}
-                  {detail.studio && ` · ${detail.studio}`}
                 </p>
               )}
             </div>
@@ -197,32 +178,6 @@ export default function DetailPanel({
             <p className="text-sm leading-relaxed text-[var(--muted)]">
               {result.overview || detail?.overview}
             </p>
-          )}
-
-          {/* Prowlarr result info */}
-          {result.subType === "prowlarr" && (
-            <div className="grid grid-cols-2 gap-3">
-              {result.size && (
-                <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center">
-                  <p className="text-lg font-bold" style={{ color: accentColor }}>
-                    {(result.size / 1024 / 1024 / 1024).toFixed(1)} GB
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">Size</p>
-                </div>
-              )}
-              {result.protocol === "torrent" && result.seeders !== undefined && (
-                <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center">
-                  <p className="text-lg font-bold" style={{ color: accentColor }}>{result.seeders}</p>
-                  <p className="text-xs text-[var(--muted)]">Seeders</p>
-                </div>
-              )}
-              {result.indexer && (
-                <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center col-span-2">
-                  <p className="text-sm font-bold" style={{ color: accentColor }}>{result.indexer}</p>
-                  <p className="text-xs text-[var(--muted)]">{result.protocol === "torrent" ? "Torrent" : "Usenet"}</p>
-                </div>
-              )}
-            </div>
           )}
 
           {/* Cast */}
@@ -282,38 +237,6 @@ export default function DetailPanel({
                 <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center flex-1">
                   <p className="text-sm font-bold" style={{ color: accentColor }}>{detail.status}</p>
                   <p className="text-xs text-[var(--muted)]">Status</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Adult site episodes */}
-          {result.mediaType === "adult" && result.subType === "site" && (
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
-                {loading ? "Loading scenes..." : `${episodeList.length} Scenes`}
-              </h3>
-              {loading && (
-                <div className="flex justify-center py-6">
-                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#9333ea] border-t-transparent" />
-                </div>
-              )}
-              {!loading && episodeList.length > 0 && (
-                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                  {episodeList.map((e) => (
-                    <div key={e.id} className="flex items-start gap-2 rounded-lg bg-[var(--card)] px-3 py-2">
-                      <span className="flex-shrink-0 mt-0.5 text-[10px] text-[var(--muted)] w-12">
-                        S{String(e.season).padStart(2, "0")}E{String(e.episode).padStart(2, "0")}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{e.title}</p>
-                        {e.airDate && <p className="text-[10px] text-[var(--muted)]">{e.airDate}</p>}
-                      </div>
-                      {e.hasFile && (
-                        <span className="flex-shrink-0 rounded-full bg-green-500/20 px-1.5 py-0.5 text-[10px] font-bold text-green-400">✓</span>
-                      )}
-                    </div>
-                  ))}
                 </div>
               )}
             </div>

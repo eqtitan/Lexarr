@@ -28,6 +28,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Block registration if an admin already exists and REGISTRATION_OPEN is not set
+  const adminExists = await prisma.user.findFirst({ where: { role: "admin" } });
+  if (adminExists && process.env.REGISTRATION_OPEN !== "true") {
+    return NextResponse.json(
+      { error: "Registration is closed. Contact an admin." },
+      { status: 403 }
+    );
+  }
+
   const hashed = await bcrypt.hash(password, 10);
 
   // First user becomes admin

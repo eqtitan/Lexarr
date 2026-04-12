@@ -4,12 +4,12 @@ import { auth } from "@/lib/auth/config";
 
 export async function GET() {
   const session = await auth();
-  const userId = (session?.user as any)?.id;
+  const userId = session?.user?.id;
   if (!session || !userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   const where = role === "admin" ? {} : { userId };
 
   const requests = await prisma.request.findMany({

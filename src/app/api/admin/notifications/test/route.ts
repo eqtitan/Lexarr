@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth/config";
 // POST: Send a test notification to a specific channel
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if ((session?.user as any)?.role !== "admin") {
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

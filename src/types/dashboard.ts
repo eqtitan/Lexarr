@@ -42,7 +42,7 @@ export interface QueueItemDTO {
   indexer: string | null;
   downloadClient: string | null;
   /** Which *arr service owns this */
-  source: "radarr" | "sonarr" | "lidarr" | "whisparr";
+  source: "radarr" | "sonarr" | "lidarr";
   /** The arr-internal content ID (movieId / seriesId / artistId) */
   contentId: number | null;
   statusMessages: string[];

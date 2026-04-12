@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as whisparr from "@/lib/arr/whisparr";
 import { detailCache } from "@/lib/cache";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
@@ -19,6 +18,21 @@ export async function GET(req: NextRequest) {
 
   if (!type || !id) {
     return NextResponse.json({ error: "Missing type or id" }, { status: 400 });
+  }
+
+  // Validate type and id format per media type
+  const validTypes = ["movie", "tv", "music", "book"];
+  if (!validTypes.includes(type)) {
+    return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+  }
+  if ((type === "movie" || type === "tv") && !/^\d+$/.test(id)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+  if (type === "music" && !/^[0-9a-f-]{36}$/i.test(id)) {
+    return NextResponse.json({ error: "Invalid music id" }, { status: 400 });
+  }
+  if (type === "book" && !/^(\/works\/)?OL\d+W$/.test(id)) {
+    return NextResponse.json({ error: "Invalid book id" }, { status: 400 });
   }
 
   const cacheKey = `detail:${type}:${id}`;
@@ -89,74 +103,12 @@ export async function GET(req: NextRequest) {
         overview: description,
         posterUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : undefined,
       };
-    } else if (type === "adult") {
-      if (id.startsWith("prowlarr:")) {
-        result = { isProwlarr: true };
-      } else {
-        const isSite = id.startsWith("site:");
-        const foreignId = id.replace(/^(site|movie):/, "");
-
-        if (isSite) {
-          let existing = await whisparr.getSiteByForeignId(foreignId);
-          if (!existing) {
-            const lookupResults: any[] = await whisparr.lookup(foreignId).catch(() => []);
-            const siteTitle = lookupResults.find(
-              (s: any) => String(s.foreignId) === foreignId || String(s.tpdbId) === foreignId
-            )?.title || foreignId;
-            try {
-              await whisparr.addSite(foreignId, siteTitle, false);
-              existing = await whisparr.getSiteByForeignId(foreignId);
-            } catch {
-              // If add fails, return what we have
-            }
-          }
-
-          if (!existing) {
-            return NextResponse.json({ episodes: [], seasons: [] });
-          }
-
-          const episodes: any[] = await whisparr.getEpisodes(existing.id).catch(() => []);
-          const mapped = episodes.map((e: any) => ({
-            id: e.id,
-            title: e.title,
-            airDate: e.airDate,
-            season: e.seasonNumber,
-            episode: e.episodeNumber,
-            overview: e.overview,
-            hasFile: e.hasFile,
-          }));
-
-          result = {
-            whisparrId: existing.id,
-            seasons: existing.seasons?.length,
-            episodes: mapped,
-          };
-        } else {
-          const movies: any[] = await whisparr.lookupMovie(foreignId).catch(() => []);
-          const movie = movies.find(
-            (m: any) => String(m.foreignId) === foreignId || String(m.tpdbId) === foreignId
-          ) || movies[0];
-          if (!movie) {
-            return NextResponse.json({});
-          }
-          result = {
-            runtime: movie.runtime,
-            studio: movie.studio,
-            genres: movie.genres,
-            cast: movie.actors?.slice(0, 8).map((a: any) => ({ name: a.name, character: a.character })),
-            certifications: movie.certifications,
-          };
-        }
-      }
     } else {
       return NextResponse.json({ error: "Unknown type" }, { status: 400 });
     }
 
     if (result) {
-      // Don't cache adult site detail (has live episode data)
-      if (type !== "adult" || id.startsWith("prowlarr:")) {
-        detailCache.set(cacheKey, result);
-      }
+      detailCache.set(cacheKey, result);
     }
 
     return NextResponse.json(result || {});

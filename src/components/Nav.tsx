@@ -20,7 +20,7 @@ const adminLinks = [
 export default function Nav() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 

@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth/config";
 // GET: List audit log entries
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if ((session?.user as any)?.role !== "admin") {
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

@@ -45,8 +45,6 @@ export default function MediaCard({
           posterUrl: result.posterUrl,
           artist: result.artist,
           artistId: result.artistId,
-          downloadUrl: result.downloadUrl,
-          protocol: result.protocol,
         }),
       });
       if (res.status === 409) {
@@ -77,46 +75,18 @@ export default function MediaCard({
             className="h-full w-full object-cover"
             loading="lazy"
           />
-        ) : result.subType === "prowlarr" ? (
-          <div className="flex h-full w-full items-center justify-center bg-[var(--card)] rounded-l-xl text-[var(--muted)]">
-            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-            </svg>
-          </div>
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted)]">
             No Image
           </div>
         )}
         {/* Media type badge (top-left) */}
-        {result.mediaType !== "adult" && (
-          <span
-            className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
-            style={{ background: typeColors[result.mediaType] }}
-          >
-            {typeLabels[result.mediaType]}
-          </span>
-        )}
-        {/* Adult subType badge (top-right) */}
-        {result.mediaType === "adult" && result.subType && (
-          <span
-            className="absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
-            style={{
-              background: result.subType === "site" ? "#9333ea" : result.subType === "prowlarr" ? "#6b7280" : "#db2777",
-            }}
-          >
-            {result.subType === "site" ? "SITE" : result.subType === "prowlarr" ? "GRAB" : "MOVIE"}
-          </span>
-        )}
-        {/* Adult label (top-left) when no subType fallback */}
-        {result.mediaType === "adult" && !result.subType && (
-          <span
-            className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
-            style={{ background: "#9333ea" }}
-          >
-            Adult
-          </span>
-        )}
+        <span
+          className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
+          style={{ background: typeColors[result.mediaType] }}
+        >
+          {typeLabels[result.mediaType]}
+        </span>
       </div>
 
       {/* Info */}

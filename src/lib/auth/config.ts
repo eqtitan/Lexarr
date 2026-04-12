@@ -111,9 +111,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: { id: token.userId as string },
         });
         if (dbUser) {
-          (session.user as any).id = dbUser.id;
-          (session.user as any).role = dbUser.role;
-          (session.user as any).autoApprove = dbUser.autoApprove;
+          session.user.id = dbUser.id;
+          session.user.role = dbUser.role as "admin" | "user";
+          session.user.autoApprove = dbUser.autoApprove;
         }
       }
       return session;

@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { MediaType } from "@/types";
 
-const BASE_FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
+const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
   { value: "all", label: "All", color: "var(--accent)" },
   { value: "movie", label: "Movies", color: "var(--movie)" },
   { value: "tv", label: "TV", color: "var(--tv)" },
@@ -11,16 +11,12 @@ const BASE_FILTERS: { value: MediaType | "all"; label: string; color: string }[]
   { value: "book", label: "Books", color: "var(--book)" },
 ];
 
-const ADULT_FILTER = { value: "adult" as MediaType, label: "Adult", color: "#9333ea" };
-
 export default function SearchBar({
   onSearch,
-  isAdmin,
 }: {
   onSearch: (query: string, filter: MediaType | null) => void;
   isAdmin?: boolean;
 }) {
-  const filters = isAdmin ? [...BASE_FILTERS, ADULT_FILTER] : BASE_FILTERS;
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -64,14 +60,14 @@ export default function SearchBar({
         </svg>
         <input
           type="text"
-          placeholder={isAdmin ? "Search movies, TV shows, music, books, adult..." : "Search movies, TV shows, music, books..."}
+          placeholder="Search movies, TV shows, music, books..."
           value={query}
           onChange={(e) => handleChange(e.target.value)}
           className="w-full rounded-xl bg-[var(--card)] py-4 pl-12 pr-4 text-lg outline-none ring-1 ring-[var(--border)] transition-all placeholder:text-[var(--muted)] focus:ring-2 focus:ring-[var(--accent)]"
         />
       </div>
       <div className="flex gap-2">
-        {filters.map((f) => (
+        {FILTERS.map((f) => (
           <button
             key={f.value}
             onClick={() => handleFilter(f.value)}

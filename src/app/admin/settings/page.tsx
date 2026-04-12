@@ -33,7 +33,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function SettingsPage() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
 
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(true);

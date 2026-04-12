@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.3.0] — 2026-04-11 (was `v3`)
+
+### Added
+- Webhook receivers for Radarr / Sonarr / Lidarr (instant status updates)
+- Background status checker with 60s polling + circuit breaker
+- Input validation on all POST routes
+- NextAuth type declarations (zero `as any` session casts)
+- Startup env validation via Zod
+
+### Security
+- Webhook token validation: reject when secret undefined (not just
+  mismatched)
+- Registration gate: block new signups when an admin already exists
+- ID format validation on `/api/detail`
+- Prisma singleton pattern for production
+
+### Removed
+- Whisparr integration (service removed from the stack)
+
 ## [0.2.0] — 2026-04-02 → 04 (was `v2`)
 
 ### Added

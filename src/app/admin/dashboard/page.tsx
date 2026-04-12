@@ -13,7 +13,7 @@ import ServiceHealthBar from "@/components/dashboard/ServiceHealthBar";
 export default function DashboardPage() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);

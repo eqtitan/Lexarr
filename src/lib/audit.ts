@@ -14,7 +14,7 @@ type AuditAction =
   | "login";
 
 export async function logAudit(
-  userId: string | null,
+  userId: string | null | undefined,
   action: AuditAction,
   target?: { type: string; id: string },
   detail?: Record<string, any>

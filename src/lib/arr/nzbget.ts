@@ -19,7 +19,7 @@ async function rpc(method: string, params: any[] = []) {
 
 export async function addNzbFromUrl(
   nzbUrl: string,
-  category: string = "adult-movies"
+  category: string = "default"
 ): Promise<number> {
   // NZBGet append params: NZBFilename, NZBContent (base64 or URL), Category, Priority, AddToTop, AddPaused, DupeKey, DupeScore, DupeMode, Parameters
   // For URL: fetch the NZB first, then send base64

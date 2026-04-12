@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth/config";
 
 export async function GET() {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -30,7 +30,7 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }

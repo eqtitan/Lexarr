@@ -23,13 +23,6 @@ export interface ProwlarrResult {
   fileName?: string;
 }
 
-export async function searchAdult(query: string): Promise<ProwlarrResult[]> {
-  const results: ProwlarrResult[] = await api(
-    `/api/v1/search?query=${encodeURIComponent(query)}&type=search&categories%5B%5D=6000&categories%5B%5D=6010&categories%5B%5D=6020&categories%5B%5D=6030&categories%5B%5D=6040&categories%5B%5D=6045&categories%5B%5D=6080&categories%5B%5D=6090`
-  ).catch(() => []);
-  return results;
-}
-
 export async function health() {
   return api("/api/v1/health");
 }

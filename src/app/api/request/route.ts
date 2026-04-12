@@ -7,17 +7,12 @@ import type { MediaType } from "@/types";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  const userId = (session?.user as any)?.id;
+  const userId = session?.user?.id;
   if (!session || !userId) {
     return NextResponse.json({ error: "Sign in to make requests" }, { status: 401 });
   }
 
   const body = await req.json();
-
-  // Admin-only guard for adult content
-  if (body.mediaType === "adult" && (session.user as any)?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   const {
     mediaType,
@@ -26,8 +21,6 @@ export async function POST(req: NextRequest) {
     year,
     posterUrl,
     artistId,
-    downloadUrl,
-    protocol,
   } = body as {
     mediaType: MediaType;
     externalId: string;
@@ -36,23 +29,28 @@ export async function POST(req: NextRequest) {
     posterUrl?: string;
     artist?: string;
     artistId?: string;
-    downloadUrl?: string;
-    protocol?: string;
   };
 
   if (!mediaType || !externalId || !title) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  // Guard: reject adult requests with a missing/undefined externalId
-  if (
-    mediaType === "adult" &&
-    (externalId === "site:undefined" || externalId === "movie:undefined" || externalId.endsWith(":undefined"))
-  ) {
-    return NextResponse.json(
-      { error: "Invalid content ID — search result was missing an ID from TPDB. Try searching again." },
-      { status: 400 }
-    );
+  // Input validation
+  const validMediaTypes: MediaType[] = ["movie", "tv", "music", "book"];
+  if (!validMediaTypes.includes(mediaType)) {
+    return NextResponse.json({ error: "Invalid media type" }, { status: 400 });
+  }
+  if (typeof title !== "string" || title.length < 1 || title.length > 500) {
+    return NextResponse.json({ error: "Title must be 1-500 characters" }, { status: 400 });
+  }
+  if (typeof externalId !== "string" || externalId.length < 1 || externalId.length > 200) {
+    return NextResponse.json({ error: "Invalid external ID" }, { status: 400 });
+  }
+  if (year && (typeof year !== "string" || !/^\d{4}$/.test(year))) {
+    return NextResponse.json({ error: "Year must be 4 digits" }, { status: 400 });
+  }
+  if (posterUrl && (typeof posterUrl !== "string" || posterUrl.length > 500)) {
+    return NextResponse.json({ error: "Invalid poster URL" }, { status: 400 });
   }
 
   // Check for duplicate request
@@ -136,29 +134,9 @@ export async function POST(req: NextRequest) {
       externalId,
       externalId2: artistId,
       title,
-      downloadUrl,
-      protocol,
     });
 
-    if (result.needsReRequest) {
-      arrError = "Re-request required";
-    } else if (result.torrentHash !== undefined) {
-      // Prowlarr direct grab
-      await prisma.request.update({
-        where: { id: request.id },
-        data: { status: "downloading", torrentHash: result.torrentHash || null },
-      });
-      request.status = "downloading";
-
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId: request.id,
-          event: "sent_to_arr",
-          detail: JSON.stringify({ protocol, direct: true, torrentHash: result.torrentHash ?? null }),
-        },
-      });
-    } else if (result.arrId !== undefined) {
-      // *arr managed
+    if (result.arrId !== undefined) {
       // For books, store the LazyLibrarian ID for polling
       if (mediaType === "book") {
         await prisma.request.update({
@@ -167,7 +145,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const alreadyAvailable = result.alreadyExists && mediaType !== "adult";
+      const alreadyAvailable = result.alreadyExists;
       const newStatus = alreadyAvailable ? "available" : "downloading";
       await prisma.request.update({
         where: { id: request.id },

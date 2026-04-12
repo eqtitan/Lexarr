@@ -6,7 +6,7 @@ import { logAudit } from "@/lib/audit";
 // GET: List all notification channels
 export async function GET() {
   const session = await auth();
-  if ((session?.user as any)?.role !== "admin") {
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -19,8 +19,8 @@ export async function GET() {
 // POST: Create a new notification channel
 export async function POST(req: NextRequest) {
   const session = await auth();
-  const adminId = (session?.user as any)?.id;
-  if ((session?.user as any)?.role !== "admin") {
+  const adminId = session?.user?.id;
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 // PATCH: Update a notification channel (toggle enabled, change events, etc.)
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  if ((session?.user as any)?.role !== "admin") {
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -77,8 +77,8 @@ export async function PATCH(req: NextRequest) {
 // DELETE: Remove a notification channel
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  const adminId = (session?.user as any)?.id;
-  if ((session?.user as any)?.role !== "admin") {
+  const adminId = session?.user?.id;
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

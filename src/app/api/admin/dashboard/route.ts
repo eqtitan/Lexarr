@@ -57,7 +57,7 @@ async function checkServiceHealth(
 
 export async function GET() {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -190,7 +190,12 @@ export async function GET() {
     indexers: analytics.indexers.indexers,
   });
 
-  // ── Response ───────────────────────────────────────────────────────
+  // ── Piggyback: sync request statuses while admin is watching ────────
+  import("@/lib/status-checker")
+    .then((m) => m.checkAndUpdateStatuses())
+    .catch(() => {}); // fire-and-forget
+
+  // ── Response ──────────��────────────────────────────────────────────
   const data: DashboardData = {
     pipeline: { pending, active, recent },
     queue,

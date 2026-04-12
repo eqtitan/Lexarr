@@ -18,7 +18,7 @@ export default function ServiceDashboardPage() {
   const service = (params.service as string)?.toLowerCase();
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);

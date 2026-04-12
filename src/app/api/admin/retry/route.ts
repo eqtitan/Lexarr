@@ -11,9 +11,9 @@ const MAX_RETRIES = 3;
 // POST: Retry a failed or stalled request
 export async function POST(req: NextRequest) {
   const session = await auth();
-  const role = (session?.user as any)?.role;
-  const adminId = (session?.user as any)?.id;
-  if (role !== "admin") {
+  const role = session?.user?.role;
+  const adminId = session?.user?.id;
+  if (!session || role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   // Allow retry for failed/stalled, or approved requests stuck without an arrId (routing failed silently)
   const canRetry = ["failed", "stalled"].includes(request.status) ||
-    (request.status === "approved" && !request.arrId && !request.torrentHash);
+    (request.status === "approved" && !request.arrId);
   if (!canRetry) {
     return NextResponse.json({ error: `Cannot retry request with status: ${request.status}` }, { status: 400 });
   }
@@ -62,27 +62,7 @@ export async function POST(req: NextRequest) {
       title: request.title,
     });
 
-    if (result.needsReRequest) {
-      await prisma.request.update({
-        where: { id: requestId },
-        data: { status: "failed", lastError: "Prowlarr direct-grab requires re-request from user" },
-      });
-      return NextResponse.json({ error: "Re-request required — downloadUrl not stored" });
-    }
-
-    if (result.torrentHash !== undefined) {
-      await prisma.request.update({
-        where: { id: requestId },
-        data: { status: "downloading", torrentHash: result.torrentHash || null },
-      });
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId,
-          event: "sent_to_arr",
-          detail: JSON.stringify({ direct: true, torrentHash: result.torrentHash ?? null, retry: true }),
-        },
-      });
-    } else if (result.arrId !== undefined) {
+    if (result.arrId !== undefined) {
       if (request.mediaType === "book") {
         await prisma.request.update({
           where: { id: requestId },
@@ -90,7 +70,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const alreadyAvailable = result.alreadyExists && request.mediaType !== "adult";
+      const alreadyAvailable = result.alreadyExists;
       const newStatus = alreadyAvailable ? "available" : "downloading";
       await prisma.request.update({
         where: { id: requestId },
@@ -121,7 +101,7 @@ export async function POST(req: NextRequest) {
       title: request.title,
       mediaType: request.mediaType as MediaType,
       status: "approved",
-      user: (session.user as any)?.name || "Admin",
+      user: session.user?.name || "Admin",
       detail: `Retry #${request.retryCount + 1}`,
     });
 

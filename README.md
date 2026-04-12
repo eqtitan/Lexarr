@@ -1,6 +1,6 @@
 # Lexarr
 
-Unified media request portal for movies, TV shows, music, and books. Like [Overseerr](https://overseerr.dev/) but covering all media types your *arr stack supports.
+Unified media request portal for movies, TV shows, music, and books covering all media types your *arr stack supports.
 
 ## What It Does
 

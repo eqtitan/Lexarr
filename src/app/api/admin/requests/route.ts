@@ -9,7 +9,7 @@ import type { MediaType } from "@/types";
 // GET: List pending requests
 export async function GET() {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -25,9 +25,9 @@ export async function GET() {
 // PATCH: Approve or deny a request
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  const role = (session?.user as any)?.role;
-  const adminId = (session?.user as any)?.id;
-  if (role !== "admin") {
+  const role = session?.user?.role;
+  const adminId = session?.user?.id;
+  if (!session || role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest) {
       title: request.title,
       mediaType: request.mediaType as MediaType,
       status: "denied",
-      user: (session.user as any)?.name || "Admin",
+      user: session.user?.name || "Admin",
       detail: note,
     });
 
@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest) {
     title: request.title,
     mediaType: request.mediaType as MediaType,
     status: "approved",
-    user: (session.user as any)?.name || "Admin",
+    user: session.user?.name || "Admin",
   });
 
   try {
@@ -86,34 +86,7 @@ export async function PATCH(req: NextRequest) {
       title: request.title,
     });
 
-    if (result.needsReRequest) {
-      await prisma.request.update({
-        where: { id: request.id },
-        data: { status: "failed", lastError: "Prowlarr direct-grab cannot be re-sent — downloadUrl not stored. User must re-request." },
-      });
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId: request.id,
-          event: "failed",
-          detail: JSON.stringify({ error: "Prowlarr direct-grab cannot be re-sent from admin panel — downloadUrl not stored. User must re-request." }),
-        },
-      });
-      return NextResponse.json({ request, arrError: "Re-request required" });
-    }
-
-    if (result.torrentHash !== undefined) {
-      await prisma.request.update({
-        where: { id: request.id },
-        data: { status: "downloading", torrentHash: result.torrentHash || null },
-      });
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId: request.id,
-          event: "sent_to_arr",
-          detail: JSON.stringify({ direct: true, torrentHash: result.torrentHash ?? null }),
-        },
-      });
-    } else if (result.arrId !== undefined) {
+    if (result.arrId !== undefined) {
       // For books, store the LazyLibrarian ID
       if (request.mediaType === "book") {
         await prisma.request.update({
@@ -122,14 +95,13 @@ export async function PATCH(req: NextRequest) {
         });
       }
 
-      const alreadyAvailable = result.alreadyExists && request.mediaType !== "adult";
+      const alreadyAvailable = result.alreadyExists;
       const newStatus = alreadyAvailable ? "available" : "downloading";
       await prisma.request.update({
         where: { id: request.id },
         data: {
           arrId: result.arrId || null,
           status: newStatus,
-          torrentHash: result.torrentHash || undefined,
           availableAt: alreadyAvailable ? new Date() : undefined,
         },
       });
@@ -151,7 +123,7 @@ export async function PATCH(req: NextRequest) {
           title: request.title,
           mediaType: request.mediaType as MediaType,
           status: "available",
-          user: (session.user as any)?.name || "Admin",
+          user: session.user?.name || "Admin",
           detail: "Already in library",
         });
       }

@@ -27,7 +27,7 @@ model Request {
   id              String           @id @default(cuid())
   userId          String
   user            User             @relation(fields: [userId], references: [id])
-  mediaType       String           // "movie" | "tv" | "music" | "book" | "adult"
+  mediaType       String           // "movie" | "tv" | "music" | "book"
   externalId      String           // TMDB ID, MusicBrainz release-group ID, Open Library key
   externalId2     String?          // Secondary ID: MusicBrainz artist UUID for Lidarr
   title           String
@@ -36,7 +36,6 @@ model Request {
   status          String           @default("pending") // pending | approved | downloading | available | denied | failed | stalled
   adminNote       String?          // Admin note when approving/denying
   arrId           Int?             // ID in the *arr system after submission
-  torrentHash     String?          // qBittorrent info hash for direct-grab adult torrents
   retryCount      Int              @default(0)
   lastError       String?          // Last error message from *arr submission
   approvedAt      DateTime?
@@ -44,7 +43,7 @@ model Request {
   lastCheckedAt   DateTime?        // Last time status was synced from *arr or qBittorrent
   qaPassed        Boolean?         // Whether QA check passed (file exists, size ok, subtitles ready)
   qaCheckedAt     DateTime?        // Last time QA was evaluated
-  source          String           @default("lexarr") // "lexarr" | "overseerr" | "system"
+  source          String           @default("lexarr") // "lexarr" | "system"
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   events          PipelineEvent[]

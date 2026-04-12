@@ -6,16 +6,12 @@
 import * as radarr from "./radarr";
 import * as sonarr from "./sonarr";
 import * as lidarr from "./lidarr";
-import * as whisparr from "./whisparr";
 import * as lazylibrarian from "./lazylibrarian";
 import type { MediaType } from "@/types";
 
 export interface RouteResult {
   arrId?: number;
-  torrentHash?: string;
   alreadyExists?: boolean;
-  /** Set when a prowlarr direct-grab is approved from admin without downloadUrl */
-  needsReRequest?: boolean;
 }
 
 interface RouteInput {
@@ -23,8 +19,6 @@ interface RouteInput {
   externalId: string;
   externalId2?: string | null;
   title: string;
-  downloadUrl?: string;
-  protocol?: string;
 }
 
 /**
@@ -32,7 +26,7 @@ interface RouteInput {
  * Returns tracking IDs for status polling.
  */
 export async function routeToArr(input: RouteInput): Promise<RouteResult> {
-  const { mediaType, externalId, externalId2, title, downloadUrl, protocol } = input;
+  const { mediaType, externalId, externalId2, title } = input;
 
   switch (mediaType) {
     case "movie": {
@@ -64,40 +58,7 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
       return {
         arrId: parseInt(result.id, 10) || 0,
         alreadyExists: result.alreadyExists,
-        // Caller should store result.id as externalId2 for polling
       };
-    }
-
-    case "adult": {
-      if (externalId.startsWith("prowlarr:")) {
-        if (!downloadUrl) {
-          return { needsReRequest: true };
-        }
-
-        if (protocol === "usenet") {
-          const { addNzbFromUrl } = await import("./nzbget");
-          await addNzbFromUrl(downloadUrl, "adult-movies");
-          return { torrentHash: undefined };
-        } else {
-          const { addTorrentFromUrl } = await import("./qbittorrent");
-          const hash = await addTorrentFromUrl(
-            downloadUrl,
-            "/data/torrents/movies-adult",
-            "adult-movies"
-          );
-          return { torrentHash: hash };
-        }
-      }
-
-      const isSite = externalId.startsWith("site:");
-      const foreignId = externalId.replace(/^(site|movie):/, "");
-      if (isSite) {
-        const result = await whisparr.addSite(foreignId, title);
-        return { arrId: result.id, alreadyExists: result.alreadyExists };
-      } else {
-        const result = await whisparr.addMovie(foreignId, title);
-        return { arrId: result.id, alreadyExists: result.alreadyExists };
-      }
     }
 
     default:

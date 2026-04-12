@@ -10,7 +10,7 @@ import type { SearchResult, MediaType } from "@/types";
 
 export default function Home() {
   const { data: session } = useSession();
-  const isAdmin = (session?.user as any)?.role === "admin";
+  const isAdmin = session?.user?.role === "admin";
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -77,9 +77,7 @@ export default function Home() {
           <span className="text-[var(--accent)]">Lex</span>arr
         </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {isAdmin
-            ? "Search and request movies, TV, music, books, and adult content"
-            : "Search and request movies, TV, music, and books"}
+          Search and request movies, TV, music, and books
         </p>
       </div>
 

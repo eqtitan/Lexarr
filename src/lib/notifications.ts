@@ -33,7 +33,6 @@ const MEDIA_EMOJI: Record<string, string> = {
   tv: "📺",
   music: "🎵",
   book: "📚",
-  adult: "🔞",
 };
 
 function buildDiscordEmbed(payload: NotificationPayload) {
