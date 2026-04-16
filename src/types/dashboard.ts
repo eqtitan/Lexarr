@@ -91,7 +91,8 @@ export interface IndexerStat {
   grabs: number;
   failures: number;
   failureRate: number;
-  source: string;
+  /** All *arr services that use this indexer (radarr, sonarr, lidarr) */
+  sources: string[];
 }
 
 export interface IndexerPerformance {

@@ -7,6 +7,7 @@ import { prisma } from "./db";
 type AuditAction =
   | "approve_request"
   | "deny_request"
+  | "cancel_request"
   | "retry_request"
   | "update_user"
   | "add_notification"
@@ -17,7 +18,7 @@ export async function logAudit(
   userId: string | null | undefined,
   action: AuditAction,
   target?: { type: string; id: string },
-  detail?: Record<string, any>
+  detail?: Record<string, unknown>,
 ): Promise<void> {
   try {
     await prisma.auditLog.create({

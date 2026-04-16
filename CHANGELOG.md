@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.0] — 2026-04-16 (was `v4`–`v10` batch)
+
+### Added
+- Admin dashboard refactor — tabbed layout: Overview / Approvals (with
+  badge) / Pipeline (active + recent, with badge) / Analytics / Warnings
+  (turns red on critical)
+- KPI strip: Stack Health (with down-service chips), Pending Approvals,
+  Active Downloads, Download Queue (with progress bar)
+- Music singles support (Phase 1–3):
+  - MusicBrainz `releaseType` filter (album / single / ep)
+  - UI sub-filter chips with SINGLE / EP / ALBUM badges on cards
+  - Lidarr narrow-monitor flow via `addSingleReleaseGroup()`: adds artist
+    `monitored: false`, enables monitoring on just the requested release
+    group, triggers scoped `AlbumSearch`
+  - Library-status checks release-group level for singles (not just artist)
+  - `releaseType` persisted on `Request` row → admin manual-approves
+    preserve narrow-monitor intent
+- Service layer extracted: `src/lib/services/{request,admin}.ts`
+- Vitest + lint-staged + husky pre-commit; 96 → 106 tests
+- Rate limiting (search 30/min, request 10/min, auth 5/min)
+- ErrorBoundary wrapping pages; Zod env validation; TTLCache
+- `NotificationBell` with 60s poll
+- `/api/library-status` merging *arr state into search results
+- `/api/quality-profiles` for the request picker
+- Prisma migration `20260416163826_add_release_type`
+
+### Fixed
+- Admin manual-approve was dropping `releaseType` → singles fell back to
+  full-artist monitoring. Now carried end-to-end.
+
 ## [0.3.0] — 2026-04-11 (was `v3`)
 
 ### Added

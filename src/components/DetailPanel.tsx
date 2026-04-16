@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { SearchResult } from "@/types";
+import type { SearchResult, LibraryStatusValue } from "@/types";
 
 interface CastMember {
   name: string;
@@ -34,27 +34,39 @@ interface DetailData {
   albums?: Album[];
 }
 
+interface QualityProfile {
+  id: number;
+  name: string;
+}
+
 export default function DetailPanel({
   result,
+  libraryStatus,
   onClose,
   onRequest,
 }: {
   result: SearchResult;
+  libraryStatus?: LibraryStatusValue;
   onClose: () => void;
-  onRequest: () => void;
+  onRequest: (qualityProfileId?: number) => void;
 }) {
   const [detail, setDetail] = useState<DetailData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
+  const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
     setDetail(null);
     try {
       // Music detail needs the artist UUID, not the album/release ID
-      const rawId = result.mediaType === "music" && result.artistId
-        ? result.artistId
-        : result.id;
-      const res = await fetch(`/api/detail?type=${result.mediaType}&id=${encodeURIComponent(rawId)}`);
+      const rawId =
+        result.mediaType === "music" && result.artistId
+          ? result.artistId
+          : result.id;
+      const res = await fetch(
+        `/api/detail?type=${result.mediaType}&id=${encodeURIComponent(rawId)}`,
+      );
       if (res.ok) {
         setDetail(await res.json());
       }
@@ -66,9 +78,32 @@ export default function DetailPanel({
     fetchDetail();
   }, [fetchDetail]);
 
+  // Fetch quality profiles for movie/tv
+  useEffect(() => {
+    if (result.mediaType !== "movie" && result.mediaType !== "tv") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/quality-profiles?type=${result.mediaType}`);
+        if (res.ok && !cancelled) {
+          const profiles: QualityProfile[] = await res.json();
+          setQualityProfiles(profiles);
+          if (profiles.length > 0) {
+            setSelectedProfileId(profiles[0].id);
+          }
+        }
+      } catch {
+        // Quality profile fetch is enhancement, not critical
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [result.mediaType]);
+
   // Close on Escape
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
@@ -108,13 +143,25 @@ export default function DetailPanel({
               className="h-40 w-full object-cover opacity-40"
             />
           )}
-          <div className={`absolute inset-0 bg-gradient-to-b from-transparent to-[var(--background)] ${detail?.backdropUrl ? "" : "hidden"}`} />
+          <div
+            className={`absolute inset-0 bg-gradient-to-b from-transparent to-[var(--background)] ${detail?.backdropUrl ? "" : "hidden"}`}
+          />
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 transition-colors"
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -140,23 +187,35 @@ export default function DetailPanel({
                   {mediaTypeLabel[result.mediaType]}
                 </span>
                 {result.year && (
-                  <span className="text-xs text-[var(--muted)]">{result.year}</span>
+                  <span className="text-xs text-[var(--muted)]">
+                    {result.year}
+                  </span>
                 )}
                 {detail?.rating != null && (
-                  <span className="text-xs text-yellow-400">★ {(detail.rating as number).toFixed(1)}</span>
+                  <span className="text-xs text-yellow-400">
+                    ★ {(detail.rating as number).toFixed(1)}
+                  </span>
                 )}
               </div>
-              <h2 className="text-xl font-bold leading-tight">{result.title}</h2>
+              <h2 className="text-xl font-bold leading-tight">
+                {result.title}
+              </h2>
               {result.artist && (
-                <p className="text-sm text-[var(--muted)] mt-0.5">{result.artist}</p>
+                <p className="text-sm text-[var(--muted)] mt-0.5">
+                  {result.artist}
+                </p>
               )}
               {detail?.network && (
-                <p className="text-xs text-[var(--muted)] mt-0.5">{detail.network}</p>
+                <p className="text-xs text-[var(--muted)] mt-0.5">
+                  {detail.network}
+                </p>
               )}
               {(detail?.seasons != null || detail?.runtime != null) && (
                 <p className="text-xs text-[var(--muted)] mt-1">
                   {detail.runtime != null && `${detail.runtime} min`}
-                  {detail.seasons != null && typeof detail.seasons === "number" && `${detail.seasons} season${detail.seasons !== 1 ? "s" : ""}`}
+                  {detail.seasons != null &&
+                    typeof detail.seasons === "number" &&
+                    `${detail.seasons} season${detail.seasons !== 1 ? "s" : ""}`}
                 </p>
               )}
             </div>
@@ -166,7 +225,10 @@ export default function DetailPanel({
           {detail?.genres && detail.genres.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {detail.genres.map((g) => (
-                <span key={g} className="rounded-full bg-[var(--card)] px-3 py-1 text-xs text-[var(--muted)]">
+                <span
+                  key={g}
+                  className="rounded-full bg-[var(--card)] px-3 py-1 text-xs text-[var(--muted)]"
+                >
                   {g}
                 </span>
               ))}
@@ -183,12 +245,18 @@ export default function DetailPanel({
           {/* Cast */}
           {detail?.cast && detail.cast.length > 0 && (
             <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">Cast</h3>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Cast
+              </h3>
               <div className="flex gap-3 overflow-x-auto pb-2">
                 {detail.cast.map((c, i) => (
                   <div key={i} className="flex-shrink-0 w-16 text-center">
                     {c.photo ? (
-                      <img src={c.photo} alt={c.name} className="mx-auto mb-1 h-14 w-14 rounded-full object-cover" />
+                      <img
+                        src={c.photo}
+                        alt={c.name}
+                        className="mx-auto mb-1 h-14 w-14 rounded-full object-cover"
+                      />
                     ) : (
                       <div
                         className="mx-auto mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--card)] text-lg font-bold"
@@ -197,8 +265,14 @@ export default function DetailPanel({
                         {c.name[0]}
                       </div>
                     )}
-                    <p className="text-[10px] font-medium leading-tight">{c.name}</p>
-                    {c.character && <p className="text-[10px] text-[var(--muted)] leading-tight">{c.character}</p>}
+                    <p className="text-[10px] font-medium leading-tight">
+                      {c.name}
+                    </p>
+                    {c.character && (
+                      <p className="text-[10px] text-[var(--muted)] leading-tight">
+                        {c.character}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -208,12 +282,21 @@ export default function DetailPanel({
           {/* Albums (music) */}
           {detail?.albums && detail.albums.length > 0 && (
             <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">Albums</h3>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Albums
+              </h3>
               <div className="space-y-1">
                 {detail.albums.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between rounded-lg bg-[var(--card)] px-3 py-2">
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between rounded-lg bg-[var(--card)] px-3 py-2"
+                  >
                     <span className="text-sm">{a.title}</span>
-                    {a.year && <span className="text-xs text-[var(--muted)]">{a.year}</span>}
+                    {a.year && (
+                      <span className="text-xs text-[var(--muted)]">
+                        {a.year}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -224,18 +307,33 @@ export default function DetailPanel({
           {result.mediaType === "tv" && typeof detail?.seasons === "number" && (
             <div className="flex gap-4">
               <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center flex-1">
-                <p className="text-2xl font-bold" style={{ color: accentColor }}>{detail.seasons}</p>
+                <p
+                  className="text-2xl font-bold"
+                  style={{ color: accentColor }}
+                >
+                  {detail.seasons}
+                </p>
                 <p className="text-xs text-[var(--muted)]">Seasons</p>
               </div>
               {typeof detail.episodes === "number" && (
                 <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center flex-1">
-                  <p className="text-2xl font-bold" style={{ color: accentColor }}>{detail.episodes}</p>
+                  <p
+                    className="text-2xl font-bold"
+                    style={{ color: accentColor }}
+                  >
+                    {detail.episodes}
+                  </p>
                   <p className="text-xs text-[var(--muted)]">Episodes</p>
                 </div>
               )}
               {detail.status && (
                 <div className="rounded-xl bg-[var(--card)] px-4 py-3 text-center flex-1">
-                  <p className="text-sm font-bold" style={{ color: accentColor }}>{detail.status}</p>
+                  <p
+                    className="text-sm font-bold"
+                    style={{ color: accentColor }}
+                  >
+                    {detail.status}
+                  </p>
                   <p className="text-xs text-[var(--muted)]">Status</p>
                 </div>
               )}
@@ -244,13 +342,51 @@ export default function DetailPanel({
         </div>
 
         {/* Request button footer */}
-        <div className="flex-shrink-0 border-t border-[var(--border)] p-4">
+        <div className="flex-shrink-0 border-t border-[var(--border)] p-4 space-y-3">
+          {(result.mediaType === "movie" || result.mediaType === "tv") && qualityProfiles.length > 0 && (
+            <div>
+              <label
+                htmlFor="quality-profile"
+                className="mb-1 block text-xs font-medium text-[var(--muted)]"
+              >
+                Quality Profile
+              </label>
+              <select
+                id="quality-profile"
+                value={selectedProfileId ?? ""}
+                onChange={(e) => setSelectedProfileId(Number(e.target.value))}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              >
+                {qualityProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
-            onClick={onRequest}
-            className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{ background: accentColor }}
+            onClick={() => onRequest(selectedProfileId)}
+            disabled={libraryStatus === "available" || libraryStatus === "monitored"}
+            className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60"
+            style={{
+              background:
+                libraryStatus === "available"
+                  ? "var(--success)"
+                  : libraryStatus === "monitored"
+                    ? "var(--tv)"
+                    : libraryStatus === "requested"
+                      ? "var(--warning)"
+                      : accentColor,
+            }}
           >
-            Request {result.title}
+            {libraryStatus === "available"
+              ? "Already in Library"
+              : libraryStatus === "monitored"
+                ? "Already Monitored"
+                : libraryStatus === "requested"
+                  ? "Already Requested"
+                  : `Request ${result.title}`}
           </button>
         </div>
       </div>

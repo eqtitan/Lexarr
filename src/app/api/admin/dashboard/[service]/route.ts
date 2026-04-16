@@ -1,5 +1,25 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
+import type {
+  ArrSystemStatus,
+  ArrDiskSpace,
+  ArrQueueRecord,
+  ArrQueueResponse,
+  ArrHistoryRecord,
+  ArrHistoryResponse,
+  ArrHealthWarning,
+  ArrWantedRecord,
+  ArrWantedResponse,
+  ArrCalendarItem,
+  ArrBlocklistResponse,
+  ArrTask,
+  ArrDownloadClient,
+  ArrRootFolder,
+  ArrQualityProfile,
+  ArrRadarrMovie,
+  ArrSonarrSeries,
+  ArrLidarrArtist,
+} from "@/types/external-apis";
 
 const VALID_SERVICES = ["radarr", "sonarr", "lidarr"] as const;
 type ServiceName = (typeof VALID_SERVICES)[number];
@@ -39,17 +59,26 @@ async function getClient(service: ServiceName) {
   }
 }
 
-function normalizeLibrary(service: ServiceName, items: any[]) {
+function normalizeLibrary(
+  service: ServiceName,
+  items: (ArrRadarrMovie | ArrSonarrSeries | ArrLidarrArtist)[],
+) {
   if (service === "radarr") {
-    const withFiles = items.filter((m: any) => m.hasFile).length;
-    const sizeOnDisk = items.reduce((sum: number, m: any) => sum + (m.sizeOnDisk || 0), 0);
-    return { totalItems: items.length, withFiles, sizeOnDiskGB: bytesToGB(sizeOnDisk) };
+    const movies = items as ArrRadarrMovie[];
+    const withFiles = movies.filter((m) => m.hasFile).length;
+    const sizeOnDisk = movies.reduce((sum, m) => sum + (m.sizeOnDisk || 0), 0);
+    return {
+      totalItems: items.length,
+      withFiles,
+      sizeOnDiskGB: bytesToGB(sizeOnDisk),
+    };
   }
   if (service === "sonarr") {
+    const series = items as ArrSonarrSeries[];
     let totalEpisodes = 0;
     let episodesWithFiles = 0;
     let sizeOnDisk = 0;
-    for (const s of items) {
+    for (const s of series) {
       const stats = s.statistics || {};
       totalEpisodes += stats.episodeCount || 0;
       episodesWithFiles += stats.episodeFileCount || 0;
@@ -63,10 +92,11 @@ function normalizeLibrary(service: ServiceName, items: any[]) {
     };
   }
   // lidarr
+  const artists = items as ArrLidarrArtist[];
   let totalAlbums = 0;
   let tracksWithFiles = 0;
   let sizeOnDisk = 0;
-  for (const a of items) {
+  for (const a of artists) {
     const stats = a.statistics || {};
     totalAlbums += stats.albumCount || 0;
     tracksWithFiles += stats.trackFileCount || 0;
@@ -80,16 +110,23 @@ function normalizeLibrary(service: ServiceName, items: any[]) {
   };
 }
 
-function normalizeQueue(service: ServiceName, queueData: any) {
+function normalizeQueue(service: ServiceName, queueData: ArrQueueResponse) {
   const records = queueData?.records || [];
   const idField =
-    service === "radarr" ? "movieId" : service === "sonarr" ? "seriesId" : "artistId";
+    service === "radarr"
+      ? "movieId"
+      : service === "sonarr"
+        ? "seriesId"
+        : "artistId";
 
-  return records.map((r: any) => {
+  return records.map((r: ArrQueueRecord) => {
     const sizeBytes = r.size || 0;
     const remainingBytes = r.sizeleft || 0;
     const downloadedBytes = sizeBytes - remainingBytes;
-    const progress = sizeBytes > 0 ? Math.round(((downloadedBytes / sizeBytes) * 100) * 10) / 10 : 0;
+    const progress =
+      sizeBytes > 0
+        ? Math.round((downloadedBytes / sizeBytes) * 100 * 10) / 10
+        : 0;
 
     return {
       id: r.id,
@@ -108,8 +145,8 @@ function normalizeQueue(service: ServiceName, queueData: any) {
   });
 }
 
-function normalizeHistory(records: any[]) {
-  return (records || []).slice(0, 20).map((h: any) => ({
+function normalizeHistory(records: ArrHistoryRecord[]) {
+  return (records || []).slice(0, 20).map((h) => ({
     id: h.id,
     eventType: h.eventType || "unknown",
     title: h.sourceTitle || h.title || "Unknown",
@@ -121,15 +158,17 @@ function normalizeHistory(records: any[]) {
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ service: string }> }
+  { params }: { params: Promise<{ service: string }> },
 ) {
   const { service: serviceParam } = await params;
   const service = serviceParam.toLowerCase() as ServiceName;
 
   if (!VALID_SERVICES.includes(service)) {
     return NextResponse.json(
-      { error: `Invalid service: ${serviceParam}. Must be one of: ${VALID_SERVICES.join(", ")}` },
-      { status: 400 }
+      {
+        error: `Invalid service: ${serviceParam}. Must be one of: ${VALID_SERVICES.join(", ")}`,
+      },
+      { status: 400 },
     );
   }
 
@@ -176,30 +215,47 @@ export async function GET(
   const val = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
 
-  const systemStatus = val(systemStatusResult, {} as any);
-  const diskSpace = val(diskSpaceResult, []);
-  const queueRaw = val(queueResult, { records: [] });
-  const historyRaw = val(historyResult, { records: [] });
-  const healthWarnings = val(healthResult, []);
-  const wantedMissing = val(wantedMissingResult, { totalRecords: 0, records: [] });
-  const wantedCutoff = val(wantedCutoffResult, { totalRecords: 0, records: [] });
-  const calendarItems = val(calendarResult, []);
-  const blocklist = val(blocklistResult, { totalRecords: 0, records: [] });
-  const tasks = val(tasksResult, []);
-  const downloadClients = val(downloadClientsResult, []);
-  const rootFolders = val(rootFoldersResult, []);
-  const qualityProfiles = val(qualityProfilesResult, []);
-  const libraryItems = val(libraryResult, []);
+  const systemStatus: ArrSystemStatus = val(systemStatusResult, {});
+  const diskSpace: ArrDiskSpace[] = val(diskSpaceResult, []);
+  const queueRaw: ArrQueueResponse = val(queueResult, {
+    totalRecords: 0,
+    records: [],
+  });
+  const historyRaw: ArrHistoryResponse = val(historyResult, { records: [] });
+  const healthWarnings: ArrHealthWarning[] = val(healthResult, []);
+  const wantedMissing: ArrWantedResponse = val(wantedMissingResult, {
+    totalRecords: 0,
+    records: [],
+  });
+  const wantedCutoff: ArrWantedResponse = val(wantedCutoffResult, {
+    totalRecords: 0,
+    records: [],
+  });
+  const calendarItems: ArrCalendarItem[] = val(calendarResult, []);
+  const blocklist: ArrBlocklistResponse = val(blocklistResult, {
+    totalRecords: 0,
+    records: [],
+  });
+  const tasks: ArrTask[] = val(tasksResult, []);
+  const downloadClients: ArrDownloadClient[] = val(downloadClientsResult, []);
+  const rootFolders: ArrRootFolder[] = val(rootFoldersResult, []);
+  const qualityProfiles: ArrQualityProfile[] = val(
+    qualityProfilesResult,
+    [],
+  );
+  const libraryItems: (ArrRadarrMovie | ArrSonarrSeries | ArrLidarrArtist)[] =
+    val(libraryResult, []);
 
   // Normalize storage
-  const storage = (diskSpace as any[]).map((d: any) => ({
+  const storage = diskSpace.map((d) => ({
     path: d.path,
     freeGB: bytesToGB(d.freeSpace || 0),
     totalGB: bytesToGB(d.totalSpace || 0),
     usedGB: bytesToGB((d.totalSpace || 0) - (d.freeSpace || 0)),
     percentUsed:
       d.totalSpace > 0
-        ? Math.round((((d.totalSpace - d.freeSpace) / d.totalSpace) * 100) * 10) / 10
+        ? Math.round(((d.totalSpace - d.freeSpace) / d.totalSpace) * 100 * 10) /
+          10
         : 0,
   }));
 
@@ -211,42 +267,44 @@ export async function GET(
   }
 
   // Library normalized
-  const library = normalizeLibrary(service, libraryItems as any[]);
+  const library = normalizeLibrary(service, libraryItems);
 
   // History normalized
-  const history = normalizeHistory((historyRaw as any).records);
+  const history = normalizeHistory(historyRaw.records);
 
   // Calendar normalized
-  const calendar = (calendarItems as any[]).map((c: any) => ({
+  const calendar = calendarItems.map((c) => ({
     id: c.id,
     title: c.title || c.artistName || "Unknown",
-    date: c.airDateUtc || c.inCinemas || c.releaseDate || c.physicalRelease || null,
-    releaseType: c.airDateUtc ? "air" : c.inCinemas ? "theater" : c.physicalRelease ? "physical" : "digital",
+    date:
+      c.airDateUtc || c.inCinemas || c.releaseDate || c.physicalRelease || null,
+    releaseType: c.airDateUtc
+      ? "air"
+      : c.inCinemas
+        ? "theater"
+        : c.physicalRelease
+          ? "physical"
+          : "digital",
     monitored: c.monitored ?? true,
   }));
 
   // Wanted
+  const normalizeWantedRecord = (r: ArrWantedRecord) => ({
+    id: r.id,
+    title: r.title || r.series?.title || r.artist?.artistName || "Unknown",
+    year: r.year || r.seasonNumber || null,
+    monitored: r.monitored ?? true,
+    status: r.status || null,
+  });
   const wanted = {
     missingCount: wantedMissing.totalRecords || 0,
     cutoffCount: wantedCutoff.totalRecords || 0,
-    missingRecords: ((wantedMissing as any).records || []).map((r: any) => ({
-      id: r.id,
-      title: r.title || r.series?.title || r.artist?.artistName || "Unknown",
-      year: r.year || r.seasonNumber || null,
-      monitored: r.monitored ?? true,
-      status: r.status || null,
-    })),
-    cutoffRecords: ((wantedCutoff as any).records || []).map((r: any) => ({
-      id: r.id,
-      title: r.title || r.series?.title || r.artist?.artistName || "Unknown",
-      year: r.year || r.seasonNumber || null,
-      monitored: r.monitored ?? true,
-      status: r.status || null,
-    })),
+    missingRecords: (wantedMissing.records || []).map(normalizeWantedRecord),
+    cutoffRecords: (wantedCutoff.records || []).map(normalizeWantedRecord),
   };
 
   // Tasks
-  const normalizedTasks = (tasks as any[]).map((t: any) => ({
+  const normalizedTasks = tasks.map((t) => ({
     name: t.name,
     interval: t.interval ? `${Math.round(t.interval / 60)} min` : null,
     lastExecution: t.lastExecution || null,
@@ -256,7 +314,7 @@ export async function GET(
   }));
 
   // Download clients
-  const normalizedClients = (downloadClients as any[]).map((dc: any) => ({
+  const normalizedClients = downloadClients.map((dc) => ({
     id: dc.id,
     name: dc.name,
     implementation: dc.implementation,
@@ -265,7 +323,7 @@ export async function GET(
   }));
 
   // Root folders
-  const normalizedRootFolders = (rootFolders as any[]).map((rf: any) => ({
+  const normalizedRootFolders = rootFolders.map((rf) => ({
     id: rf.id,
     path: rf.path,
     freeSpaceGB: bytesToGB(rf.freeSpace || 0),
@@ -273,7 +331,7 @@ export async function GET(
   }));
 
   // Quality profiles
-  const normalizedProfiles = (qualityProfiles as any[]).map((qp: any) => ({
+  const normalizedProfiles = qualityProfiles.map((qp) => ({
     id: qp.id,
     name: qp.name,
   }));
@@ -281,7 +339,7 @@ export async function GET(
   // Blocklist
   const normalizedBlocklist = {
     totalRecords: blocklist.totalRecords || 0,
-    records: ((blocklist as any).records || []).map((b: any) => ({
+    records: (blocklist.records || []).map((b) => ({
       id: b.id,
       title: b.sourceTitle || "Unknown",
       date: b.date || null,
@@ -294,7 +352,9 @@ export async function GET(
     system: {
       version: systemStatus.version || null,
       startTime: systemStatus.startTime || null,
-      uptime: systemStatus.startTime ? calcUptime(systemStatus.startTime) : null,
+      uptime: systemStatus.startTime
+        ? calcUptime(systemStatus.startTime)
+        : null,
       runtimeName: systemStatus.runtimeName || null,
       isDocker: systemStatus.isDocker ?? null,
       appName: systemStatus.appName || service,
@@ -303,7 +363,7 @@ export async function GET(
     library,
     queue: { items: queue, total: queue.length, byStatus: queueByStatus },
     history,
-    healthWarnings: (healthWarnings as any[]).map((h: any) => ({
+    healthWarnings: healthWarnings.map((h) => ({
       type: h.type || "warning",
       message: h.message || "",
       wikiUrl: h.wikiUrl || null,

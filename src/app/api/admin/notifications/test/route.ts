@@ -14,28 +14,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing channelId" }, { status: 400 });
   }
 
-  const channel = await prisma.notificationChannel.findUnique({ where: { id: channelId } });
+  const channel = await prisma.notificationChannel.findUnique({
+    where: { id: channelId },
+  });
   if (!channel) {
     return NextResponse.json({ error: "Channel not found" }, { status: 404 });
   }
 
   // Build test payload based on channel type
-  let body: any;
+  let body: Record<string, unknown>;
   if (channel.type === "discord") {
     body = {
-      embeds: [{
-        title: "Lexarr Test Notification",
-        description: "If you see this, your webhook is working correctly.",
-        color: 0x6366f1,
-        timestamp: new Date().toISOString(),
-        footer: { text: "Lexarr" },
-      }],
+      embeds: [
+        {
+          title: "Lexarr Test Notification",
+          description: "If you see this, your webhook is working correctly.",
+          color: 0x6366f1,
+          timestamp: new Date().toISOString(),
+          footer: { text: "Lexarr" },
+        },
+      ],
     };
   } else if (channel.type === "slack") {
     body = {
       blocks: [
-        { type: "header", text: { type: "plain_text", text: "Lexarr Test Notification" } },
-        { type: "section", text: { type: "mrkdwn", text: "If you see this, your webhook is working correctly." } },
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Lexarr Test Notification" },
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "If you see this, your webhook is working correctly.",
+          },
+        },
       ],
     };
   } else {
@@ -62,11 +75,14 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok && res.status !== 204) {
       const text = await res.text().catch(() => "");
-      return NextResponse.json({ error: `Webhook returned ${res.status}: ${text.slice(0, 200)}` }, { status: 502 });
+      return NextResponse.json(
+        { error: `Webhook returned ${res.status}: ${text.slice(0, 200)}` },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 502 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 502 });
   }
 }

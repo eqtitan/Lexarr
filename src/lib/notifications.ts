@@ -26,6 +26,7 @@ const EVENT_LABELS: Record<string, string> = {
   failed: "Request Failed",
   stalled: "Download Stalled",
   retried: "Request Retried",
+  cancelled: "Request Cancelled",
 };
 
 const MEDIA_EMOJI: Record<string, string> = {
@@ -38,14 +39,15 @@ const MEDIA_EMOJI: Record<string, string> = {
 function buildDiscordEmbed(payload: NotificationPayload) {
   const colorMap: Record<string, number> = {
     submitted: 0x3498db, // blue
-    approved: 0x2ecc71,  // green
-    denied: 0xe74c3c,    // red
+    approved: 0x2ecc71, // green
+    denied: 0xe74c3c, // red
     sent_to_arr: 0x9b59b6, // purple
     downloading: 0xf39c12, // orange
-    available: 0x27ae60,  // dark green
-    failed: 0xe74c3c,    // red
-    stalled: 0xe67e22,   // dark orange
-    retried: 0x3498db,   // blue
+    available: 0x27ae60, // dark green
+    failed: 0xe74c3c, // red
+    stalled: 0xe67e22, // dark orange
+    retried: 0x3498db, // blue
+    cancelled: 0x95a5a6, // gray
   };
 
   return {
@@ -58,7 +60,9 @@ function buildDiscordEmbed(payload: NotificationPayload) {
           { name: "Type", value: payload.mediaType, inline: true },
           { name: "Status", value: payload.status, inline: true },
           { name: "User", value: payload.user, inline: true },
-          ...(payload.detail ? [{ name: "Detail", value: payload.detail.slice(0, 200) }] : []),
+          ...(payload.detail
+            ? [{ name: "Detail", value: payload.detail.slice(0, 200) }]
+            : []),
         ],
         thumbnail: payload.posterUrl ? { url: payload.posterUrl } : undefined,
         timestamp: new Date().toISOString(),
@@ -88,7 +92,15 @@ function buildSlackPayload(payload: NotificationPayload) {
         ],
       },
       ...(payload.detail
-        ? [{ type: "section", text: { type: "mrkdwn", text: `*Detail:* ${payload.detail.slice(0, 200)}` } }]
+        ? [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*Detail:* ${payload.detail.slice(0, 200)}`,
+              },
+            },
+          ]
         : []),
     ],
   };
@@ -108,9 +120,13 @@ function buildGenericPayload(payload: NotificationPayload) {
   };
 }
 
-async function sendWebhook(url: string, type: string, payload: NotificationPayload): Promise<boolean> {
+async function sendWebhook(
+  url: string,
+  type: string,
+  payload: NotificationPayload,
+): Promise<boolean> {
   try {
-    let body: any;
+    let body: Record<string, unknown>;
     switch (type) {
       case "discord":
         body = buildDiscordEmbed(payload);
@@ -155,7 +171,10 @@ export async function notify(payload: NotificationPayload): Promise<void> {
     const promises = channels
       .filter((ch) => {
         if (ch.events === "all") return true;
-        return ch.events.split(",").map((e) => e.trim()).includes(payload.event);
+        return ch.events
+          .split(",")
+          .map((e) => e.trim())
+          .includes(payload.event);
       })
       .map((ch) => sendWebhook(ch.webhookUrl, ch.type, payload));
 

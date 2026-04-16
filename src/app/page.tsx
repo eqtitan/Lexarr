@@ -6,7 +6,12 @@ import SearchBar from "@/components/SearchBar";
 import MediaCard from "@/components/MediaCard";
 import DetailPanel from "@/components/DetailPanel";
 import { useToast } from "@/components/Toast";
-import type { SearchResult, MediaType } from "@/types";
+import type {
+  SearchResult,
+  MediaType,
+  LibraryStatusValue,
+  MusicReleaseType,
+} from "@/types";
 
 export default function Home() {
   const { data: session } = useSession();
@@ -14,31 +19,77 @@ export default function Home() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(
+    null,
+  );
+  const [libraryStatuses, setLibraryStatuses] = useState<
+    Record<string, LibraryStatusValue>
+  >({});
   const { toast } = useToast();
 
-  const handleSearch = useCallback(async (query: string, filter: MediaType | null) => {
-    if (query.length < 2) {
-      setResults([]);
-      setSearched(false);
-      return;
-    }
-    setLoading(true);
-    setSearched(true);
-    try {
-      const params = new URLSearchParams({ q: query });
-      if (filter) params.set("type", filter);
-      const res = await fetch(`/api/search?${params}`);
-      const data = await res.json();
-      setResults(data.results || []);
-    } catch {
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const handleSearch = useCallback(
+    async (
+      query: string,
+      filter: MediaType | null,
+      releaseType: MusicReleaseType | null,
+    ) => {
+      if (query.length < 2) {
+        setResults([]);
+        setSearched(false);
+        setLibraryStatuses({});
+        return;
+      }
+      setLoading(true);
+      setSearched(true);
+      setLibraryStatuses({});
+      try {
+        const params = new URLSearchParams({ q: query });
+        if (filter) params.set("type", filter);
+        if (releaseType) params.set("releaseType", releaseType);
+        const res = await fetch(`/api/search?${params}`);
+        const data = await res.json();
+        const searchResults: SearchResult[] = data.results || [];
+        setResults(searchResults);
 
-  const handleDetailRequest = useCallback(async () => {
+        // Fetch library statuses asynchronously (don't block search rendering)
+        if (searchResults.length > 0) {
+          fetchLibraryStatuses(searchResults);
+        }
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  const fetchLibraryStatuses = useCallback(
+    async (searchResults: SearchResult[]) => {
+      try {
+        const items = searchResults.map((r) => ({
+          id: r.id,
+          mediaType: r.mediaType,
+          artistId: r.artistId,
+          releaseType: r.releaseType,
+        }));
+        const res = await fetch("/api/library-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setLibraryStatuses(data.statuses || {});
+        }
+      } catch {
+        // Library status is enhancement, not critical
+      }
+    },
+    [],
+  );
+
+  const handleDetailRequest = useCallback(async (qualityProfileId?: number) => {
     if (!selectedResult) return;
     setSelectedResult(null);
     try {
@@ -53,8 +104,8 @@ export default function Home() {
           posterUrl: selectedResult.posterUrl,
           artist: selectedResult.artist,
           artistId: selectedResult.artistId,
-          downloadUrl: selectedResult.downloadUrl,
-          protocol: selectedResult.protocol,
+          qualityProfileId,
+          releaseType: selectedResult.releaseType,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -85,10 +136,16 @@ export default function Home() {
 
       {loading && (
         <div className="space-y-3">
-          <p className="text-center text-sm text-[var(--muted)]">Searching...</p>
+          <p className="text-center text-sm text-[var(--muted)]">
+            Searching...
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex gap-4 rounded-xl p-3 ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
+              <div
+                key={i}
+                className="flex gap-4 rounded-xl p-3 ring-1 ring-[var(--border)]"
+                style={{ background: "var(--card)" }}
+              >
                 <div className="skeleton h-36 w-24 shrink-0 rounded-lg" />
                 <div className="flex flex-1 flex-col gap-2 py-1">
                   <div className="skeleton h-4 w-3/4 rounded" />
@@ -107,6 +164,7 @@ export default function Home() {
             <MediaCard
               key={`${r.mediaType}-${r.id}`}
               result={r}
+              libraryStatus={libraryStatuses[`${r.mediaType}:${r.id}`]}
               onClick={() => setSelectedResult(r)}
             />
           ))}
@@ -134,11 +192,11 @@ export default function Home() {
       {selectedResult && (
         <DetailPanel
           result={selectedResult}
+          libraryStatus={libraryStatuses[`${selectedResult.mediaType}:${selectedResult.id}`]}
           onClose={() => setSelectedResult(null)}
           onRequest={handleDetailRequest}
         />
       )}
-
     </div>
   );
 }

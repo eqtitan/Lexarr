@@ -48,7 +48,11 @@ export default function SettingsPage() {
 
   // Test state
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    id: string;
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
@@ -79,7 +83,12 @@ export default function SettingsPage() {
       const res = await fetch("/api/admin/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName, type: newType, webhookUrl: newUrl, events: newEvents }),
+        body: JSON.stringify({
+          name: newName,
+          type: newType,
+          webhookUrl: newUrl,
+          events: newEvents,
+        }),
       });
       if (res.ok) {
         setNewName("");
@@ -121,9 +130,13 @@ export default function SettingsPage() {
         body: JSON.stringify({ channelId: id }),
       });
       const data = await res.json();
-      setTestResult({ id, ok: res.ok, msg: res.ok ? "Test sent" : data.error || "Failed" });
-    } catch (err: any) {
-      setTestResult({ id, ok: false, msg: err.message });
+      setTestResult({
+        id,
+        ok: res.ok,
+        msg: res.ok ? "Test sent" : data.error || "Failed",
+      });
+    } catch (err: unknown) {
+      setTestResult({ id, ok: false, msg: err instanceof Error ? err.message : String(err) });
     } finally {
       setTestingId(null);
       setTimeout(() => setTestResult(null), 4000);
@@ -157,10 +170,15 @@ export default function SettingsPage() {
 
         {/* Add form */}
         {showAdd && (
-          <div className="rounded-xl p-4 ring-1 ring-[var(--border)] space-y-3" style={{ background: "var(--card)" }}>
+          <div
+            className="rounded-xl p-4 ring-1 ring-[var(--border)] space-y-3"
+            style={{ background: "var(--card)" }}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Name</label>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Name
+                </label>
                 <input
                   type="text"
                   value={newName}
@@ -170,7 +188,9 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Type</label>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Type
+                </label>
                 <select
                   value={newType}
                   onChange={(e) => setNewType(e.target.value)}
@@ -183,7 +203,9 @@ export default function SettingsPage() {
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Webhook URL</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Webhook URL
+              </label>
               <input
                 type="url"
                 value={newUrl}
@@ -193,14 +215,18 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Events</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Events
+              </label>
               <select
                 value={newEvents}
                 onChange={(e) => setNewEvents(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
               >
                 {EVENT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -218,7 +244,8 @@ export default function SettingsPage() {
         {/* Channel list */}
         {channels.length === 0 && !showAdd && (
           <p className="py-8 text-center text-sm text-[var(--muted)]">
-            No notification channels configured. Add one to get alerts on Discord, Slack, or webhooks.
+            No notification channels configured. Add one to get alerts on
+            Discord, Slack, or webhooks.
           </p>
         )}
 
@@ -240,7 +267,9 @@ export default function SettingsPage() {
               {/* Name + URL */}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{ch.name}</p>
-                <p className="truncate text-xs text-[var(--muted)]">{ch.webhookUrl}</p>
+                <p className="truncate text-xs text-[var(--muted)]">
+                  {ch.webhookUrl}
+                </p>
               </div>
 
               {/* Events badge */}
@@ -250,7 +279,9 @@ export default function SettingsPage() {
 
               {/* Test result */}
               {testResult?.id === ch.id && (
-                <span className={`shrink-0 text-xs font-medium ${testResult.ok ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>
+                <span
+                  className={`shrink-0 text-xs font-medium ${testResult.ok ? "text-[var(--success)]" : "text-[var(--danger)]"}`}
+                >
                   {testResult.msg}
                 </span>
               )}
@@ -267,7 +298,9 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleToggle(ch.id, ch.enabled)}
                   className="rounded-lg px-2 py-1 text-xs font-bold text-white transition-opacity hover:opacity-90"
-                  style={{ background: ch.enabled ? "var(--success)" : "var(--muted)" }}
+                  style={{
+                    background: ch.enabled ? "var(--success)" : "var(--muted)",
+                  }}
                 >
                   {ch.enabled ? "ON" : "OFF"}
                 </button>

@@ -34,7 +34,16 @@ export async function health(): Promise<boolean> {
   }
 }
 
-export async function searchBooks(query: string): Promise<any[]> {
+interface LazyLibrarianBook {
+  BookID?: string;
+  bookid?: string;
+  BookName?: string;
+  bookname?: string;
+  Status?: string;
+  status?: string;
+}
+
+export async function searchBooks(query: string): Promise<LazyLibrarianBook[]> {
   // LL uses "findBook" to search by name, "searchBook" is for triggering download by ID
   const data = await api("findBook", { name: query });
   // LL may return a direct array, or an object like { data: [...] } depending on version
@@ -44,12 +53,15 @@ export async function searchBooks(query: string): Promise<any[]> {
 }
 
 /** Get a single book by LazyLibrarian book ID */
-export async function getBook(bookId: string): Promise<any | null> {
+export async function getBook(bookId: string): Promise<LazyLibrarianBook | null> {
   try {
     // getAllBooks returns all books; filter by bookid
-    const data = await api("getAllBooks", { status: "Have,Wanted,Snatched" });
+    const data = await api("getAllBooks", {});
     if (!Array.isArray(data)) return null;
-    return data.find((b: any) => String(b.BookID || b.bookid) === String(bookId)) ?? null;
+    return (
+      data.find((b: LazyLibrarianBook) => String(b.BookID || b.bookid) === String(bookId)) ??
+      null
+    );
   } catch {
     return null;
   }
@@ -62,14 +74,14 @@ export async function getBookStatus(bookId: string): Promise<string | null> {
 }
 
 /** Get all authors in the library */
-export async function getLibrary(): Promise<any[]> {
+export async function getLibrary(): Promise<unknown[]> {
   const data = await api("getIndex");
   if (!Array.isArray(data)) return [];
   return data;
 }
 
 /** Get all wanted books */
-export async function getWanted(): Promise<any[]> {
+export async function getWanted(): Promise<LazyLibrarianBook[]> {
   const data = await api("getWanted");
   if (!Array.isArray(data)) return [];
   return data;
@@ -80,7 +92,7 @@ export async function getWanted(): Promise<any[]> {
  * Returns { id, alreadyExists } to match the *arr integration pattern.
  */
 export async function addBook(
-  bookId: string
+  bookId: string,
 ): Promise<{ id: string; alreadyExists: boolean }> {
   // Check if book is already in the library
   const existing = await getBook(bookId);
@@ -104,7 +116,7 @@ export async function addBook(
  */
 export async function addBookByTitle(
   title: string,
-  author?: string
+  author?: string,
 ): Promise<{ id: string; alreadyExists: boolean }> {
   const query = author ? `${title} ${author}` : title;
   const results = await searchBooks(query);
@@ -116,14 +128,14 @@ export async function addBookByTitle(
   // Pick best match: exact title match preferred, otherwise first result
   // LL returns lowercase keys from findBook (bookname, bookid) but uppercase from other endpoints
   const titleLower = title.toLowerCase();
-  const getName = (r: any) => r.BookName || r.bookname || "";
-  const getId = (r: any) => r.BookID || r.bookid;
+  const getName = (r: LazyLibrarianBook) => r.BookName || r.bookname || "";
+  const getId = (r: LazyLibrarianBook) => r.BookID || r.bookid;
 
   const best =
     results.find(
       (r) =>
         getName(r).toLowerCase() === titleLower ||
-        getName(r).toLowerCase().includes(titleLower)
+        getName(r).toLowerCase().includes(titleLower),
     ) ?? results[0];
 
   const bestId = getId(best);

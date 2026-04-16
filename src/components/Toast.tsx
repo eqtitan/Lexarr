@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  type ReactNode,
+} from "react";
 
 interface ToastMessage {
   id: number;
@@ -23,13 +29,16 @@ let nextId = 0;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ToastMessage[]>([]);
 
-  const toast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
-    const id = nextId++;
-    setMessages((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setMessages((prev) => prev.filter((m) => m.id !== id));
-    }, 3500);
-  }, []);
+  const toast = useCallback(
+    (message: string, type: "success" | "error" | "info" = "info") => {
+      const id = nextId++;
+      setMessages((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setMessages((prev) => prev.filter((m) => m.id !== id));
+      }, 3500);
+    },
+    [],
+  );
 
   const bgColor = {
     success: "bg-green-600",

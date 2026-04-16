@@ -44,4 +44,4 @@ USER nextjs
 EXPOSE 5056
 
 # Initialize DB on first run, then start
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --skip-generate || echo 'DB migration skipped'; node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy || echo 'DB migration skipped'; node server.js"]

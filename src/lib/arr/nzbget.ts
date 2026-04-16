@@ -2,7 +2,7 @@ const BASE = process.env.NZBGET_URL!;
 const USER = process.env.NZBGET_USER!;
 const PASS = process.env.NZBGET_PASS!;
 
-async function rpc(method: string, params: any[] = []) {
+async function rpc(method: string, params: unknown[] = []) {
   const res = await fetch(`${BASE}/jsonrpc`, {
     method: "POST",
     headers: {
@@ -19,7 +19,7 @@ async function rpc(method: string, params: any[] = []) {
 
 export async function addNzbFromUrl(
   nzbUrl: string,
-  category: string = "default"
+  category: string = "default",
 ): Promise<number> {
   // NZBGet append params: NZBFilename, NZBContent (base64 or URL), Category, Priority, AddToTop, AddPaused, DupeKey, DupeScore, DupeMode, Parameters
   // For URL: fetch the NZB first, then send base64
@@ -28,7 +28,18 @@ export async function addNzbFromUrl(
   const nzbBuffer = await nzbRes.arrayBuffer();
   const nzbBase64 = Buffer.from(nzbBuffer).toString("base64");
   const fileName = nzbUrl.split("/").pop()?.split("?")[0] || "download.nzb";
-  return rpc("append", [fileName, nzbBase64, category, 0, false, false, "", 0, "SCORE", []]);
+  return rpc("append", [
+    fileName,
+    nzbBase64,
+    category,
+    0,
+    false,
+    false,
+    "",
+    0,
+    "SCORE",
+    [],
+  ]);
 }
 
 export async function health(): Promise<boolean> {

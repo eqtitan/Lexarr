@@ -11,6 +11,28 @@ import HistoryTable from "@/components/dashboard/HistoryTable";
 import CalendarPanel from "@/components/dashboard/CalendarPanel";
 import SystemInfoPanel from "@/components/dashboard/SystemInfoPanel";
 
+interface HealthWarning {
+  type: string;
+  message: string;
+  wikiUrl?: string;
+}
+
+interface ServiceDashboardData {
+  system: { version?: string; uptime?: string; isDocker?: boolean };
+  library: { totalItems: number; withFiles: number; sizeOnDiskGB: number; totalEpisodes?: number; totalAlbums?: number };
+  storage: { path: string; freeGB: number; totalGB: number; usedGB: number; percentUsed: number }[];
+  queue: { total: number; byStatus: Record<string, number>; items: { id: number; title: string; status: string; progress: number; sizeGB: number; downloadedGB: number; eta: string | null; indexer: string | null; downloadClient: string | null; quality: string | null; protocol: string | null }[] };
+  wanted: { missingCount: number; cutoffCount: number; missingRecords: { id: number; title: string; year: number | string | null; monitored: boolean; status: string | null }[]; cutoffRecords: { id: number; title: string; year: number | string | null; monitored: boolean; status: string | null }[] };
+  healthWarnings: HealthWarning[];
+  history: { id: number; eventType: string; title: string; date: string | null; dateAgo: string | null; quality: string | null }[];
+  calendar: { id: number; title: string; date: string | null; releaseType: string; monitored: boolean }[];
+  tasks: { name: string; interval: string | null; lastExecution: string | null; lastExecutionAgo: string | null; nextExecution: string | null; lastDuration: string | null }[];
+  downloadClients: { id: number; name: string; implementation: string; enabled: boolean; protocol: string }[];
+  qualityProfiles: { id: number; name: string }[];
+  rootFolders: { id: number; path: string; freeSpaceGB: number; accessible: boolean }[];
+  blocklist: { totalRecords: number; records: { id: number; title: string; date: string | null; indexer: string | null }[] };
+}
+
 const VALID_SERVICES = ["radarr", "sonarr", "lidarr"];
 
 export default function ServiceDashboardPage() {
@@ -20,7 +42,7 @@ export default function ServiceDashboardPage() {
   const router = useRouter();
   const role = session?.user?.role;
 
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<ServiceDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,8 +62,8 @@ export default function ServiceDashboardPage() {
       const json = await res.json();
       setData(json);
       setError(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -59,8 +81,18 @@ export default function ServiceDashboardPage() {
           href="/admin/dashboard"
           className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:underline"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           Back to Dashboard
         </Link>
@@ -69,14 +101,18 @@ export default function ServiceDashboardPage() {
           style={{ background: "var(--card)" }}
         >
           <p className="text-[var(--danger)]">
-            Invalid service: {service}. Must be one of: {VALID_SERVICES.join(", ")}
+            Invalid service: {service}. Must be one of:{" "}
+            {VALID_SERVICES.join(", ")}
           </p>
         </div>
       </div>
     );
   }
 
-  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && role !== "admin")) {
+  if (
+    sessionStatus === "loading" ||
+    (sessionStatus === "authenticated" && role !== "admin")
+  ) {
     return (
       <div className="flex justify-center py-16">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
@@ -99,8 +135,18 @@ export default function ServiceDashboardPage() {
           href="/admin/dashboard"
           className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:underline"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           Back to Dashboard
         </Link>
@@ -108,7 +154,9 @@ export default function ServiceDashboardPage() {
           className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]"
           style={{ background: "var(--card)" }}
         >
-          <p className="text-[var(--danger)]">Failed to load {service} data: {error}</p>
+          <p className="text-[var(--danger)]">
+            Failed to load {service} data: {error}
+          </p>
           <button
             onClick={fetchData}
             className="mt-3 rounded-lg px-4 py-2 text-sm font-medium text-white"
@@ -132,8 +180,18 @@ export default function ServiceDashboardPage() {
         href="/admin/dashboard"
         className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:underline"
       >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        <svg
+          className="h-4 w-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M15 19l-7-7 7-7"
+          />
         </svg>
         Back to Dashboard
       </Link>
@@ -144,7 +202,10 @@ export default function ServiceDashboardPage() {
         {data.system.version && (
           <span
             className="rounded-md px-2 py-0.5 text-xs font-medium"
-            style={{ background: "rgba(99,102,241,0.15)", color: "var(--accent)" }}
+            style={{
+              background: "rgba(99,102,241,0.15)",
+              color: "var(--accent)",
+            }}
           >
             v{data.system.version}
           </span>
@@ -184,7 +245,7 @@ export default function ServiceDashboardPage() {
         <div>
           <h2 className="mb-3 text-lg font-semibold">Health Warnings</h2>
           <div className="space-y-2">
-            {data.healthWarnings.map((w: any, i: number) => (
+            {data.healthWarnings.map((w: HealthWarning, i: number) => (
               <div
                 key={i}
                 className="flex items-start gap-3 rounded-xl px-4 py-3 ring-1 ring-[var(--border)]"
@@ -194,7 +255,11 @@ export default function ServiceDashboardPage() {
                   className="mt-0.5 h-4 w-4 shrink-0"
                   style={{
                     color:
-                      w.type === "error" ? "var(--danger)" : w.type === "warning" ? "var(--warning)" : "var(--muted)",
+                      w.type === "error"
+                        ? "var(--danger)"
+                        : w.type === "warning"
+                          ? "var(--warning)"
+                          : "var(--muted)",
                   }}
                   fill="none"
                   viewBox="0 0 24 24"

@@ -79,7 +79,11 @@ export default function LoginPage() {
         return;
       }
       // Open Plex auth in new window
-      const authWindow = window.open(data.authUrl, "plex-auth", "width=600,height=700");
+      const authWindow = window.open(
+        data.authUrl,
+        "plex-auth",
+        "width=600,height=700",
+      );
 
       // Poll for completion
       const interval = setInterval(async () => {
@@ -137,7 +141,10 @@ export default function LoginPage() {
         {(["login", "register", "jellyfin"] as AuthMode[]).map((m) => (
           <button
             key={m}
-            onClick={() => { setMode(m); setError(""); }}
+            onClick={() => {
+              setMode(m);
+              setError("");
+            }}
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
               mode === m
                 ? "bg-[var(--accent)] text-white"
@@ -176,9 +183,7 @@ export default function LoginPage() {
           required
         />
 
-        {error && (
-          <p className="text-sm text-[var(--danger)]">{error}</p>
-        )}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
         <button
           type="submit"
@@ -188,10 +193,10 @@ export default function LoginPage() {
           {loading
             ? "..."
             : mode === "register"
-            ? "Create Account"
-            : mode === "jellyfin"
-            ? "Sign in with Jellyfin"
-            : "Sign In"}
+              ? "Create Account"
+              : mode === "jellyfin"
+                ? "Sign in with Jellyfin"
+                : "Sign In"}
         </button>
       </form>
     </div>

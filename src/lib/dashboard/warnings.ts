@@ -1,4 +1,10 @@
-import type { DashboardWarning, QueueItemDTO, PipelineRequestDTO, IndexerStat, ServiceHealthDTO } from "@/types/dashboard";
+import type {
+  DashboardWarning,
+  QueueItemDTO,
+  PipelineRequestDTO,
+  IndexerStat,
+  ServiceHealthDTO,
+} from "@/types/dashboard";
 
 interface WarningInput {
   queue: QueueItemDTO[];
@@ -35,9 +41,15 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
 
   // Warning: stalled downloads (no progress descriptions / status messages indicating stall)
   for (const item of input.queue) {
-    if (item.progress > 0 && item.progress < 100 && item.statusMessages.length > 0) {
+    if (
+      item.progress > 0 &&
+      item.progress < 100 &&
+      item.statusMessages.length > 0
+    ) {
       const hasStallMessage = item.statusMessages.some(
-        (m) => m.toLowerCase().includes("stall") || m.toLowerCase().includes("no progress")
+        (m) =>
+          m.toLowerCase().includes("stall") ||
+          m.toLowerCase().includes("no progress"),
       );
       if (hasStallMessage) {
         warnings.push({
@@ -53,7 +65,9 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
   const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
   for (const req of input.pending) {
     if (new Date(req.createdAt).getTime() < twoHoursAgo) {
-      const hoursAgo = Math.round((Date.now() - new Date(req.createdAt).getTime()) / (60 * 60 * 1000));
+      const hoursAgo = Math.round(
+        (Date.now() - new Date(req.createdAt).getTime()) / (60 * 60 * 1000),
+      );
       warnings.push({
         severity: "warning",
         title: `Pending ${hoursAgo}h: ${req.title}`,
@@ -67,7 +81,9 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
   const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
   for (const req of input.active) {
     if (req.status === "approved" && !req.queueItem) {
-      const approvedTime = req.approvedAt ? new Date(req.approvedAt).getTime() : new Date(req.createdAt).getTime();
+      const approvedTime = req.approvedAt
+        ? new Date(req.approvedAt).getTime()
+        : new Date(req.createdAt).getTime();
       if (approvedTime < thirtyMinAgo) {
         warnings.push({
           severity: "warning",
@@ -97,6 +113,53 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
       title: `Large download queue (${input.queue.length} items)`,
       detail: "Consider checking available disk space and download speeds",
     });
+  }
+
+  // Warning: orphaned downloads (downloading but not in any queue, approved 2h+ ago)
+  for (const req of input.active) {
+    if (req.status === "downloading" && !req.queueItem) {
+      const approvedTime = req.approvedAt
+        ? new Date(req.approvedAt).getTime()
+        : new Date(req.createdAt).getTime();
+      if (approvedTime < twoHoursAgo) {
+        warnings.push({
+          severity: "warning",
+          title: `Orphaned download: ${req.title}`,
+          detail: "Marked as downloading but not found in any download queue",
+          requestId: req.id,
+        });
+      }
+    }
+  }
+
+  // Critical: failed routing (approved but never sent to arr, 1h+ ago)
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const req of input.active) {
+    if (req.status === "approved" && !req.arrId) {
+      const approvedTime = req.approvedAt
+        ? new Date(req.approvedAt).getTime()
+        : new Date(req.createdAt).getTime();
+      if (approvedTime < oneHourAgo) {
+        warnings.push({
+          severity: "critical",
+          title: `Failed to route: ${req.title}`,
+          detail: "Approved over 1 hour ago but never sent to *arr service",
+          requestId: req.id,
+        });
+      }
+    }
+  }
+
+  // Warning: stalled requests
+  for (const req of input.active) {
+    if (req.status === "stalled") {
+      warnings.push({
+        severity: "warning",
+        title: `Stalled: ${req.title}`,
+        detail: req.lastError || "No download progress detected",
+        requestId: req.id,
+      });
+    }
   }
 
   return warnings;

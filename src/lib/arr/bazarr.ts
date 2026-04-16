@@ -1,7 +1,7 @@
 const BASE = process.env.BAZARR_URL || "http://192.168.1.100:6767";
 const KEY = process.env.BAZARR_API_KEY!;
 
-async function api(path: string) {
+async function _api(path: string) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "X-API-KEY": KEY },
   });

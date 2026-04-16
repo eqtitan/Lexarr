@@ -1,30 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
+import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req.headers);
+  const rateCheck = checkRateLimit(`auth:${ip}`, RATE_LIMITS.auth);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again shortly." },
+      { status: 429 },
+    );
+  }
+
   const { name, email, password } = await req.json();
 
   if (!name || !password) {
-    return NextResponse.json({ error: "Name and password required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Name and password required" },
+      { status: 400 },
+    );
   }
 
   if (typeof name !== "string" || name.length < 2 || name.length > 50) {
-    return NextResponse.json({ error: "Name must be 2-50 characters" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Name must be 2-50 characters" },
+      { status: 400 },
+    );
   }
 
   if (typeof password !== "string" || password.length < 8) {
-    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Password must be at least 8 characters" },
+      { status: 400 },
+    );
   }
 
   if (email && (typeof email !== "string" || !email.includes("@"))) {
-    return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid email format" },
+      { status: 400 },
+    );
   }
 
   if (email) {
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
-      return NextResponse.json({ error: "Email already registered" }, { status: 409 });
+      return NextResponse.json(
+        { error: "Email already registered" },
+        { status: 409 },
+      );
     }
   }
 
@@ -33,7 +58,7 @@ export async function POST(req: NextRequest) {
   if (adminExists && process.env.REGISTRATION_OPEN !== "true") {
     return NextResponse.json(
       { error: "Registration is closed. Contact an admin." },
-      { status: 403 }
+      { status: 403 },
     );
   }
 

@@ -33,7 +33,7 @@ export default function AdminUsersPage() {
       body: JSON.stringify({ userId, autoApprove: !current }),
     });
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, autoApprove: !current } : u))
+      prev.map((u) => (u.id === userId ? { ...u, autoApprove: !current } : u)),
     );
   }
 
@@ -45,7 +45,7 @@ export default function AdminUsersPage() {
       body: JSON.stringify({ userId, role: newRole }),
     });
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
     );
   }
 
@@ -90,7 +90,8 @@ export default function AdminUsersPage() {
                   )}
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  {user.email || "No email"} &middot; {user._count.requests} requests
+                  {user.email || "No email"} &middot; {user._count.requests}{" "}
+                  requests
                   {user.plexId && " · Plex"}
                   {user.jellyfinId && " · Jellyfin"}
                 </p>
@@ -100,9 +101,13 @@ export default function AdminUsersPage() {
                   onClick={() => toggleApprove(user.id, user.autoApprove)}
                   className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
                   style={{
-                    background: user.autoApprove ? "var(--success)" : "var(--card)",
+                    background: user.autoApprove
+                      ? "var(--success)"
+                      : "var(--card)",
                     color: user.autoApprove ? "white" : "var(--muted)",
-                    border: user.autoApprove ? "none" : "1px solid var(--border)",
+                    border: user.autoApprove
+                      ? "none"
+                      : "1px solid var(--border)",
                   }}
                 >
                   {user.autoApprove ? "Auto ✓" : "Manual"}

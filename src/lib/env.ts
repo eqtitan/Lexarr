@@ -1,46 +1,57 @@
 /**
- * Startup environment variable validation.
+ * Startup environment variable validation using Zod.
  * Imported by instrumentation.ts — runs once at server startup.
- * Fails fast with a clear error if required vars are missing.
+ * Fails fast with a clear error if required vars are missing or malformed.
  */
+import { z } from "zod";
 
-export {}; // make this a module
+const envSchema = z.object({
+  // Required
+  NEXTAUTH_SECRET: z.string().min(1),
+  ARR_HOST: z.string().url().or(z.string().startsWith("http")),
+  RADARR_API_KEY: z.string().min(1),
+  SONARR_API_KEY: z.string().min(1),
+  LIDARR_API_KEY: z.string().min(1),
+  TMDB_API_KEY: z.string().min(1),
 
-const required = [
-  "NEXTAUTH_SECRET",
-  "ARR_HOST",
-  "RADARR_API_KEY",
-  "SONARR_API_KEY",
-  "LIDARR_API_KEY",
-  "TMDB_API_KEY",
-] as const;
+  // Optional
+  LEXARR_WEBHOOK_SECRET: z.string().optional(),
+  PROWLARR_API_KEY: z.string().optional(),
+  LAZYLIBRARIAN_API_KEY: z.string().optional(),
+  LAZYLIBRARIAN_PORT: z.string().optional(),
+  QBITTORRENT_URL: z.string().optional(),
+  QBITTORRENT_USER: z.string().optional(),
+  QBITTORRENT_PASS: z.string().optional(),
+  NZBGET_URL: z.string().optional(),
+  NZBGET_USER: z.string().optional(),
+  NZBGET_PASS: z.string().optional(),
+  BAZARR_URL: z.string().optional(),
+  BAZARR_API_KEY: z.string().optional(),
+  PLEX_CLIENT_ID: z.string().optional(),
+  JELLYFIN_URL: z.string().optional(),
+  REGISTRATION_OPEN: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
+});
 
-const optional = [
-  "LEXARR_WEBHOOK_SECRET",
-  "PROWLARR_API_KEY",
-  "LAZYLIBRARIAN_API_KEY",
-  "QBITTORRENT_URL",
-  "QBITTORRENT_USER",
-  "QBITTORRENT_PASS",
-  "NZBGET_USER",
-  "NZBGET_PASS",
-  "PLEX_CLIENT_ID",
-  "JELLYFIN_URL",
-] as const;
+export type Env = z.infer<typeof envSchema>;
 
-const missing = required.filter((key) => !process.env[key]);
+const result = envSchema.safeParse(process.env);
 
-if (missing.length > 0) {
+if (!result.success) {
+  const issues = result.error.issues
+    .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+    .join("\n");
   throw new Error(
-    `Missing required environment variable(s): ${missing.join(", ")}\n` +
-      `Copy .env.example to .env and fill in the values.`
+    `Environment validation failed:\n${issues}\n\nCopy .env.example to .env and fill in the values.`,
   );
 }
 
+export const env = result.data;
+
 // Warn about recommended optional vars
-if (!process.env.LEXARR_WEBHOOK_SECRET) {
+if (!env.LEXARR_WEBHOOK_SECRET) {
   console.warn(
-    "[env] LEXARR_WEBHOOK_SECRET is not set — webhook endpoints will reject all requests. " +
-      "Set it in .env and configure matching tokens in Radarr/Sonarr/Lidarr."
+    "[env] LEXARR_WEBHOOK_SECRET is not set �� webhook endpoints will reject all requests. " +
+      "Set it in .env and configure matching tokens in Radarr/Sonarr/Lidarr.",
   );
 }

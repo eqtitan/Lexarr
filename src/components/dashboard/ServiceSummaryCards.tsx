@@ -35,11 +35,21 @@ export default function ServiceSummaryCards({
 }: ServiceSummaryCardsProps) {
   const largestMount = storage.reduce(
     (a, b) => (b.totalGB > a.totalGB ? b : a),
-    storage[0] || { path: "N/A", freeGB: 0, totalGB: 0, usedGB: 0, percentUsed: 0 }
+    storage[0] || {
+      path: "N/A",
+      freeGB: 0,
+      totalGB: 0,
+      usedGB: 0,
+      percentUsed: 0,
+    },
   );
 
   const libraryLabel =
-    service === "radarr" ? "Movies" : service === "sonarr" ? "Series" : "Artists";
+    service === "radarr"
+      ? "Movies"
+      : service === "sonarr"
+        ? "Series"
+        : "Artists";
   const filesLabel =
     service === "radarr"
       ? `${library.withFiles} with files`
@@ -55,17 +65,32 @@ export default function ServiceSummaryCards({
         style={{ background: "var(--card)" }}
       >
         <div className="mb-2 flex items-center gap-2">
-          <svg className="h-5 w-5" style={{ color: "var(--accent)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          <svg
+            className="h-5 w-5"
+            style={{ color: "var(--accent)" }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+            />
           </svg>
-          <span className="text-sm font-medium text-[var(--muted)]">Library</span>
+          <span className="text-sm font-medium text-[var(--muted)]">
+            Library
+          </span>
         </div>
         <div className="text-2xl font-bold">
           {library.totalItems.toLocaleString()}
         </div>
         <div className="mt-1 text-xs text-[var(--muted)]">{libraryLabel}</div>
         <div className="mt-0.5 text-xs text-[var(--muted)]">{filesLabel}</div>
-        <div className="mt-1 text-xs text-[var(--muted)]">{library.sizeOnDiskGB} GB on disk</div>
+        <div className="mt-1 text-xs text-[var(--muted)]">
+          {library.sizeOnDiskGB} GB on disk
+        </div>
       </div>
 
       {/* Storage */}
@@ -74,16 +99,32 @@ export default function ServiceSummaryCards({
         style={{ background: "var(--card)" }}
       >
         <div className="mb-2 flex items-center gap-2">
-          <svg className="h-5 w-5" style={{ color: "var(--warning)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z" />
+          <svg
+            className="h-5 w-5"
+            style={{ color: "var(--warning)" }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z"
+            />
           </svg>
-          <span className="text-sm font-medium text-[var(--muted)]">Storage</span>
+          <span className="text-sm font-medium text-[var(--muted)]">
+            Storage
+          </span>
         </div>
         <div className="text-2xl font-bold">{largestMount.freeGB} GB</div>
         <div className="mt-1 text-xs text-[var(--muted)]">
           free of {largestMount.totalGB} GB
         </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--border)" }}>
+        <div
+          className="mt-2 h-2 w-full overflow-hidden rounded-full"
+          style={{ background: "var(--border)" }}
+        >
           <div
             className="h-full rounded-full transition-all"
             style={{
@@ -97,7 +138,9 @@ export default function ServiceSummaryCards({
             }}
           />
         </div>
-        <div className="mt-1 text-xs text-[var(--muted)]">{largestMount.percentUsed}% used</div>
+        <div className="mt-1 text-xs text-[var(--muted)]">
+          {largestMount.percentUsed}% used
+        </div>
       </div>
 
       {/* Queue */}
@@ -106,8 +149,19 @@ export default function ServiceSummaryCards({
         style={{ background: "var(--card)" }}
       >
         <div className="mb-2 flex items-center gap-2">
-          <svg className="h-5 w-5" style={{ color: "var(--success)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          <svg
+            className="h-5 w-5"
+            style={{ color: "var(--success)" }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
           </svg>
           <span className="text-sm font-medium text-[var(--muted)]">Queue</span>
         </div>
@@ -147,10 +201,23 @@ export default function ServiceSummaryCards({
         style={{ background: "var(--card)" }}
       >
         <div className="mb-2 flex items-center gap-2">
-          <svg className="h-5 w-5" style={{ color: "var(--danger)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="h-5 w-5"
+            style={{ color: "var(--danger)" }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
-          <span className="text-sm font-medium text-[var(--muted)]">Wanted</span>
+          <span className="text-sm font-medium text-[var(--muted)]">
+            Wanted
+          </span>
         </div>
         <div className="text-2xl font-bold">{wanted.missingCount}</div>
         <div className="mt-1 text-xs text-[var(--muted)]">missing</div>

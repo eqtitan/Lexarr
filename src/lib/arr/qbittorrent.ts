@@ -1,3 +1,12 @@
+interface QbTorrent {
+  hash: string;
+  name: string;
+  save_path: string;
+  state: string;
+  progress: number;
+  size: number;
+}
+
 const BASE = process.env.QBITTORRENT_URL!;
 const USER = process.env.QBITTORRENT_USER!;
 const PASS = process.env.QBITTORRENT_PASS!;
@@ -28,7 +37,7 @@ async function qbGet(path: string, sid: string) {
 export async function addTorrentFromUrl(
   torrentUrl: string,
   savePath: string = "/data/torrents",
-  category: string = "default"
+  category: string = "default",
 ): Promise<string> {
   const sid = await login();
 
@@ -53,9 +62,9 @@ export async function addTorrentFromUrl(
   await new Promise((r) => setTimeout(r, 1500));
 
   // Find the hash of the torrent we just added — it's the newest one in the category
-  const torrents: any[] = await qbGet(
+  const torrents: QbTorrent[] = await qbGet(
     `/api/v2/torrents/info?category=${encodeURIComponent(category)}&sort=added_on&reverse=true&limit=5`,
-    sid
+    sid,
   ).catch(() => []);
 
   const newest = torrents[0];
@@ -63,12 +72,12 @@ export async function addTorrentFromUrl(
 }
 
 /** Get a single torrent by its info hash */
-export async function getTorrentByHash(hash: string): Promise<any | null> {
+export async function getTorrentByHash(hash: string): Promise<QbTorrent | null> {
   try {
     const sid = await login();
-    const list: any[] = await qbGet(
+    const list: QbTorrent[] = await qbGet(
       `/api/v2/torrents/info?hashes=${hash}`,
-      sid
+      sid,
     );
     return list[0] ?? null;
   } catch {
@@ -84,17 +93,23 @@ export async function getTorrentByHash(hash: string): Promise<any | null> {
 export async function isTorrentComplete(hash: string): Promise<boolean> {
   const t = await getTorrentByHash(hash);
   if (!t) return false;
-  const completeStates = ["uploading", "stalledUP", "pausedUP", "forcedUP", "checkingUP"];
+  const completeStates = [
+    "uploading",
+    "stalledUP",
+    "pausedUP",
+    "forcedUP",
+    "checkingUP",
+  ];
   return completeStates.includes(t.state) || t.progress === 1;
 }
 
 /** Get all torrents in a category */
-export async function getTorrentsByCategory(category: string): Promise<any[]> {
+export async function getTorrentsByCategory(category: string): Promise<QbTorrent[]> {
   try {
     const sid = await login();
     return qbGet(
       `/api/v2/torrents/info?category=${encodeURIComponent(category)}`,
-      sid
+      sid,
     );
   } catch {
     return [];

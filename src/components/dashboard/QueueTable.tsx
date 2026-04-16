@@ -26,7 +26,10 @@ function StatusBadge({ status }: { status: string }) {
     warning: { bg: "rgba(245,158,11,0.15)", fg: "var(--warning)" },
     failed: { bg: "rgba(239,68,68,0.15)", fg: "var(--danger)" },
   };
-  const c = colors[status] || { bg: "rgba(107,114,128,0.15)", fg: "var(--muted)" };
+  const c = colors[status] || {
+    bg: "rgba(107,114,128,0.15)",
+    fg: "var(--muted)",
+  };
 
   return (
     <span
@@ -59,15 +62,33 @@ export default function QueueTable({ items }: QueueTableProps) {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Title</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Progress</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Size</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">ETA</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Client</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Indexer</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Quality</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">Protocol</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Title
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Progress
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Size
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                ETA
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Client
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Indexer
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Quality
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted)]">
+                Protocol
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -77,13 +98,18 @@ export default function QueueTable({ items }: QueueTableProps) {
                 className="transition-colors hover:bg-[var(--card-hover)]"
                 style={{ borderBottom: "1px solid var(--border)" }}
               >
-                <td className="max-w-[200px] truncate px-4 py-3 font-medium">{item.title}</td>
+                <td className="max-w-[200px] truncate px-4 py-3 font-medium">
+                  {item.title}
+                </td>
                 <td className="px-4 py-3">
                   <StatusBadge status={item.status} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-full" style={{ background: "var(--border)" }}>
+                    <div
+                      className="h-1.5 w-20 overflow-hidden rounded-full"
+                      style={{ background: "var(--border)" }}
+                    >
                       <div
                         className="h-full rounded-full"
                         style={{
@@ -92,15 +118,29 @@ export default function QueueTable({ items }: QueueTableProps) {
                         }}
                       />
                     </div>
-                    <span className="text-xs text-[var(--muted)]">{item.progress}%</span>
+                    <span className="text-xs text-[var(--muted)]">
+                      {item.progress}%
+                    </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.sizeGB} GB</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.eta || "--"}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.downloadClient || "--"}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.indexer || "--"}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.quality || "--"}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{item.protocol || "--"}</td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.sizeGB} GB
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.eta || "--"}
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.downloadClient || "--"}
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.indexer || "--"}
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.quality || "--"}
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {item.protocol || "--"}
+                </td>
               </tr>
             ))}
           </tbody>

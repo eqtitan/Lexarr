@@ -26,11 +26,17 @@ export async function POST(req: NextRequest) {
 
   const { name, type, webhookUrl, events } = await req.json();
   if (!name || !type || !webhookUrl) {
-    return NextResponse.json({ error: "Missing required fields (name, type, webhookUrl)" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing required fields (name, type, webhookUrl)" },
+      { status: 400 },
+    );
   }
 
   if (!["discord", "slack", "webhook"].includes(type)) {
-    return NextResponse.json({ error: "Invalid type. Must be: discord, slack, or webhook" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid type. Must be: discord, slack, or webhook" },
+      { status: 400 },
+    );
   }
 
   const channel = await prisma.notificationChannel.create({
@@ -43,7 +49,12 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  logAudit(adminId, "add_notification", { type: "notification", id: channel.id }, { name, type });
+  logAudit(
+    adminId,
+    "add_notification",
+    { type: "notification", id: channel.id },
+    { name, type },
+  );
 
   return NextResponse.json({ channel }, { status: 201 });
 }
@@ -60,7 +71,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  const data: any = {};
+  const data: Record<string, unknown> = {};
   if (updates.name !== undefined) data.name = updates.name;
   if (updates.webhookUrl !== undefined) data.webhookUrl = updates.webhookUrl;
   if (updates.events !== undefined) data.events = updates.events;

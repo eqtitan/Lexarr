@@ -5,12 +5,12 @@ import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
 import * as lazylibrarian from "@/lib/arr/lazylibrarian";
 
-async function checkService(name: string, healthFn: () => Promise<any>) {
+async function checkService(name: string, healthFn: () => Promise<unknown>) {
   try {
     await healthFn();
     return { name, healthy: true };
-  } catch (err: any) {
-    return { name, healthy: false, error: err.message };
+  } catch (err: unknown) {
+    return { name, healthy: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 

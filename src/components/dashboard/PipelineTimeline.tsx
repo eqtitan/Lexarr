@@ -7,7 +7,13 @@ interface PipelineTimelineProps {
   currentStatus: string;
 }
 
-const stepOrder = ["submitted", "approved", "sent_to_arr", "downloading", "available"];
+const stepOrder = [
+  "submitted",
+  "approved",
+  "sent_to_arr",
+  "downloading",
+  "available",
+];
 
 const stepLabels: Record<string, string> = {
   submitted: "Submitted",
@@ -36,7 +42,10 @@ function timeAgo(iso: string): string {
   return `${Math.round(diff / 86400000)}d ago`;
 }
 
-export default function PipelineTimeline({ events, currentStatus }: PipelineTimelineProps) {
+export default function PipelineTimeline({
+  events,
+  currentStatus,
+}: PipelineTimelineProps) {
   const eventMap = new Map<string, PipelineEventDTO>();
   for (const e of events) {
     // Keep first occurrence of each event type
@@ -68,7 +77,9 @@ export default function PipelineTimeline({ events, currentStatus }: PipelineTime
       {steps.map((step, i) => {
         const event = eventMap.get(step);
         const isCompleted = event != null;
-        const isActive = i === activeIndex && !["available", "denied", "failed"].includes(step);
+        const isActive =
+          i === activeIndex &&
+          !["available", "denied", "failed"].includes(step);
         const isFuture = !isCompleted;
         const prevEvent = i > 0 ? eventMap.get(steps[i - 1]) : null;
 
@@ -80,7 +91,9 @@ export default function PipelineTimeline({ events, currentStatus }: PipelineTime
                 <div
                   className="h-0.5 w-8"
                   style={{
-                    background: isCompleted ? "var(--success)" : "var(--border)",
+                    background: isCompleted
+                      ? "var(--success)"
+                      : "var(--border)",
                   }}
                 />
                 {event && prevEvent && (
@@ -108,7 +121,11 @@ export default function PipelineTimeline({ events, currentStatus }: PipelineTime
                   color: isCompleted || isActive ? "#fff" : "var(--muted)",
                 }}
               >
-                {isCompleted ? (step === "denied" || step === "failed" ? "!" : "\u2713") : i + 1}
+                {isCompleted
+                  ? step === "denied" || step === "failed"
+                    ? "!"
+                    : "\u2713"
+                  : i + 1}
               </div>
               <span
                 className="mt-1 text-[11px] font-medium text-center leading-tight"

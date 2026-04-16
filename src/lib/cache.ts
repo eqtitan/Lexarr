@@ -8,7 +8,7 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-class TTLCache<T = any> {
+class TTLCache<T = unknown> {
   private store = new Map<string, CacheEntry<T>>();
   private readonly defaultTtlMs: number;
   private readonly maxEntries: number;
@@ -65,3 +65,6 @@ export const detailCache = new TTLCache(15 * 60 * 1000, 100);
 
 // Service health cache: 30 second TTL (health checks are frequent)
 export const healthCache = new TTLCache(30 * 1000, 20);
+
+// Library status cache: 60 second TTL (arr libraries change infrequently)
+export const libraryCache = new TTLCache(60 * 1000, 50);

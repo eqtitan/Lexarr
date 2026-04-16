@@ -19,10 +19,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         try {
           const plexUser = await getPlexUser(credentials.plexToken as string);
           // First real user becomes admin
-          const userCount = await prisma.user.count({ where: { id: { not: "system" } } });
+          const userCount = await prisma.user.count({
+            where: { id: { not: "system" } },
+          });
           const user = await prisma.user.upsert({
             where: { plexId: plexUser.plexId },
-            update: { name: plexUser.name, email: plexUser.email, avatar: plexUser.avatar },
+            update: {
+              name: plexUser.name,
+              email: plexUser.email,
+              avatar: plexUser.avatar,
+            },
             create: {
               plexId: plexUser.plexId,
               name: plexUser.name,
@@ -32,7 +38,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               autoApprove: userCount === 0,
             },
           });
-          return { id: user.id, name: user.name, email: user.email, image: user.avatar };
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.avatar,
+          };
         } catch {
           return null;
         }
@@ -58,10 +69,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user?.password) return null;
         const valid = await bcrypt.compare(
           credentials.password as string,
-          user.password
+          user.password,
         );
         if (!valid) return null;
-        return { id: user.id, name: user.name, email: user.email, image: user.avatar };
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.avatar,
+        };
       },
     }),
     CredentialsProvider({
@@ -75,11 +91,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!credentials?.username || !credentials?.password) return null;
         const jfUser = await authenticateJellyfin(
           credentials.username as string,
-          credentials.password as string
+          credentials.password as string,
         );
         if (!jfUser) return null;
 
-        const userCount = await prisma.user.count({ where: { id: { not: "system" } } });
+        const userCount = await prisma.user.count({
+          where: { id: { not: "system" } },
+        });
         const user = await prisma.user.upsert({
           where: { jellyfinId: jfUser.jellyfinId },
           update: { name: jfUser.name, avatar: jfUser.avatar },
@@ -91,7 +109,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             autoApprove: userCount === 0,
           },
         });
-        return { id: user.id, name: user.name, email: user.email, image: user.avatar };
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.avatar,
+        };
       },
     }),
   ],

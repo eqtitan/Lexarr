@@ -53,7 +53,10 @@ export default function CalendarPanel({ items }: CalendarPanelProps) {
           <div className="mt-2">
             <span
               className="rounded-md px-2 py-0.5 text-[10px] font-medium"
-              style={{ background: "rgba(99,102,241,0.15)", color: "var(--accent)" }}
+              style={{
+                background: "rgba(99,102,241,0.15)",
+                color: "var(--accent)",
+              }}
             >
               {RELEASE_LABELS[item.releaseType] || item.releaseType}
             </span>

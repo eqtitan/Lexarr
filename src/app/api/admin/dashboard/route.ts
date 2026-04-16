@@ -4,19 +4,25 @@ import { prisma } from "@/lib/db";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
+import * as prowlarr from "@/lib/arr/prowlarr";
 import { computeAnalytics } from "@/lib/dashboard/analytics";
 import { generateWarnings } from "@/lib/dashboard/warnings";
 import { SERVICE_REGISTRY } from "@/lib/dashboard/services";
 import type {
   DashboardData,
   PipelineRequestDTO,
+  PipelineEventDTO,
   QueueItemDTO,
   ServiceHealthDTO,
 } from "@/types/dashboard";
+import type { ArrQueueRecord } from "@/types/external-apis";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function normalizeQueueItem(record: any, source: "radarr" | "sonarr" | "lidarr"): QueueItemDTO {
+function normalizeQueueItem(
+  record: ArrQueueRecord,
+  source: "radarr" | "sonarr" | "lidarr",
+): QueueItemDTO {
   const sizeBytes = record.size || 0;
   const remainingBytes = record.sizeleft || 0;
   const downloadedBytes = sizeBytes - remainingBytes;
@@ -34,22 +40,27 @@ function normalizeQueueItem(record: any, source: "radarr" | "sonarr" | "lidarr")
     downloadClient: record.downloadClient || null,
     source,
     contentId: record.movieId || record.seriesId || record.artistId || null,
-    statusMessages: (record.statusMessages || []).flatMap((m: any) =>
-      m.messages || (m.title ? [m.title] : [])
+    statusMessages: (record.statusMessages || []).flatMap(
+      (m) => m.messages || (m.title ? [m.title] : []),
     ),
   };
 }
 
 async function checkServiceHealth(
   name: string,
-  healthFn: () => Promise<any>
+  healthFn: () => Promise<unknown>,
 ): Promise<ServiceHealthDTO> {
   const start = Date.now();
   try {
     await healthFn();
     return { name, healthy: true, responseMs: Date.now() - start };
-  } catch (err: any) {
-    return { name, healthy: false, responseMs: Date.now() - start, error: err.message };
+  } catch (err: unknown) {
+    return {
+      name,
+      healthy: false,
+      responseMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -67,17 +78,13 @@ export async function GET() {
     radarrQueueResult,
     sonarrQueueResult,
     lidarrQueueResult,
-    radarrIndexerResult,
-    sonarrIndexerResult,
-    lidarrIndexerResult,
+    prowlarrIndexerResult,
     ...healthSettled
   ] = await Promise.allSettled([
     radarr.getQueueDetails(),
     sonarr.getQueue(),
     lidarr.getQueue(),
-    radarr.getIndexerStats(),
-    sonarr.getIndexerStats(),
-    lidarr.getIndexerStats(),
+    prowlarr.getIndexerStats(),
     // Health checks for all services in SERVICE_REGISTRY order
     ...SERVICE_REGISTRY.map((svc) => checkServiceHealth(svc.name, svc.health)),
   ]);
@@ -86,11 +93,17 @@ export async function GET() {
   const queue: QueueItemDTO[] = [];
 
   const radarrRecords =
-    radarrQueueResult.status === "fulfilled" ? radarrQueueResult.value.records || [] : [];
+    radarrQueueResult.status === "fulfilled"
+      ? radarrQueueResult.value.records || []
+      : [];
   const sonarrRecords =
-    sonarrQueueResult.status === "fulfilled" ? sonarrQueueResult.value.records || [] : [];
+    sonarrQueueResult.status === "fulfilled"
+      ? sonarrQueueResult.value.records || []
+      : [];
   const lidarrRecords =
-    lidarrQueueResult.status === "fulfilled" ? lidarrQueueResult.value.records || [] : [];
+    lidarrQueueResult.status === "fulfilled"
+      ? lidarrQueueResult.value.records || []
+      : [];
 
   for (const r of radarrRecords) queue.push(normalizeQueueItem(r, "radarr"));
   for (const r of sonarrRecords) queue.push(normalizeQueueItem(r, "sonarr"));
@@ -102,7 +115,14 @@ export async function GET() {
     if (result.status === "fulfilled") {
       return { ...result.value, url: svc.url, category: svc.category };
     }
-    return { name: svc.name, healthy: false, responseMs: 0, error: "Health check failed", url: svc.url, category: svc.category };
+    return {
+      name: svc.name,
+      healthy: false,
+      responseMs: 0,
+      error: "Health check failed",
+      url: svc.url,
+      category: svc.category,
+    };
   });
 
   // ── Pipeline (DB) ──────────────────────────────────────────────────
@@ -134,12 +154,14 @@ export async function GET() {
     take: 25,
   });
 
-  function toPipelineDTO(r: any): PipelineRequestDTO {
+  type RequestWithRelations = (typeof pendingRequests)[number];
+
+  function toPipelineDTO(r: RequestWithRelations): PipelineRequestDTO {
     const dto: PipelineRequestDTO = {
       id: r.id,
       title: r.title,
       year: r.year,
-      mediaType: r.mediaType,
+      mediaType: r.mediaType as PipelineRequestDTO["mediaType"],
       status: r.status,
       posterPath: r.posterPath,
       arrId: r.arrId,
@@ -147,7 +169,7 @@ export async function GET() {
       approvedAt: r.approvedAt?.toISOString() || null,
       availableAt: r.availableAt?.toISOString() || null,
       user: { name: r.user.name, avatar: r.user.avatar },
-      events: r.events.map((e: any) => ({
+      events: r.events.map((e): PipelineEventDTO => ({
         id: e.id,
         event: e.event,
         detail: e.detail,
@@ -174,9 +196,10 @@ export async function GET() {
 
   // ── Analytics ──────────────────────────────────────────────────────
   const indexerStatsRaw = {
-    radarr: radarrIndexerResult.status === "fulfilled" ? radarrIndexerResult.value : undefined,
-    sonarr: sonarrIndexerResult.status === "fulfilled" ? sonarrIndexerResult.value : undefined,
-    lidarr: lidarrIndexerResult.status === "fulfilled" ? lidarrIndexerResult.value : undefined,
+    prowlarr:
+      prowlarrIndexerResult.status === "fulfilled"
+        ? prowlarrIndexerResult.value
+        : undefined,
   };
 
   const analytics = await computeAnalytics(indexerStatsRaw);

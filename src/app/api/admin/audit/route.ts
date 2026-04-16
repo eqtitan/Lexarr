@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50", 10);
   const action = req.nextUrl.searchParams.get("action");
 
-  const where: any = {};
+  const where: Record<string, string> = {};
   if (action) where.action = action;
 
   const logs = await prisma.auditLog.findMany({

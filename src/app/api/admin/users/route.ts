@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing userId" }, { status: 400 });
   }
 
-  const data: any = {};
+  const data: Record<string, unknown> = {};
   if (newRole !== undefined) data.role = newRole;
   if (autoApprove !== undefined) data.autoApprove = autoApprove;
 

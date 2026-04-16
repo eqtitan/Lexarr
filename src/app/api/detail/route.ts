@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detailCache } from "@/lib/cache";
+import type {
+  TmdbMovie,
+  TmdbTvShow,
+  TmdbCastMember,
+  TmdbGenre,
+  MusicBrainzArtist,
+  MusicBrainzReleaseGroup,
+  OpenLibraryWork,
+} from "@/types/external-apis";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_KEY = process.env.TMDB_API_KEY;
 const MB_BASE = "https://musicbrainz.org/ws/2";
 
-async function tmdb(path: string) {
+async function tmdb<T>(path: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${TMDB_BASE}${path}${sep}api_key=${TMDB_KEY}&language=en-US`);
+  const res = await fetch(
+    `${TMDB_BASE}${path}${sep}api_key=${TMDB_KEY}&language=en-US`,
+  );
   if (!res.ok) throw new Error(`TMDB ${path}: ${res.status}`);
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export async function GET(req: NextRequest) {
@@ -42,66 +53,105 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    let result: any;
+    let result: Record<string, unknown> | undefined;
 
     if (type === "movie") {
-      const data = await tmdb(`/movie/${id}?append_to_response=credits`);
+      const data = await tmdb<TmdbMovie>(
+        `/movie/${id}?append_to_response=credits`,
+      );
       result = {
         title: data.title,
         year: data.release_date?.slice(0, 4),
         overview: data.overview,
-        posterUrl: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : undefined,
-        backdropUrl: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : undefined,
+        posterUrl: data.poster_path
+          ? `https://image.tmdb.org/t/p/w500${data.poster_path}`
+          : undefined,
+        backdropUrl: data.backdrop_path
+          ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}`
+          : undefined,
         runtime: data.runtime,
-        genres: data.genres?.map((g: any) => g.name),
-        cast: data.credits?.cast?.slice(0, 8).map((c: any) => ({ name: c.name, character: c.character, photo: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : undefined })),
+        genres: data.genres?.map((g: TmdbGenre) => g.name),
+        cast: data.credits?.cast
+          ?.slice(0, 8)
+          .map((c: TmdbCastMember) => ({
+            name: c.name,
+            character: c.character,
+            photo: c.profile_path
+              ? `https://image.tmdb.org/t/p/w185${c.profile_path}`
+              : undefined,
+          })),
         rating: data.vote_average,
       };
     } else if (type === "tv") {
-      const data = await tmdb(`/tv/${id}?append_to_response=credits`);
+      const data = await tmdb<TmdbTvShow>(
+        `/tv/${id}?append_to_response=credits`,
+      );
       result = {
         title: data.name,
         year: data.first_air_date?.slice(0, 4),
         overview: data.overview,
-        posterUrl: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : undefined,
-        backdropUrl: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : undefined,
+        posterUrl: data.poster_path
+          ? `https://image.tmdb.org/t/p/w500${data.poster_path}`
+          : undefined,
+        backdropUrl: data.backdrop_path
+          ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}`
+          : undefined,
         seasons: data.number_of_seasons,
         episodes: data.number_of_episodes,
         network: data.networks?.[0]?.name,
-        genres: data.genres?.map((g: any) => g.name),
-        cast: data.credits?.cast?.slice(0, 8).map((c: any) => ({ name: c.name, character: c.character, photo: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : undefined })),
+        genres: data.genres?.map((g: TmdbGenre) => g.name),
+        cast: data.credits?.cast
+          ?.slice(0, 8)
+          .map((c: TmdbCastMember) => ({
+            name: c.name,
+            character: c.character,
+            photo: c.profile_path
+              ? `https://image.tmdb.org/t/p/w185${c.profile_path}`
+              : undefined,
+          })),
         status: data.status,
         rating: data.vote_average,
       };
     } else if (type === "music") {
-      const artistRes = await fetch(`${MB_BASE}/artist/${id}?inc=release-groups&fmt=json`, {
-        headers: { "User-Agent": "Lexarr/1.0 (media-request-portal)" },
-      });
-      if (!artistRes.ok) throw new Error(`MusicBrainz artist ${id}: ${artistRes.status}`);
-      const artist = await artistRes.json();
+      const artistRes = await fetch(
+        `${MB_BASE}/artist/${id}?inc=release-groups&fmt=json`,
+        {
+          headers: { "User-Agent": "Lexarr/1.0 (media-request-portal)" },
+        },
+      );
+      if (!artistRes.ok)
+        throw new Error(`MusicBrainz artist ${id}: ${artistRes.status}`);
+      const artist: MusicBrainzArtist = await artistRes.json();
       const albums = (artist["release-groups"] || [])
-        .filter((rg: any) => rg["primary-type"] === "Album")
-        .map((rg: any) => ({ id: rg.id, title: rg.title, year: rg["first-release-date"]?.slice(0, 4) }))
+        .filter((rg: MusicBrainzReleaseGroup) => rg["primary-type"] === "Album")
+        .map((rg: MusicBrainzReleaseGroup) => ({
+          id: rg.id,
+          title: rg.title,
+          year: rg["first-release-date"]?.slice(0, 4),
+        }))
         .slice(0, 20);
       result = {
         title: artist.name,
         overview: artist.disambiguation || undefined,
-        genres: artist.genres?.map((g: any) => g.name),
+        genres: artist.genres?.map((g: { name: string }) => g.name),
         albums,
       };
     } else if (type === "book") {
       const workPath = id.startsWith("/") ? id : `/works/${id}`;
       const res = await fetch(`https://openlibrary.org${workPath}.json`);
       if (!res.ok) throw new Error(`OpenLibrary ${id}: ${res.status}`);
-      const data = await res.json();
-      const description = typeof data.description === "string"
-        ? data.description
-        : data.description?.value;
+      const data: OpenLibraryWork = await res.json();
+      const description =
+        typeof data.description === "string"
+          ? data.description
+          : data.description?.value;
       const coverId = data.covers?.[0];
       result = {
         title: data.title,
         overview: description,
-        posterUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : undefined,
+        posterUrl: coverId
+          ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`
+          : undefined,
       };
     } else {
       return NextResponse.json({ error: "Unknown type" }, { status: 400 });
@@ -112,7 +162,8 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(result || {});
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

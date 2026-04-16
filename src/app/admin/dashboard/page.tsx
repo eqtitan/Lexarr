@@ -6,9 +6,20 @@ import { useRouter } from "next/navigation";
 import type { DashboardData } from "@/types/dashboard";
 import PendingApprovalsCard from "@/components/dashboard/PendingApprovalsCard";
 import PipelineTable from "@/components/dashboard/PipelineTable";
-import WarningsPanel from "@/components/dashboard/WarningsPanel";
 import AnalyticsGrid from "@/components/dashboard/AnalyticsGrid";
-import ServiceHealthBar from "@/components/dashboard/ServiceHealthBar";
+import DashboardKpis from "@/components/dashboard/DashboardKpis";
+import WarningsPanel from "@/components/dashboard/WarningsPanel";
+import IndexerPerformancePanel from "@/components/dashboard/IndexerPerformancePanel";
+
+type TabId = "overview" | "approvals" | "pipeline" | "analytics" | "warnings";
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "approvals", label: "Approvals" },
+  { id: "pipeline", label: "Pipeline" },
+  { id: "analytics", label: "Analytics" },
+  { id: "warnings", label: "Warnings" },
+];
 
 export default function DashboardPage() {
   const { data: session, status: sessionStatus } = useSession();
@@ -19,9 +30,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoPoll, setAutoPoll] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Redirect non-admins
   useEffect(() => {
     if (sessionStatus === "loading") return;
     if (!session || role !== "admin") {
@@ -36,21 +47,19 @@ export default function DashboardPage() {
       const json: DashboardData = await res.json();
       setData(json);
       setError(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     if (role === "admin") {
       fetchDashboard();
     }
   }, [role, fetchDashboard]);
 
-  // Auto-poll every 15 seconds
   useEffect(() => {
     if (autoPoll && role === "admin") {
       intervalRef.current = setInterval(fetchDashboard, 15000);
@@ -87,7 +96,10 @@ export default function DashboardPage() {
     fetchDashboard();
   }
 
-  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && role !== "admin")) {
+  if (
+    sessionStatus === "loading" ||
+    (sessionStatus === "authenticated" && role !== "admin")
+  ) {
     return (
       <div className="flex justify-center py-16">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
@@ -105,8 +117,13 @@ export default function DashboardPage() {
 
   if (error && !data) {
     return (
-      <div className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
-        <p className="text-[var(--danger)]">Failed to load dashboard: {error}</p>
+      <div
+        className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]"
+        style={{ background: "var(--card)" }}
+      >
+        <p className="text-[var(--danger)]">
+          Failed to load dashboard: {error}
+        </p>
         <button
           onClick={fetchDashboard}
           className="mt-3 rounded-lg px-4 py-2 text-sm font-medium text-white"
@@ -120,8 +137,24 @@ export default function DashboardPage() {
 
   if (!data) return null;
 
+  const pendingCount = data.pipeline.pending.length;
+  const activeCount = data.pipeline.active.length;
+  const warningCount = data.warnings.length;
+  const criticalCount = data.warnings.filter(
+    (w) => w.severity === "critical",
+  ).length;
+  const hasCritical = criticalCount > 0;
+
+  const tabBadge: Record<TabId, number> = {
+    overview: 0,
+    approvals: pendingCount,
+    pipeline: activeCount,
+    analytics: 0,
+    warnings: warningCount,
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -151,39 +184,114 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Service Health */}
-      <div className="rounded-xl px-4 py-3 ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
-        <ServiceHealthBar services={data.services} />
+
+      {/* Tabs */}
+      <div
+        role="tablist"
+        aria-label="Dashboard sections"
+        className="flex gap-1 overflow-x-auto scrollbar-none border-b border-[var(--border)]"
+      >
+        {TABS.map((t) => {
+          const isActive = activeTab === t.id;
+          const badge = tabBadge[t.id];
+          // Warnings tab goes red ONLY when a critical warning exists
+          const isWarningsTabRed = t.id === "warnings" && hasCritical;
+          const activeColor = isWarningsTabRed
+            ? "var(--danger)"
+            : "var(--accent)";
+          const tabTextColor = isActive
+            ? activeColor
+            : isWarningsTabRed
+              ? "var(--danger)"
+              : "var(--muted)";
+          const badgeColor = isWarningsTabRed
+            ? "var(--danger)"
+            : t.id === "warnings"
+              ? "var(--warning)"
+              : t.id === "approvals"
+                ? "var(--warning)"
+                : "var(--accent)";
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setActiveTab(t.id)}
+              className="relative shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors"
+              style={{
+                color: tabTextColor,
+                borderBottom: isActive
+                  ? `2px solid ${activeColor}`
+                  : "2px solid transparent",
+                marginBottom: "-1px",
+              }}
+            >
+              {t.label}
+              {badge > 0 && (
+                <span
+                  className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white"
+                  style={{ background: badgeColor }}
+                >
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Warnings */}
-      <WarningsPanel warnings={data.warnings} />
+      {/* Tab panels */}
+      <div role="tabpanel" aria-labelledby={activeTab}>
+        {activeTab === "overview" && (
+          <div className="space-y-5">
+            <DashboardKpis data={data} onOpenTab={setActiveTab} />
+            <IndexerPerformancePanel indexers={data.analytics.indexers} />
+          </div>
+        )}
 
-      {/* Pending Approvals */}
-      <PendingApprovalsCard
-        requests={data.pipeline.pending}
-        onApprove={handleApprove}
-        onDeny={handleDeny}
-      />
+        {activeTab === "approvals" && (
+          <PendingApprovalsCard
+            requests={data.pipeline.pending}
+            onApprove={handleApprove}
+            onDeny={handleDeny}
+          />
+        )}
 
-      {/* Active Pipeline */}
-      <PipelineTable
-        title="Active Downloads"
-        requests={data.pipeline.active}
-        showProgress
-      />
+        {activeTab === "pipeline" && (
+          <div className="space-y-5">
+            <PipelineTable
+              title="Active Downloads"
+              requests={data.pipeline.active}
+              showProgress
+            />
+            <PipelineTable
+              title="Recently Completed"
+              requests={data.pipeline.recent}
+              onRetry={handleRetry}
+            />
+          </div>
+        )}
 
-      {/* Recent */}
-      <PipelineTable
-        title="Recently Completed"
-        requests={data.pipeline.recent}
-        onRetry={handleRetry}
-      />
+        {activeTab === "analytics" && (
+          <AnalyticsGrid analytics={data.analytics} />
+        )}
 
-      {/* Analytics */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">Analytics</h2>
-        <AnalyticsGrid analytics={data.analytics} />
+        {activeTab === "warnings" && (
+          <>
+            {data.warnings.length > 0 ? (
+              <WarningsPanel warnings={data.warnings} />
+            ) : (
+              <div
+                className="rounded-xl px-4 py-10 text-center ring-1 ring-[var(--border)]"
+                style={{ background: "var(--card)" }}
+              >
+                <p className="text-sm text-[var(--muted)]">
+                  No warnings — all systems nominal.
+                </p>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

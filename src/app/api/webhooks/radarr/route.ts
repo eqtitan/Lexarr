@@ -31,8 +31,9 @@ export async function POST(req: NextRequest) {
 
     const updated = await checkSingleRequest("movie", movieId);
     return NextResponse.json({ ok: true, updated });
-  } catch (err: any) {
-    console.error("Radarr webhook error:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("Radarr webhook error:", errMsg);
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

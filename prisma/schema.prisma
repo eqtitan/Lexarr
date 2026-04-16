@@ -44,6 +44,7 @@ model Request {
   qaPassed        Boolean?         // Whether QA check passed (file exists, size ok, subtitles ready)
   qaCheckedAt     DateTime?        // Last time QA was evaluated
   source          String           @default("lexarr") // "lexarr" | "system"
+  releaseType     String?          // music only: "album" | "single" | "ep" | "other" — drives narrow-monitoring for singles/EPs
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   events          PipelineEvent[]

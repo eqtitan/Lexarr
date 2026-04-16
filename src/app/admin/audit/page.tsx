@@ -90,7 +90,10 @@ export default function AuditPage() {
         <h1 className="text-2xl font-bold">Audit Log</h1>
         <select
           value={filter}
-          onChange={(e) => { setFilter(e.target.value); setLoading(true); }}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setLoading(true);
+          }}
           className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
         >
           <option value="">All Actions</option>
@@ -108,10 +111,13 @@ export default function AuditPage() {
           No audit log entries yet.
         </p>
       ) : (
-        <div className="rounded-xl ring-1 ring-[var(--border)]" style={{ background: "var(--card)" }}>
+        <div
+          className="rounded-xl ring-1 ring-[var(--border)]"
+          style={{ background: "var(--card)" }}
+        >
           <div className="divide-y divide-[var(--border)]">
             {logs.map((entry) => {
-              let detail: Record<string, any> | null = null;
+              let detail: Record<string, unknown> | null = null;
               try {
                 if (entry.detail) detail = JSON.parse(entry.detail);
               } catch {
@@ -119,18 +125,24 @@ export default function AuditPage() {
               }
 
               return (
-                <div key={entry.id} className="flex items-start gap-3 px-4 py-3">
+                <div
+                  key={entry.id}
+                  className="flex items-start gap-3 px-4 py-3"
+                >
                   {/* Action dot */}
                   <div
                     className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: ACTION_COLORS[entry.action] || "var(--muted)" }}
+                    style={{
+                      background: ACTION_COLORS[entry.action] || "var(--muted)",
+                    }}
                   />
 
                   {/* Content */}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">
-                      <span className="font-medium">{entry.user?.name || "System"}</span>
-                      {" "}
+                      <span className="font-medium">
+                        {entry.user?.name || "System"}
+                      </span>{" "}
                       <span className="text-[var(--muted)]">
                         {ACTION_LABELS[entry.action] || entry.action}
                       </span>
@@ -140,20 +152,23 @@ export default function AuditPage() {
                         </span>
                       )}
                     </p>
-                    {detail?.note && (
+                    {detail && detail.note ? (
                       <p className="mt-0.5 text-xs text-[var(--muted)]">
-                        Note: {detail.note}
+                        Note: {String(detail.note)}
                       </p>
-                    )}
-                    {detail?.retryCount !== undefined && (
+                    ) : null}
+                    {detail && detail.retryCount !== undefined ? (
                       <p className="mt-0.5 text-xs text-[var(--muted)]">
-                        Retry #{detail.retryCount}
+                        Retry #{String(detail.retryCount)}
                       </p>
-                    )}
+                    ) : null}
                   </div>
 
                   {/* Timestamp */}
-                  <span className="shrink-0 text-xs text-[var(--muted)]" title={new Date(entry.createdAt).toLocaleString()}>
+                  <span
+                    className="shrink-0 text-xs text-[var(--muted)]"
+                    title={new Date(entry.createdAt).toLocaleString()}
+                  >
                     {timeAgo(entry.createdAt)}
                   </span>
                 </div>

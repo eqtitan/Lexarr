@@ -3,17 +3,33 @@ import { search as tmdbSearch } from "@/lib/search/tmdb";
 import { search as musicSearch } from "@/lib/search/musicbrainz";
 import { search as bookSearch } from "@/lib/search/openlib";
 import { searchCache } from "@/lib/cache";
-import type { SearchResult, MediaType } from "@/types";
+import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
+import type { SearchResult, MediaType, MusicReleaseType } from "@/types";
+
+const VALID_RELEASE_TYPES: MusicReleaseType[] = ["album", "single", "ep", "other"];
 
 export async function GET(req: NextRequest) {
+  const ip = getClientIp(req.headers);
+  const rateCheck = checkRateLimit(`search:${ip}`, RATE_LIMITS.search);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil((rateCheck.resetAt - Date.now()) / 1000)) } },
+    );
+  }
+
   const query = req.nextUrl.searchParams.get("q");
   const filter = req.nextUrl.searchParams.get("type") as MediaType | null;
+  const releaseTypeParam = req.nextUrl.searchParams.get("releaseType");
+  const releaseType = VALID_RELEASE_TYPES.includes(releaseTypeParam as MusicReleaseType)
+    ? (releaseTypeParam as MusicReleaseType)
+    : undefined;
 
   if (!query || query.length < 2) {
     return NextResponse.json({ results: [] });
   }
 
-  const cacheKey = `search:${filter || "all"}:${query.toLowerCase().trim()}`;
+  const cacheKey = `search:${filter || "all"}:${releaseType || "any"}:${query.toLowerCase().trim()}`;
   const cached = searchCache.get(cacheKey);
   if (cached) {
     return NextResponse.json({ results: cached, cached: true });
@@ -25,7 +41,7 @@ export async function GET(req: NextRequest) {
     searches.push(tmdbSearch(query).catch(() => []));
   }
   if (!filter || filter === "music") {
-    searches.push(musicSearch(query).catch(() => []));
+    searches.push(musicSearch(query, releaseType).catch(() => []));
   }
   if (!filter || filter === "book") {
     searches.push(bookSearch(query).catch(() => []));

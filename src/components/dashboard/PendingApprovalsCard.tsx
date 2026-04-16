@@ -102,13 +102,17 @@ export default function PendingApprovalsCard({
                   <p className="truncate text-sm font-medium">
                     {req.title}
                     {req.year && (
-                      <span className="ml-1 text-[var(--muted)]">({req.year})</span>
+                      <span className="ml-1 text-[var(--muted)]">
+                        ({req.year})
+                      </span>
                     )}
                   </p>
                   <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
                     <span
                       className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                      style={{ background: typeColors[req.mediaType] || "var(--muted)" }}
+                      style={{
+                        background: typeColors[req.mediaType] || "var(--muted)",
+                      }}
                     >
                       {typeLabels[req.mediaType] || req.mediaType}
                     </span>
@@ -121,14 +125,26 @@ export default function PendingApprovalsCard({
                   <button
                     onClick={() => startAction(req.id, "approve")}
                     className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-                    style={{ background: showNote && noteAction === "approve" ? "var(--accent)" : "var(--success)" }}
+                    style={{
+                      background:
+                        showNote && noteAction === "approve"
+                          ? "var(--accent)"
+                          : "var(--success)",
+                    }}
                   >
-                    {showNote && noteAction === "approve" ? "Confirm" : "Approve"}
+                    {showNote && noteAction === "approve"
+                      ? "Confirm"
+                      : "Approve"}
                   </button>
                   <button
                     onClick={() => startAction(req.id, "deny")}
                     className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-                    style={{ background: showNote && noteAction === "deny" ? "var(--accent)" : "var(--danger)" }}
+                    style={{
+                      background:
+                        showNote && noteAction === "deny"
+                          ? "var(--accent)"
+                          : "var(--danger)",
+                    }}
                   >
                     {showNote && noteAction === "deny" ? "Confirm" : "Deny"}
                   </button>
@@ -137,7 +153,10 @@ export default function PendingApprovalsCard({
 
               {/* Note input (shown on first click) */}
               {showNote && (
-                <div className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "var(--background)" }}>
+                <div
+                  className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2"
+                  style={{ background: "var(--background)" }}
+                >
                   <input
                     type="text"
                     value={noteText}

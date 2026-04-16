@@ -1,25 +1,61 @@
 import { prisma } from "@/lib/db";
-import type { AnalyticsDTO, IndexerStat, IndexerPerformance, FulfillmentStats, RequestStats, TopRequester } from "@/types/dashboard";
+import type {
+  AnalyticsDTO,
+  IndexerStat,
+  IndexerPerformance,
+  FulfillmentStats,
+  RequestStats,
+  TopRequester,
+} from "@/types/dashboard";
 import type { MediaType } from "@/types";
 
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?: any; lidarr?: any }): Promise<AnalyticsDTO> {
+interface ArrIndexerStatsResponse {
+  indexers?: {
+    indexerName?: string;
+    name?: string;
+    numberOfQueries?: number;
+    numberOfRssQueries?: number;
+    numberOfGrabs?: number;
+    numberOfFailedQueries?: number;
+    numberOfFailedRssQueries?: number;
+  }[];
+}
+
+export async function computeAnalytics(indexerStatsRaw: {
+  prowlarr?: ArrIndexerStatsResponse;
+}): Promise<AnalyticsDTO> {
   // ── Request stats ──────────────────────────────────────────────────
   const allRequests = await prisma.request.findMany({
-    select: { mediaType: true, status: true, approvedAt: true, availableAt: true, createdAt: true, userId: true },
+    select: {
+      mediaType: true,
+      status: true,
+      approvedAt: true,
+      availableAt: true,
+      createdAt: true,
+      userId: true,
+    },
   });
 
-  const byType: Record<MediaType, number> = { movie: 0, tv: 0, music: 0, book: 0 };
+  const byType: Record<MediaType, number> = {
+    movie: 0,
+    tv: 0,
+    music: 0,
+    book: 0,
+  };
   const byStatus: Record<string, number> = {};
 
   for (const r of allRequests) {
-    byType[r.mediaType as MediaType] = (byType[r.mediaType as MediaType] || 0) + 1;
+    byType[r.mediaType as MediaType] =
+      (byType[r.mediaType as MediaType] || 0) + 1;
     byStatus[r.status] = (byStatus[r.status] || 0) + 1;
   }
 
@@ -35,16 +71,21 @@ export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?:
 
   for (const r of allRequests) {
     if (r.approvedAt) {
-      const mins = (new Date(r.approvedAt).getTime() - new Date(r.createdAt).getTime()) / 60000;
+      const mins =
+        (new Date(r.approvedAt).getTime() - new Date(r.createdAt).getTime()) /
+        60000;
       if (mins >= 0) approvalTimes.push(mins);
     }
     if (r.approvedAt && r.availableAt) {
-      const mins = (new Date(r.availableAt).getTime() - new Date(r.approvedAt).getTime()) / 60000;
+      const mins =
+        (new Date(r.availableAt).getTime() - new Date(r.approvedAt).getTime()) /
+        60000;
       if (mins >= 0) fulfillmentTimes.push(mins);
     }
   }
 
-  const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+  const avg = (arr: number[]) =>
+    arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 
   const fulfillment: FulfillmentStats = {
     avgApprovalMinutes: avg(approvalTimes),
@@ -53,34 +94,43 @@ export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?:
     medianFulfillmentMinutes: median(fulfillmentTimes),
   };
 
-  // ── Indexer performance ────────────────────────────────────────────
+  // ── Indexer performance (Prowlarr is the source of truth) ─────────
   const indexers: IndexerStat[] = [];
-
-  for (const [source, stats] of Object.entries(indexerStatsRaw)) {
-    if (!stats?.indexers) continue;
-    for (const idx of stats.indexers) {
-      const queries = (idx.numberOfQueries || 0) + (idx.numberOfRssQueries || 0);
+  const prowlarrStats = indexerStatsRaw.prowlarr;
+  if (prowlarrStats?.indexers) {
+    for (const idx of prowlarrStats.indexers) {
+      const queries =
+        (idx.numberOfQueries || 0) + (idx.numberOfRssQueries || 0);
       const grabs = idx.numberOfGrabs || 0;
-      const failures = idx.numberOfFailedQueries || 0;
+      const failures =
+        (idx.numberOfFailedQueries || 0) +
+        (idx.numberOfFailedRssQueries || 0);
       indexers.push({
         name: idx.indexerName || idx.name || "Unknown",
         queries,
         grabs,
         failures,
         failureRate: queries > 0 ? (failures / queries) * 100 : 0,
-        source,
+        sources: ["prowlarr"],
       });
     }
+    indexers.sort((a, b) => b.grabs - a.grabs);
   }
 
   const recommendations: string[] = [];
-  const highFailure = indexers.filter((i) => i.failureRate > 30 && i.queries > 10);
+  const highFailure = indexers.filter(
+    (i) => i.failureRate > 30 && i.queries > 10,
+  );
   if (highFailure.length > 0) {
-    recommendations.push(`Consider disabling or troubleshooting: ${highFailure.map((i) => i.name).join(", ")}`);
+    recommendations.push(
+      `Consider disabling or troubleshooting: ${highFailure.map((i) => i.name).join(", ")}`,
+    );
   }
   const zeroGrab = indexers.filter((i) => i.grabs === 0 && i.queries > 20);
   if (zeroGrab.length > 0) {
-    recommendations.push(`No grabs from: ${zeroGrab.map((i) => i.name).join(", ")} -- check categories/filters`);
+    recommendations.push(
+      `No grabs from: ${zeroGrab.map((i) => i.name).join(", ")} -- check categories/filters`,
+    );
   }
   if (indexers.length === 0) {
     recommendations.push("No indexer data available. Check *arr connections.");
@@ -89,7 +139,10 @@ export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?:
   const indexerPerformance: IndexerPerformance = { indexers, recommendations };
 
   // ── Top requesters ─────────────────────────────────────────────────
-  const userCounts: Record<string, { name: string; avatar: string | null; count: number }> = {};
+  const userCounts: Record<
+    string,
+    { name: string; avatar: string | null; count: number }
+  > = {};
   for (const r of allRequests) {
     if (!userCounts[r.userId]) {
       userCounts[r.userId] = { name: "", avatar: null, count: 0 };
@@ -115,5 +168,10 @@ export async function computeAnalytics(indexerStatsRaw: { radarr?: any; sonarr?:
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  return { requests: requestStats, fulfillment, indexers: indexerPerformance, topRequesters };
+  return {
+    requests: requestStats,
+    fulfillment,
+    indexers: indexerPerformance,
+    topRequesters,
+  };
 }

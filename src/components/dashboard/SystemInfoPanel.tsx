@@ -74,7 +74,10 @@ function CollapsibleSection({
           {count !== undefined && (
             <span
               className="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
-              style={{ background: "rgba(99,102,241,0.15)", color: "var(--accent)" }}
+              style={{
+                background: "rgba(99,102,241,0.15)",
+                color: "var(--accent)",
+              }}
             >
               {count}
             </span>
@@ -88,13 +91,15 @@ function CollapsibleSection({
           stroke="currentColor"
           strokeWidth={2}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M19 9l-7 7-7-7"
+          />
         </svg>
       </button>
       {open && (
-        <div style={{ borderTop: "1px solid var(--border)" }}>
-          {children}
-        </div>
+        <div style={{ borderTop: "1px solid var(--border)" }}>{children}</div>
       )}
     </div>
   );
@@ -115,25 +120,44 @@ export default function SystemInfoPanel({
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Name</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Interval</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Last Run</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Next Run</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Duration</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                  Name
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                  Interval
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                  Last Run
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                  Next Run
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                  Duration
+                </th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.name} style={{ borderBottom: "1px solid var(--border)" }}>
+                <tr
+                  key={t.name}
+                  style={{ borderBottom: "1px solid var(--border)" }}
+                >
                   <td className="px-4 py-2 font-medium">{t.name}</td>
-                  <td className="px-4 py-2 text-xs text-[var(--muted)]">{t.interval || "--"}</td>
-                  <td className="px-4 py-2 text-xs text-[var(--muted)]">{t.lastExecutionAgo || "--"}</td>
+                  <td className="px-4 py-2 text-xs text-[var(--muted)]">
+                    {t.interval || "--"}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-[var(--muted)]">
+                    {t.lastExecutionAgo || "--"}
+                  </td>
                   <td className="px-4 py-2 text-xs text-[var(--muted)]">
                     {t.nextExecution
                       ? new Date(t.nextExecution).toLocaleTimeString()
                       : "--"}
                   </td>
-                  <td className="px-4 py-2 text-xs text-[var(--muted)]">{t.lastDuration || "--"}</td>
+                  <td className="px-4 py-2 text-xs text-[var(--muted)]">
+                    {t.lastDuration || "--"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -142,7 +166,10 @@ export default function SystemInfoPanel({
       </CollapsibleSection>
 
       {/* Download Clients */}
-      <CollapsibleSection title="Download Clients" count={downloadClients.length}>
+      <CollapsibleSection
+        title="Download Clients"
+        count={downloadClients.length}
+      >
         <div className="p-4 space-y-2">
           {downloadClients.map((dc) => (
             <div
@@ -152,14 +179,20 @@ export default function SystemInfoPanel({
             >
               <div>
                 <span className="text-sm font-medium">{dc.name}</span>
-                <span className="ml-2 text-xs text-[var(--muted)]">{dc.implementation}</span>
+                <span className="ml-2 text-xs text-[var(--muted)]">
+                  {dc.implementation}
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--muted)]">{dc.protocol}</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {dc.protocol}
+                </span>
                 <span
                   className="rounded-md px-2 py-0.5 text-[10px] font-medium"
                   style={{
-                    background: dc.enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                    background: dc.enabled
+                      ? "rgba(34,197,94,0.15)"
+                      : "rgba(239,68,68,0.15)",
                     color: dc.enabled ? "var(--success)" : "var(--danger)",
                   }}
                 >
@@ -172,7 +205,10 @@ export default function SystemInfoPanel({
       </CollapsibleSection>
 
       {/* Quality Profiles */}
-      <CollapsibleSection title="Quality Profiles" count={qualityProfiles.length}>
+      <CollapsibleSection
+        title="Quality Profiles"
+        count={qualityProfiles.length}
+      >
         <div className="flex flex-wrap gap-2 p-4">
           {qualityProfiles.map((qp) => (
             <span
@@ -197,11 +233,15 @@ export default function SystemInfoPanel({
             >
               <span className="text-sm font-mono">{rf.path}</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--muted)]">{rf.freeSpaceGB} GB free</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {rf.freeSpaceGB} GB free
+                </span>
                 <span
                   className="rounded-md px-2 py-0.5 text-[10px] font-medium"
                   style={{
-                    background: rf.accessible ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                    background: rf.accessible
+                      ? "rgba(34,197,94,0.15)"
+                      : "rgba(239,68,68,0.15)",
                     color: rf.accessible ? "var(--success)" : "var(--danger)",
                   }}
                 >
@@ -216,25 +256,40 @@ export default function SystemInfoPanel({
       {/* Blocklist */}
       <CollapsibleSection title="Blocklist" count={blocklist.totalRecords}>
         {blocklist.records.length === 0 ? (
-          <div className="p-4 text-center text-sm text-[var(--muted)]">No blocklist entries</div>
+          <div className="p-4 text-center text-sm text-[var(--muted)]">
+            No blocklist entries
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Title</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Date</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">Indexer</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                    Title
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                    Date
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted)]">
+                    Indexer
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {blocklist.records.map((b) => (
-                  <tr key={b.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td className="max-w-[250px] truncate px-4 py-2 font-medium">{b.title}</td>
+                  <tr
+                    key={b.id}
+                    style={{ borderBottom: "1px solid var(--border)" }}
+                  >
+                    <td className="max-w-[250px] truncate px-4 py-2 font-medium">
+                      {b.title}
+                    </td>
                     <td className="px-4 py-2 text-xs text-[var(--muted)]">
                       {b.date ? new Date(b.date).toLocaleDateString() : "--"}
                     </td>
-                    <td className="px-4 py-2 text-xs text-[var(--muted)]">{b.indexer || "--"}</td>
+                    <td className="px-4 py-2 text-xs text-[var(--muted)]">
+                      {b.indexer || "--"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

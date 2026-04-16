@@ -28,14 +28,21 @@ export async function POST(req: NextRequest) {
   }
 
   // Allow retry for failed/stalled, or approved requests stuck without an arrId (routing failed silently)
-  const canRetry = ["failed", "stalled"].includes(request.status) ||
+  const canRetry =
+    ["failed", "stalled"].includes(request.status) ||
     (request.status === "approved" && !request.arrId);
   if (!canRetry) {
-    return NextResponse.json({ error: `Cannot retry request with status: ${request.status}` }, { status: 400 });
+    return NextResponse.json(
+      { error: `Cannot retry request with status: ${request.status}` },
+      { status: 400 },
+    );
   }
 
   if (request.retryCount >= MAX_RETRIES) {
-    return NextResponse.json({ error: `Max retries (${MAX_RETRIES}) reached` }, { status: 400 });
+    return NextResponse.json(
+      { error: `Max retries (${MAX_RETRIES}) reached` },
+      { status: 400 },
+    );
   }
 
   // Reset to approved and bump retry count
@@ -48,11 +55,19 @@ export async function POST(req: NextRequest) {
     data: {
       requestId,
       event: "retried",
-      detail: JSON.stringify({ retryCount: request.retryCount + 1, previousStatus: request.status }),
+      detail: JSON.stringify({
+        retryCount: request.retryCount + 1,
+        previousStatus: request.status,
+      }),
     },
   });
 
-  logAudit(adminId, "retry_request", { type: "request", id: requestId }, { retryCount: request.retryCount + 1 });
+  logAudit(
+    adminId,
+    "retry_request",
+    { type: "request", id: requestId },
+    { retryCount: request.retryCount + 1 },
+  );
 
   try {
     const result = await routeToArr({
@@ -85,13 +100,21 @@ export async function POST(req: NextRequest) {
         data: {
           requestId,
           event: "sent_to_arr",
-          detail: JSON.stringify({ arrId: result.arrId, alreadyExists: result.alreadyExists, retry: true }),
+          detail: JSON.stringify({
+            arrId: result.arrId,
+            alreadyExists: result.alreadyExists,
+            retry: true,
+          }),
         },
       });
 
       if (alreadyAvailable) {
         await prisma.pipelineEvent.create({
-          data: { requestId, event: "available", detail: JSON.stringify({ alreadyExists: true }) },
+          data: {
+            requestId,
+            event: "available",
+            detail: JSON.stringify({ alreadyExists: true }),
+          },
         });
       }
     }
@@ -106,14 +129,19 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     await prisma.request.update({
       where: { id: requestId },
-      data: { status: "failed", lastError: err.message },
+      data: { status: "failed", lastError: errMsg },
     });
     await prisma.pipelineEvent.create({
-      data: { requestId, event: "failed", detail: JSON.stringify({ error: err.message, retry: true }) },
+      data: {
+        requestId,
+        event: "failed",
+        detail: JSON.stringify({ error: errMsg, retry: true }),
+      },
     });
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

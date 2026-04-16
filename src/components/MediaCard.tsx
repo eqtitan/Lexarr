@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { SearchResult } from "@/types";
+import type { SearchResult, LibraryStatusValue } from "@/types";
 
 const typeColors: Record<string, string> = {
   movie: "var(--movie)",
@@ -17,11 +17,26 @@ const typeLabels: Record<string, string> = {
   book: "Book",
 };
 
+const musicReleaseLabels: Record<string, string> = {
+  album: "Album",
+  single: "Single",
+  ep: "EP",
+  other: "Release",
+};
+
+const statusBadge: Record<string, { label: string; bg: string }> = {
+  available: { label: "In Library", bg: "var(--success)" },
+  monitored: { label: "Monitored", bg: "var(--tv)" },
+  requested: { label: "Requested", bg: "var(--warning)" },
+};
+
 export default function MediaCard({
   result,
+  libraryStatus,
   onClick,
 }: {
   result: SearchResult;
+  libraryStatus?: LibraryStatusValue;
   onClick?: () => void;
 }) {
   const [requesting, setRequesting] = useState(false);
@@ -45,16 +60,24 @@ export default function MediaCard({
           posterUrl: result.posterUrl,
           artist: result.artist,
           artistId: result.artistId,
+          releaseType: result.releaseType,
         }),
       });
+      if (res.status === 401) {
+        setError("Sign in first");
+        return;
+      }
       if (res.status === 409) {
         setAlreadyRequested(true);
         return;
       }
-      if (!res.ok) throw new Error("Request failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Request failed");
+      }
       setRequested(true);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setRequesting(false);
     }
@@ -85,8 +108,19 @@ export default function MediaCard({
           className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
           style={{ background: typeColors[result.mediaType] }}
         >
-          {typeLabels[result.mediaType]}
+          {result.mediaType === "music" && result.releaseType
+            ? musicReleaseLabels[result.releaseType]
+            : typeLabels[result.mediaType]}
         </span>
+        {/* Library status badge (bottom-right) */}
+        {libraryStatus && statusBadge[libraryStatus] && (
+          <span
+            className="absolute bottom-1 right-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
+            style={{ background: statusBadge[libraryStatus].bg }}
+          >
+            {statusBadge[libraryStatus].label}
+          </span>
+        )}
       </div>
 
       {/* Info */}
@@ -101,7 +135,9 @@ export default function MediaCard({
             )}
           </h3>
           {result.artist && (
-            <p className="mt-0.5 text-sm text-[var(--muted)]">{result.artist}</p>
+            <p className="mt-0.5 text-sm text-[var(--muted)]">
+              {result.artist}
+            </p>
           )}
           {result.overview && (
             <p className="mt-1 line-clamp-2 text-xs text-[var(--muted)]">
@@ -117,28 +153,46 @@ export default function MediaCard({
           )}
           <button
             onClick={handleRequest}
-            disabled={requesting || requested || alreadyRequested}
+            disabled={
+              requesting ||
+              requested ||
+              alreadyRequested ||
+              libraryStatus === "available" ||
+              libraryStatus === "monitored"
+            }
             className="ml-auto rounded-lg px-4 py-1.5 text-sm font-medium transition-all disabled:opacity-60"
             style={{
-              background: requested
-                ? "var(--success)"
-                : alreadyRequested
-                ? "var(--warning)"
-                : error
-                ? "var(--danger)"
-                : "var(--accent)",
-              color: alreadyRequested ? "#000" : "white",
+              background:
+                libraryStatus === "available"
+                  ? "var(--success)"
+                  : libraryStatus === "monitored"
+                    ? "var(--tv)"
+                    : requested
+                      ? "var(--success)"
+                      : alreadyRequested || libraryStatus === "requested"
+                        ? "var(--warning)"
+                        : error
+                          ? "var(--danger)"
+                          : "var(--accent)",
+              color:
+                alreadyRequested || libraryStatus === "requested"
+                  ? "#000"
+                  : "white",
             }}
           >
-            {requested
-              ? "Requested ✓"
-              : alreadyRequested
-              ? "Already Requested"
-              : requesting
-              ? "..."
-              : error
-              ? "Failed"
-              : "Request"}
+            {libraryStatus === "available"
+              ? "In Library"
+              : libraryStatus === "monitored"
+                ? "Monitored"
+                : requested
+                  ? "Requested ✓"
+                  : alreadyRequested || libraryStatus === "requested"
+                    ? "Already Requested"
+                    : requesting
+                      ? "..."
+                      : error
+                        ? error
+                        : "Request"}
           </button>
         </div>
       </div>

@@ -2,9 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  experimental: { instrumentationHook: true },
+  // instrumentationHook + eslint config moved out of NextConfig in Next.js 16
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "image.tmdb.org" },
