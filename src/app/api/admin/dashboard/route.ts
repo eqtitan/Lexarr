@@ -8,6 +8,7 @@ import * as prowlarr from "@/lib/arr/prowlarr";
 import { computeAnalytics } from "@/lib/dashboard/analytics";
 import { generateWarnings } from "@/lib/dashboard/warnings";
 import { SERVICE_REGISTRY } from "@/lib/dashboard/services";
+import { readStackHealth } from "@/lib/stack-health";
 import type {
   DashboardData,
   PipelineRequestDTO,
@@ -219,12 +220,24 @@ export async function GET() {
     .catch(() => {}); // fire-and-forget
 
   // ── Response ──────────��────────────────────────────────────────────
+  // ── Stack health (from host cron via mounted file) ─────────────────
+  const healthReport = await readStackHealth().catch(() => null);
+  const stackHealth = healthReport
+    ? {
+        lastRunAt: healthReport.lastRunAt,
+        staleMinutes: healthReport.staleMinutes,
+        issueCount: healthReport.issueCount,
+        cleanedCount: healthReport.cleanedCount,
+      }
+    : null;
+
   const data: DashboardData = {
     pipeline: { pending, active, recent },
     queue,
     services,
     analytics,
     warnings,
+    stackHealth,
     generatedAt: new Date().toISOString(),
   };
 

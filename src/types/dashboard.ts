@@ -113,6 +113,19 @@ export interface AnalyticsDTO {
   topRequesters: TopRequester[];
 }
 
+// ── Stack healthcheck (host cron) ───────────────────────────────────────
+
+export interface StackHealthSummary {
+  /** ISO — when the host cron last wrote a report */
+  lastRunAt: string;
+  /** Minutes since last run */
+  staleMinutes: number;
+  /** Issues the script found */
+  issueCount: number;
+  /** Stuck downloads auto-cleaned this run */
+  cleanedCount: number;
+}
+
 // ── Full dashboard response ─────────────────────────────────────────────
 
 export interface DashboardData {
@@ -125,5 +138,7 @@ export interface DashboardData {
   services: ServiceHealthDTO[];
   analytics: AnalyticsDTO;
   warnings: DashboardWarning[];
+  /** Null when the healthcheck file isn't readable (volume not mounted / no run yet) */
+  stackHealth: StackHealthSummary | null;
   generatedAt: string;
 }

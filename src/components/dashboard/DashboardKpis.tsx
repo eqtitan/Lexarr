@@ -7,6 +7,14 @@ interface KpiProps {
   onOpenTab: (tab: "overview" | "approvals" | "pipeline" | "analytics") => void;
 }
 
+function formatStale(minutes: number): string {
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
   const totalServices = data.services.length;
   const healthyServices = data.services.filter((s) => s.healthy).length;
@@ -63,6 +71,28 @@ export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
                 ? "All services healthy"
                 : `${downServices.length} service${downServices.length === 1 ? "" : "s"} down`}
             </p>
+            {data.stackHealth && (
+              <p
+                className="mt-1 text-[10px] leading-tight"
+                style={{
+                  color:
+                    data.stackHealth.issueCount > 5
+                      ? "var(--danger)"
+                      : data.stackHealth.issueCount > 0
+                        ? "var(--warning)"
+                        : "var(--muted)",
+                }}
+                title={`Last healthcheck: ${new Date(data.stackHealth.lastRunAt).toLocaleString()}`}
+              >
+                Last check: {formatStale(data.stackHealth.staleMinutes)}
+                {" · "}
+                {data.stackHealth.issueCount === 0
+                  ? "0 issues"
+                  : `${data.stackHealth.issueCount} issue${data.stackHealth.issueCount === 1 ? "" : "s"}`}
+                {data.stackHealth.cleanedCount > 0 &&
+                  ` · ${data.stackHealth.cleanedCount} cleaned`}
+              </p>
+            )}
           </button>
           {!allHealthy && (
             <>

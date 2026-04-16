@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.1] — 2026-04-16 (was `v11`)
+
+### Added
+- Stack-healthcheck KPI — dashboard Stack Health tile shows last-run
+  timestamp and issue count from the host cron's report
+  (`/mnt/user/data/stack-healthcheck/latest-report.txt`, mounted read-only
+  at `/stack-health`). `src/lib/stack-health.ts` parses the header;
+  `/api/admin/stack-health` exposes the body.
+- Indexer Performance "% grab" column (grabs ÷ queries — the operationally
+  useful metric)
+- Renamed "% fail" → "% errors" with tooltip showing raw counts
+
+### Fixed
+- Indexer stats source: Radarr/Sonarr/Lidarr v6 dropped `/api/v3/indexerstats`;
+  switched to Prowlarr's `/api/v1/indexerstats` which is the actual source
+  of truth. Aggregation handles direct + RSS query/failure counts.
+
 ## [0.4.0] — 2026-04-16 (was `v4`–`v10` batch)
 
 ### Added
