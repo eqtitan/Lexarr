@@ -55,9 +55,20 @@ async function mbGet<T>(path: string): Promise<T | null> {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "User-Agent": UA },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // MusicBrainz rate-limits anonymous clients to 1 req/sec and returns
+      // 503 when exceeded. Surface the status so ops can tell
+      // "rate-limited" from "API down" from "query malformed" — without it,
+      // every upstream failure degrades silently to an empty result set.
+      console.warn(
+        `[musicbrainz] ${path} → HTTP ${res.status} ${res.statusText}`,
+      );
+      return null;
+    }
     return (await res.json()) as T;
-  } catch {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[musicbrainz] ${path} → network error: ${msg}`);
     return null;
   }
 }

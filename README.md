@@ -134,13 +134,15 @@ box is checked, not when a feature list is complete.
 - [x] Empty states for every list (no results, no queue, no warnings)
 - [x] Toasts consistent (color, duration, position, dismissal)
 
-#### `0.7.0` — Reliability *(2026-04-16, partial scope)*
+#### `0.7.0` — Reliability *(2026-04-16; 2 items completed in 0.9.0)*
 - [x] No `catch {}` silently swallowing errors without logging
 - [x] Retry logic reviewed — nothing loops forever
-- [ ] Circuit breakers on every *arr call *(deferred to 0.9.0 — timeouts
-      + typed errors landed via `arrFetch`, but per-call breakers still TODO)*
-- [ ] All POST routes either idempotent or documented non-idempotent
-      *(deferred to 0.9.0)*
+- [x] Circuit breakers on every *arr call *(shipped in 0.9.0 — timeouts
+      + typed errors landed in 0.7.0 via `arrFetch`; per-call breakers
+      in 0.9.0)*
+- [x] All POST routes either idempotent or documented non-idempotent
+      *(shipped in 0.9.0 — see
+      [`docs/POST-idempotency.md`](docs/POST-idempotency.md))*
 
 #### `0.7.1` — Stuck-download detection *(2026-04-17, patch)*
 - Surfaces *arr errors to `Request.lastError` for user-visible diagnostics
@@ -174,14 +176,30 @@ box is checked, not when a feature list is complete.
 - [ ] `docker-compose.yml` is a complete working example
 - [ ] Migration path docs (upgrading from 0.x to 0.y)
 - [ ] Security checklist (secrets rotation, headers, CORS)
+- [ ] `SECURITY.md` with private disclosure policy *(GitHub gates the
+      Security Advisories feature on this)*
+- [ ] `/healthz` endpoint validating DB reachability + at least one
+      *arr key — not just "Next.js is alive"
+- [ ] `npm audit` clean + Docker base-image CVE check documented
+- [ ] Migration smoke test — upgrade from an empty 0.1.0 DB passes
+      `prisma migrate deploy` without manual intervention
 
 #### `1.0.0` — Public launch
-- [ ] 0.10.0 ran in prod for a week with no new bug-fix releases needed
-- [ ] README is clear enough for a stranger to deploy successfully
+- [ ] 0.10.0 ran in prod for 7 consecutive days with no P0 incident
+      *(P0 = data loss, container crashloop, or auth bypass)*
+- [ ] CI green on every push for those 7 days
+- [ ] README validated by at least one external tester who hasn't seen
+      the repo before — the only way to check "clear enough for a
+      stranger" without going public first
 - [ ] GitHub Release notes written manually (1.0.0 matters)
 - [ ] Repo flipped to public
-- [ ] GitHub branch protection enabled on master *(requires public repo
-      or Pro — both blocked on free private tier)*
+- [ ] Branch protection enabled on master *(rulesets, not classic —
+      free tier on public repos; blocks force-push + deletion, admin
+      bypass allowed)*
+- [ ] `SECURITY.md` + `LICENSE` + `README.md` all visible on the
+      public-facing repo
+- [ ] At least one Lexarr image pushed to `ghcr.io` with the `1.0.0`
+      tag so others can `docker pull`
 
 ## Versioning
 

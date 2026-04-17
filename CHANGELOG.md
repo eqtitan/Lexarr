@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.9.1] — 2026-04-17
+
+### Fixed
+- fix(search): don't cache empty results — fixes music cache poisoning (83a3320)
+
+### Chore
+- docs: tighten 0.10.0 and 1.0.0 exit criteria (219c881)
+- docs: check off 0.7.0 items now that 0.9.0 completed them (f2cd80d)
+
 ## [0.9.0] — 2026-04-17
 
 ### Added

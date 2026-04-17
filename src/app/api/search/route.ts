@@ -51,6 +51,15 @@ export async function GET(req: NextRequest) {
     results = results.filter((r) => r.mediaType === filter);
   }
 
-  searchCache.set(cacheKey, results);
+  // Only cache non-empty results. An empty array almost always means an
+  // upstream transient failure (MusicBrainz 503 rate-limit, TMDB outage,
+  // OpenLibrary timeout). Caching [] for 5 min means one blip locks every
+  // user out of finding that query until the TTL expires — a retry a
+  // second later returns the same empty cached answer without ever
+  // hitting the upstream again. Better to let transient failures cost
+  // an extra fetch than poison the cache.
+  if (results.length > 0) {
+    searchCache.set(cacheKey, results);
+  }
   return NextResponse.json({ results });
 }
