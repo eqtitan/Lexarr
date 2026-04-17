@@ -27,7 +27,11 @@ export default function Home() {
   const { toast } = useToast();
 
   const handleSearch = useCallback(
-    async (query: string, filter: MediaType | null) => {
+    async (
+      query: string,
+      filter: MediaType | null,
+      sub: "album" | "ep" | "single" | null,
+    ) => {
       if (query.length < 2) {
         setResults([]);
         setSearched(false);
@@ -40,6 +44,7 @@ export default function Home() {
       try {
         const params = new URLSearchParams({ q: query });
         if (filter) params.set("type", filter);
+        if (sub) params.set("sub", sub);
         const res = await fetch(`/api/search?${params}`);
         const data = await res.json();
         const searchResults: SearchResult[] = data.results || [];

@@ -3,6 +3,22 @@ import type { SearchResult, MusicReleaseType } from "@/types";
 const BASE = "https://musicbrainz.org/ws/2";
 const UA = "Lexarr/1.0 (media-request-portal)";
 
+/**
+ * Optional filters applied to a music search.
+ *   releaseType: restrict to Single / EP / Album (omit for all types).
+ *     Used by the sub-filter chip on the Music tab.
+ *   allowedRegions: ISO 3166-1 alpha-2 codes (e.g. ["US","GB"]). Empty
+ *     or omitted = no region filter. Applied via MB's Lucene-style
+ *     `country:` clause on text search only — the artist-matched
+ *     discography path ignores region because you're browsing a known
+ *     artist's catalog; filtering by where their releases were pressed
+ *     would hide tracks confusingly.
+ */
+export interface MusicSearchOptions {
+  releaseType?: "single" | "ep" | "album";
+  allowedRegions?: string[];
+}
+
 // ── MB response types ────────────────────────────────────────────────
 
 interface MbArtist {
@@ -272,12 +288,52 @@ function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
   });
 }
 
-async function fetchTextResults(query: string): Promise<MbReleaseGroup[]> {
+/**
+ * Build a MusicBrainz Lucene query combining the user's search term
+ * with the optional releaseType and region filters. Keeps the raw
+ * search-term wrapping clean so clauses don't bleed into each other.
+ */
+export function buildTextSearchQuery(
+  query: string,
+  opts?: MusicSearchOptions,
+): string {
+  const term = query.trim();
+  const clauses: string[] = [term];
+  if (opts?.releaseType) {
+    // MB's `primarytype` field is case-insensitive but accepts the
+    // canonical capitalized form.
+    const pt =
+      opts.releaseType === "album"
+        ? "Album"
+        : opts.releaseType === "ep"
+          ? "EP"
+          : "Single";
+    clauses.push(`primarytype:${pt}`);
+  }
+  if (opts?.allowedRegions && opts.allowedRegions.length > 0) {
+    // MB `country` codes are lowercase in the Lucene index.
+    const codes = opts.allowedRegions
+      .map((r) => r.toLowerCase())
+      .filter((r) => /^[a-z]{2}$/.test(r));
+    if (codes.length === 1) {
+      clauses.push(`country:${codes[0]}`);
+    } else if (codes.length > 1) {
+      clauses.push(`(${codes.map((c) => `country:${c}`).join(" OR ")})`);
+    }
+  }
+  return clauses.length === 1 ? clauses[0] : clauses.join(" AND ");
+}
+
+async function fetchTextResults(
+  query: string,
+  opts?: MusicSearchOptions,
+): Promise<MbReleaseGroup[]> {
   // Fetch a wide window (100) so the score-first ranker can surface
   // exact-title matches even when they sit at position 12+ in MB's
   // default order.
+  const built = buildTextSearchQuery(query, opts);
   const data = await mbGet<{ "release-groups"?: MbReleaseGroup[] }>(
-    `/release-group?query=${encodeURIComponent(query)}&limit=100&inc=releases&fmt=json`,
+    `/release-group?query=${encodeURIComponent(built)}&limit=100&inc=releases&fmt=json`,
   );
   return rankTextResults(data?.["release-groups"] ?? []);
 }
@@ -296,7 +352,10 @@ async function fetchTextResults(query: string): Promise<MbReleaseGroup[]> {
  * `secondaryTypes` (Live / Remix / Acoustic / etc) so the UI can label
  * variants like "Live Album" or "Remix Single" distinctly.
  */
-export async function search(query: string): Promise<SearchResult[]> {
+export async function search(
+  query: string,
+  opts?: MusicSearchOptions,
+): Promise<SearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
 
@@ -305,12 +364,37 @@ export async function search(query: string): Promise<SearchResult[]> {
   if (detection.confidence === "strong") {
     const discography = await fetchDiscography(detection.mbid);
     if (discography.length > 0) {
-      return pickDiscographyMix(discography, 15).map(toResult);
+      // Artist-matched path: honor releaseType (user-selected chip)
+      // but not region — the discography is from a known artist,
+      // country-of-pressing filtering would hide tracks confusingly.
+      let filtered = discography;
+      if (opts?.releaseType) {
+        const want =
+          opts.releaseType === "album"
+            ? 0
+            : opts.releaseType === "ep"
+              ? 1
+              : 2;
+        filtered = filtered.filter((g) => typeWeight(g) === want);
+      }
+      if (filtered.length === 0) {
+        // Requested type doesn't exist in this artist's catalog — fall
+        // through to text search so the user sees *something* rather
+        // than a confusing empty state.
+      } else if (opts?.releaseType) {
+        // When a releaseType is specified, skip the mix distribution
+        // (it assumes a 3-type budget) and just year-sort.
+        const byYearDesc = (a: MbReleaseGroup, b: MbReleaseGroup) =>
+          yearOf(b) - yearOf(a);
+        return filtered.sort(byYearDesc).slice(0, 15).map(toResult);
+      } else {
+        return pickDiscographyMix(filtered, 15).map(toResult);
+      }
     }
     // Artist found but no release-groups (rare) — fall through to text search
   }
 
-  const textResults = await fetchTextResults(trimmed);
+  const textResults = await fetchTextResults(trimmed, opts);
   return textResults.slice(0, 15).map(toResult);
 }
 
@@ -321,4 +405,5 @@ export const __testing = {
   pickDiscographyMix,
   filterSecondaryTypes,
   toResult,
+  buildTextSearchQuery,
 };

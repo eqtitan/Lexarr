@@ -14,6 +14,11 @@ interface NotificationChannel {
   createdAt: string;
 }
 
+interface SupportedRegion {
+  code: string;
+  label: string;
+}
+
 const EVENT_OPTIONS = [
   { value: "all", label: "All Events" },
   { value: "submitted", label: "New Request" },
@@ -61,6 +66,19 @@ export default function SettingsPage() {
     msg: string;
   } | null>(null);
 
+  // Music region-filter state
+  const [regions, setRegions] = useState<string[]>([]);
+  const [supportedRegions, setSupportedRegions] = useState<SupportedRegion[]>(
+    [],
+  );
+  const [regionsLoaded, setRegionsLoaded] = useState(false);
+  const [savedRegions, setSavedRegions] = useState<string[]>([]);
+  const [savingRegions, setSavingRegions] = useState(false);
+  const [regionSaveMsg, setRegionSaveMsg] = useState<string | null>(null);
+  const regionsDirty =
+    regions.length !== savedRegions.length ||
+    regions.some((r) => !savedRegions.includes(r));
+
   useEffect(() => {
     if (sessionStatus === "loading") return;
     if (!session || role !== "admin") router.replace("/");
@@ -81,9 +99,60 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchRegions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/settings/music");
+      if (!res.ok) return;
+      const json = await res.json();
+      setRegions(json.regions || []);
+      setSavedRegions(json.regions || []);
+      setSupportedRegions(json.supported || []);
+      setRegionsLoaded(true);
+    } catch {
+      // Non-fatal — the section will show a retry if it didn't populate
+    }
+  }, []);
+
   useEffect(() => {
-    if (role === "admin") fetchChannels();
-  }, [role, fetchChannels]);
+    if (role === "admin") {
+      fetchChannels();
+      fetchRegions();
+    }
+  }, [role, fetchChannels, fetchRegions]);
+
+  function toggleRegion(code: string) {
+    setRegions((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+    setRegionSaveMsg(null);
+  }
+
+  async function saveRegions() {
+    setSavingRegions(true);
+    setRegionSaveMsg(null);
+    try {
+      const res = await fetch("/api/admin/settings/music", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regions }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      setSavedRegions(json.regions || []);
+      setRegions(json.regions || []);
+      setRegionSaveMsg("Saved");
+      setTimeout(() => setRegionSaveMsg(null), 3000);
+    } catch (err: unknown) {
+      setRegionSaveMsg(
+        err instanceof Error ? `Save failed — ${err.message}` : "Save failed",
+      );
+    } finally {
+      setSavingRegions(false);
+    }
+  }
 
   // Clear the action-error banner after a few seconds so it doesn't linger.
   useEffect(() => {
@@ -259,6 +328,106 @@ export default function SettingsPage() {
           {actionError}
         </div>
       )}
+
+      {/* Music Search Regions */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Music Search Regions</h2>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            Filter MusicBrainz results to releases issued in the selected
+            countries. Leave empty to search all regions. Default: US + UK.
+          </p>
+        </div>
+
+        {!regionsLoaded ? (
+          <p className="text-sm text-[var(--muted)]">Loading regions…</p>
+        ) : (
+          <div
+            className="rounded-xl p-4 ring-1 ring-[var(--border)] space-y-3"
+            style={{ background: "var(--card)" }}
+          >
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              {supportedRegions.map((r) => {
+                const on = regions.includes(r.code);
+                return (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => toggleRegion(r.code)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ring-1 transition-colors"
+                    style={{
+                      background: on
+                        ? "rgba(99,102,241,0.12)"
+                        : "var(--background)",
+                      borderColor: on ? "var(--accent)" : "var(--border)",
+                      color: "var(--foreground)",
+                    }}
+                  >
+                    <span
+                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                      style={{
+                        borderColor: on ? "var(--accent)" : "var(--border)",
+                        background: on ? "var(--accent)" : "transparent",
+                      }}
+                      aria-hidden="true"
+                    >
+                      {on && (
+                        <svg
+                          className="h-3 w-3 text-white"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="flex-1">
+                      <span className="font-medium">{r.code}</span>
+                      <span className="ml-1.5 text-xs text-[var(--muted)]">
+                        {r.label}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-xs text-[var(--muted)]">
+                {regions.length === 0
+                  ? "No filter — all regions included"
+                  : `${regions.length} region${regions.length === 1 ? "" : "s"} selected`}
+              </p>
+              <div className="flex items-center gap-2">
+                {regionSaveMsg && (
+                  <span
+                    className={`text-xs font-medium ${
+                      regionSaveMsg === "Saved"
+                        ? "text-[var(--success)]"
+                        : "text-[var(--danger)]"
+                    }`}
+                  >
+                    {regionSaveMsg}
+                  </span>
+                )}
+                <button
+                  onClick={saveRegions}
+                  disabled={!regionsDirty || savingRegions}
+                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {savingRegions ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Notification Channels */}
       <section className="space-y-4">

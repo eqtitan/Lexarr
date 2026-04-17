@@ -97,3 +97,14 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+/// Key/value store for admin-configurable settings that don't warrant
+/// their own table. Value is JSON-encoded to keep schema simple — the
+/// src/lib/settings.ts helpers handle encode/decode + defaults.
+/// Current keys:
+///   - music.allowedRegions : string[]   (ISO 3166-1 alpha-2 codes)
+model AppSetting {
+  key       String   @id
+  value     String   // JSON-encoded
+  updatedAt DateTime @updatedAt
+}

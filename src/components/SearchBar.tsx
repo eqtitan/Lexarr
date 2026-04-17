@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { MediaType } from "@/types";
 
 const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
@@ -11,19 +11,32 @@ const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
   { value: "book", label: "Books", color: "var(--book)" },
 ];
 
+/** Music sub-filter. `album` is the default when Music is first selected. */
+export type MusicSubFilter = "album" | "ep" | "single";
+const MUSIC_SUB_FILTERS: { value: MusicSubFilter; label: string }[] = [
+  { value: "album", label: "Albums" },
+  { value: "ep", label: "EPs" },
+  { value: "single", label: "Singles" },
+];
+
 export default function SearchBar({
   onSearch,
 }: {
-  onSearch: (query: string, filter: MediaType | null) => void;
+  onSearch: (
+    query: string,
+    filter: MediaType | null,
+    sub: MusicSubFilter | null,
+  ) => void;
   isAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
+  const [activeSub, setActiveSub] = useState<MusicSubFilter>("album");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const runSearch = useCallback(
-    (q: string, f: MediaType | "all") => {
-      onSearch(q, f === "all" ? null : f);
+    (q: string, f: MediaType | "all", s: MusicSubFilter) => {
+      onSearch(q, f === "all" ? null : f, f === "music" ? s : null);
     },
     [onSearch],
   );
@@ -33,19 +46,35 @@ export default function SearchBar({
       setQuery(value);
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        runSearch(value, activeFilter);
+        runSearch(value, activeFilter, activeSub);
       }, 250);
     },
-    [activeFilter, runSearch],
+    [activeFilter, activeSub, runSearch],
   );
 
   const handleFilter = useCallback(
     (f: MediaType | "all") => {
       setActiveFilter(f);
-      if (query.length >= 2) runSearch(query, f);
+      if (query.length >= 2) runSearch(query, f, activeSub);
     },
-    [query, runSearch],
+    [query, activeSub, runSearch],
   );
+
+  const handleSub = useCallback(
+    (s: MusicSubFilter) => {
+      setActiveSub(s);
+      if (query.length >= 2 && activeFilter === "music") {
+        runSearch(query, activeFilter, s);
+      }
+    },
+    [query, activeFilter, runSearch],
+  );
+
+  // When switching to Music, reset the sub back to the default `album`
+  // so the user starts from a predictable place each time.
+  useEffect(() => {
+    if (activeFilter === "music") setActiveSub("album");
+  }, [activeFilter]);
 
   return (
     <div className="space-y-3">
@@ -86,6 +115,34 @@ export default function SearchBar({
           </button>
         ))}
       </div>
+      {/* Music sub-filter row — only visible when Music is active. */}
+      {activeFilter === "music" && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none pl-1">
+          {MUSIC_SUB_FILTERS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => handleSub(s.value)}
+              className="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ring-1"
+              style={{
+                background:
+                  activeSub === s.value
+                    ? "rgba(99,102,241,0.14)"
+                    : "transparent",
+                color:
+                  activeSub === s.value
+                    ? "var(--accent)"
+                    : "var(--muted)",
+                borderColor:
+                  activeSub === s.value
+                    ? "var(--accent)"
+                    : "var(--border)",
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

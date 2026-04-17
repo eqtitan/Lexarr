@@ -22,6 +22,7 @@ const ACTION_LABELS: Record<string, string> = {
   update_user: "Updated user",
   add_notification: "Added notification",
   remove_notification: "Removed notification",
+  update_settings: "Updated settings",
   login: "Logged in",
 };
 
@@ -32,6 +33,7 @@ const ACTION_COLORS: Record<string, string> = {
   update_user: "var(--tv)",
   add_notification: "var(--music)",
   remove_notification: "var(--warning)",
+  update_settings: "var(--tv)",
   login: "var(--muted)",
 };
 

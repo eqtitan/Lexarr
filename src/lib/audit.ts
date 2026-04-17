@@ -12,6 +12,7 @@ type AuditAction =
   | "update_user"
   | "add_notification"
   | "remove_notification"
+  | "update_settings"
   | "login";
 
 export async function logAudit(
