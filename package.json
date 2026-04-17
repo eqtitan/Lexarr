@@ -1,6 +1,6 @@
 {
   "name": "lexarr",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "description": "Unified media request portal for movies, TV, music, and books",
   "scripts": {
     "dev": "next dev --turbopack",
@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/",
+    "release": "node scripts/release.js",
     "prepare": "husky"
   },
   "dependencies": {

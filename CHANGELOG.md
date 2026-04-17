@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.5.0] — 2026-04-16
+
+Adoption of Semantic Versioning. From here forward every change gets a version
+bump and CHANGELOG entry per [Conventional Commits](.changelog-rules.md)
+conventions. Earlier history is back-filled from Docker-tag-only releases.
+
+### Added
+- Semantic versioning — `MAJOR.MINOR.PATCH` from `package.json`
+- `CHANGELOG.md` — this file, with full history back to initial release
+- `scripts/release.js` — CLI that bumps version, updates CHANGELOG, git-tags,
+  builds Docker image, reminds to push
+- `.changelog-rules.md` — how commit prefixes map to semver bumps
+- Roadmap to 1.0.0 in README with exit-criteria milestones (0.6, 0.7, 0.8, 0.9)
+
+### Changed
+- Docker tag scheme: `lexarr:0.X.Y` (immutable) + `lexarr:0.X` (latest patch)
+  + `lexarr:latest` (most recent stable). Dropping sequential `vN` tags.
+- Unraid template `Repository` field updated to `lexarr:0.5.0`
+
 ## [0.4.8] — 2026-04-16 (was `v17`)
 
 ### Fixed

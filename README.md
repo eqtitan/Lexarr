@@ -118,6 +118,65 @@ prisma/
   schema.prisma           # Database schema
 ```
 
+## Roadmap to 1.0.0
+
+Lexarr is currently **pre-1.0** (`0.5.0` at the time of writing). Pre-1.0
+releases may contain backwards-incompatible changes between minor versions.
+Each milestone below has explicit **exit criteria** — a version ships when
+every box is checked, not when a feature list is complete.
+
+### `0.6.0` — UX polish
+- [ ] Every button has loading / success / error state
+- [ ] Every API error → user-visible, actionable message (no silent failures)
+- [ ] Mobile layout audited (dashboard works on phone)
+- [ ] Empty states for every list (no results, no queue, no warnings)
+- [ ] Toasts consistent (color, duration, position, dismissal)
+
+### `0.7.0` — Reliability
+- [ ] Circuit breakers on every *arr call (partial stack failure ≠ full
+      Lexarr failure)
+- [ ] All POST routes either idempotent or documented non-idempotent
+- [ ] Retry logic reviewed — nothing loops forever
+- [ ] No `catch {}` silently swallowing errors without logging
+
+### `0.8.0` — Observability
+- [ ] "Diagnose" action on down-service pills (log tail + last error,
+      read-only, no container control)
+- [ ] Request lifecycle visible end-to-end: submitted → approved → sent →
+      downloading → completed/failed, each step timestamped
+- [ ] Audit log readable without scrolling for common actions
+- [ ] Stack-health tile deep-links to the healthcheck report body
+
+### `0.9.0` — Release readiness
+- [ ] README explains setup in ≤ 10 min for someone with an existing *arr
+      stack
+- [ ] `.env.example` documents every variable with inline comments
+- [ ] `docker-compose.yml` is a complete working example
+- [ ] Migration path docs (upgrading from 0.x to 0.y)
+- [ ] Security checklist (secrets rotation, headers, CORS)
+
+### `1.0.0` — Public launch
+- [ ] 0.9.0 ran in prod for a week with no new bug-fix releases needed
+- [ ] README is clear enough for a stranger to deploy successfully
+- [ ] GitHub Release notes written manually (1.0.0 matters)
+- [ ] Repo flipped to public
+
+## Versioning
+
+Lexarr follows [Semantic Versioning](https://semver.org). See
+[`CHANGELOG.md`](CHANGELOG.md) for release history and
+[`.changelog-rules.md`](.changelog-rules.md) for the commit prefix
+conventions that drive automated CHANGELOG generation.
+
+Release a new version with:
+
+```bash
+npm run release -- patch    # bug fix:      0.5.0 → 0.5.1
+npm run release -- minor    # new feature:  0.5.0 → 0.6.0
+npm run release -- major    # breaking:     0.5.0 → 1.0.0 (only when 1.0 criteria met)
+npm run release -- --dry    # preview without writing
+```
+
 ## License
 
 [MIT](LICENSE)
