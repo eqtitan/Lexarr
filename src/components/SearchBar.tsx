@@ -143,6 +143,12 @@ export default function SearchBar({
           className="w-full rounded-xl bg-[var(--card)] py-4 pl-12 pr-4 text-lg outline-none ring-1 ring-[var(--border)] transition-all placeholder:text-[var(--muted)] focus:ring-2 focus:ring-[var(--accent)]"
         />
       </div>
+      {/* Chip row group — main chips + optional music sub-row.
+          Uses space-y-2 internally so the gap between main + sub row
+          matches the horizontal gap-2 between main chips (visual
+          consistency — user requested). Outer space-y-3 keeps the
+          search-input → chip-group gap unchanged at 12px. */}
+      <div className="space-y-2">
       <div
         ref={filterRowRef}
         className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none"
@@ -199,6 +205,7 @@ export default function SearchBar({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
