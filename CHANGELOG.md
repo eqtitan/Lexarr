@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.4] — 2026-04-16 (was `v14`)
+
+### Added
+- `AUTH_PLEX_ENABLED` / `AUTH_JELLYFIN_ENABLED` feature flags — Plex SSO
+  button is opt-in. Defaults: Plex off, Jellyfin on.
+- `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` env vars — failover
+  admin auto-created on startup if none exists. Also refreshes an existing
+  matching admin's password as a rescue path.
+- `src/lib/bootstrap-admin.ts` + Next.js instrumentation hook
+
+### Fixed
+- Plex error message differentiates 502/503 (their outage) from generic
+  failure — more honest than "Failed to start Plex login" for every case.
+
 ## [0.4.3] — 2026-04-16 (was `v13`)
 
 ### Added

@@ -9,6 +9,16 @@ export async function register() {
     // Validate required env vars at startup
     await import("./lib/env");
 
+    // Failover admin bootstrap — ensure at least one admin always exists
+    try {
+      const { ensureBootstrapAdmin } = await import("./lib/bootstrap-admin");
+      const { prisma } = await import("./lib/db");
+      await ensureBootstrapAdmin(prisma);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[bootstrap-admin] Failed: ${msg}`);
+    }
+
     // Start background polling after a short delay to let the server fully initialize
     setTimeout(() => {
       let consecutiveFailures = 0;

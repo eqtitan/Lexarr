@@ -1,10 +1,15 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type AuthMode = "login" | "register" | "jellyfin";
+
+interface AuthConfig {
+  plexEnabled: boolean;
+  jellyfinEnabled: boolean;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +20,25 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [plexLoading, setPlexLoading] = useState(false);
+  const [authConfig, setAuthConfig] = useState<AuthConfig>({
+    plexEnabled: false,
+    jellyfinEnabled: true,
+  });
+
+  // Fetch feature flags so we only render the Plex button when it's enabled
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((c) =>
+        setAuthConfig({
+          plexEnabled: !!c.plexEnabled,
+          jellyfinEnabled: c.jellyfinEnabled !== false,
+        }),
+      )
+      .catch(() => {
+        // Network failure → fall back to defaults (Plex off, Jellyfin on)
+      });
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +99,12 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/plex", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setError("Failed to start Plex login");
+        // 503 from Plex → their side. Otherwise generic.
+        setError(
+          res.status === 502 || res.status === 503
+            ? "Plex is currently unavailable. Try again later or sign in another way."
+            : "Failed to start Plex login",
+        );
         return;
       }
       // Open Plex auth in new window
@@ -121,24 +150,30 @@ export default function LoginPage() {
         Sign in to request media
       </p>
 
-      {/* Plex SSO button */}
-      <button
-        onClick={handlePlexLogin}
-        disabled={plexLoading}
-        className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e5a00d] py-3 font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {plexLoading ? "Opening Plex..." : "Sign in with Plex"}
-      </button>
+      {/* Plex SSO button — shown only when enabled via AUTH_PLEX_ENABLED */}
+      {authConfig.plexEnabled && (
+        <>
+          <button
+            onClick={handlePlexLogin}
+            disabled={plexLoading}
+            className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e5a00d] py-3 font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {plexLoading ? "Opening Plex..." : "Sign in with Plex"}
+          </button>
 
-      <div className="mb-4 flex items-center gap-3">
-        <div className="h-px flex-1 bg-[var(--border)]" />
-        <span className="text-xs text-[var(--muted)]">or</span>
-        <div className="h-px flex-1 bg-[var(--border)]" />
-      </div>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-[var(--border)]" />
+            <span className="text-xs text-[var(--muted)]">or</span>
+            <div className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+        </>
+      )}
 
-      {/* Mode tabs */}
+      {/* Mode tabs — Jellyfin hidden when disabled */}
       <div className="mb-4 flex rounded-lg bg-[var(--card)] p-1">
-        {(["login", "register", "jellyfin"] as AuthMode[]).map((m) => (
+        {(
+          ["login", "register", ...(authConfig.jellyfinEnabled ? ["jellyfin" as const] : [])] as AuthMode[]
+        ).map((m) => (
           <button
             key={m}
             onClick={() => {

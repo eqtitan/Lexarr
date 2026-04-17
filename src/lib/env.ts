@@ -28,9 +28,15 @@ const envSchema = z.object({
   BAZARR_URL: z.string().optional(),
   BAZARR_API_KEY: z.string().optional(),
   PLEX_CLIENT_ID: z.string().optional(),
+  AUTH_PLEX_ENABLED: z.string().optional(), // "true" to show the Plex login button
+  AUTH_JELLYFIN_ENABLED: z.string().optional(), // default on; "false" to hide
   JELLYFIN_URL: z.string().optional(),
   REGISTRATION_OPEN: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+
+  // Failover admin — ensures an admin always exists on fresh installs / DB wipes
+  BOOTSTRAP_ADMIN_USERNAME: z.string().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(6).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
