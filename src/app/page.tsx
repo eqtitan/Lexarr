@@ -1,15 +1,7 @@
 "use client";
 
-/**
- * Force dynamic rendering on every request. Without this, Next.js pre-
- * renders the shell at build time and serves it with `Cache-Control:
- * s-maxage=31536000`, which made the search page reference the *old*
- * content-hashed JS bundle after a deploy. Users on an open tab kept
- * running 0.12.0's broken region-filter logic even after the container
- * was swapped to 0.12.1. The search page has no server-rendered data
- * to preserve (it's fully client-fetched), so the SSG benefit is nil.
- */
-export const dynamic = "force-dynamic";
+// Dynamic rendering is forced at the root layout — see src/app/layout.tsx.
+// Route-segment config in a "use client" file is silently ignored by Next.js.
 
 import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
