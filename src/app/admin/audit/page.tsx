@@ -43,6 +43,65 @@ function timeAgo(iso: string): string {
   return `${Math.round(diff / 86400000)}d ago`;
 }
 
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Bucket label for grouping: "Today", "Yesterday", weekday name (past 7d), or "MMM D". */
+function dateBucketLabel(iso: string): string {
+  const today = startOfDay(new Date());
+  const entry = startOfDay(new Date(iso));
+  const diffDays = Math.round((today - entry) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  const d = new Date(iso);
+  if (diffDays < 7)
+    return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Represents either a single audit entry or a run of consecutive
+ * same-user/same-action entries collapsed into one row.
+ */
+interface AuditRow {
+  kind: "single" | "run";
+  entries: AuditEntry[];
+  bucket: string;
+}
+
+/**
+ * Group entries by date bucket and collapse consecutive same-user +
+ * same-action runs within a 10-minute window into one row. Keeps the
+ * common-noise cases (bursts of logins, rapid approvals) from dominating
+ * the visible list.
+ */
+function groupEntries(entries: AuditEntry[]): AuditRow[] {
+  const COLLAPSE_MS = 10 * 60 * 1000;
+  const rows: AuditRow[] = [];
+  for (const entry of entries) {
+    const bucket = dateBucketLabel(entry.createdAt);
+    const last = rows[rows.length - 1];
+    const lastEntry = last?.entries[last.entries.length - 1];
+    const sameBurst =
+      last &&
+      lastEntry &&
+      last.bucket === bucket &&
+      lastEntry.action === entry.action &&
+      lastEntry.userId === entry.userId &&
+      new Date(lastEntry.createdAt).getTime() -
+        new Date(entry.createdAt).getTime() <=
+        COLLAPSE_MS;
+    if (sameBurst) {
+      last.entries.push(entry);
+      last.kind = "run";
+    } else {
+      rows.push({ kind: "single", entries: [entry], bucket });
+    }
+  }
+  return rows;
+}
+
 export default function AuditPage() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
@@ -141,71 +200,124 @@ export default function AuditPage() {
           No audit log entries yet.
         </p>
       ) : (
-        <div
-          className="rounded-xl ring-1 ring-[var(--border)]"
-          style={{ background: "var(--card)" }}
-        >
-          <div className="divide-y divide-[var(--border)]">
-            {logs.map((entry) => {
-              let detail: Record<string, unknown> | null = null;
-              try {
-                if (entry.detail) detail = JSON.parse(entry.detail);
-              } catch {
-                // not JSON
-              }
+        (() => {
+          const rows = groupEntries(logs);
+          // Group rows by bucket for rendering
+          const buckets: { bucket: string; rows: AuditRow[] }[] = [];
+          for (const row of rows) {
+            const last = buckets[buckets.length - 1];
+            if (last && last.bucket === row.bucket) {
+              last.rows.push(row);
+            } else {
+              buckets.push({ bucket: row.bucket, rows: [row] });
+            }
+          }
 
-              return (
-                <div
-                  key={entry.id}
-                  className="flex items-start gap-3 px-4 py-3"
-                >
-                  {/* Action dot */}
+          return (
+            <div className="space-y-4">
+              {buckets.map((b) => (
+                <div key={b.bucket}>
+                  <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                    {b.bucket}
+                  </h2>
                   <div
-                    className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{
-                      background: ACTION_COLORS[entry.action] || "var(--muted)",
-                    }}
-                  />
-
-                  {/* Content */}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm">
-                      <span className="font-medium">
-                        {entry.user?.name || "System"}
-                      </span>{" "}
-                      <span className="text-[var(--muted)]">
-                        {ACTION_LABELS[entry.action] || entry.action}
-                      </span>
-                      {entry.targetId && (
-                        <span className="ml-1 text-xs text-[var(--muted)]">
-                          ({entry.targetType}: {entry.targetId.slice(0, 8)}...)
-                        </span>
-                      )}
-                    </p>
-                    {detail && detail.note ? (
-                      <p className="mt-0.5 text-xs text-[var(--muted)]">
-                        Note: {String(detail.note)}
-                      </p>
-                    ) : null}
-                    {detail && detail.retryCount !== undefined ? (
-                      <p className="mt-0.5 text-xs text-[var(--muted)]">
-                        Retry #{String(detail.retryCount)}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  {/* Timestamp */}
-                  <span
-                    className="shrink-0 text-xs text-[var(--muted)]"
-                    title={new Date(entry.createdAt).toLocaleString()}
+                    className="rounded-xl ring-1 ring-[var(--border)]"
+                    style={{ background: "var(--card)" }}
                   >
-                    {timeAgo(entry.createdAt)}
-                  </span>
+                    <div className="divide-y divide-[var(--border)]">
+                      {b.rows.map((row) => {
+                        const first = row.entries[0]; // newest in the run
+                        const last = row.entries[row.entries.length - 1];
+                        const count = row.entries.length;
+                        const isRun = row.kind === "run";
+
+                        let detail: Record<string, unknown> | null = null;
+                        try {
+                          if (first.detail && !isRun)
+                            detail = JSON.parse(first.detail);
+                        } catch {
+                          // not JSON
+                        }
+
+                        return (
+                          <div
+                            key={first.id}
+                            className="flex items-start gap-3 px-4 py-3"
+                          >
+                            <div
+                              className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{
+                                background:
+                                  ACTION_COLORS[first.action] ||
+                                  "var(--muted)",
+                              }}
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm">
+                                <span className="font-medium">
+                                  {first.user?.name || "System"}
+                                </span>{" "}
+                                <span className="text-[var(--muted)]">
+                                  {ACTION_LABELS[first.action] || first.action}
+                                </span>
+                                {isRun ? (
+                                  <span
+                                    className="ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                                    style={{
+                                      background:
+                                        "var(--card-hover, rgba(255,255,255,0.05))",
+                                      color: "var(--muted)",
+                                    }}
+                                    title={`${count} events, collapsed`}
+                                  >
+                                    ×{count}
+                                  </span>
+                                ) : (
+                                  first.targetId && (
+                                    <span className="ml-1 text-xs text-[var(--muted)]">
+                                      ({first.targetType}:{" "}
+                                      {first.targetId.slice(0, 8)}...)
+                                    </span>
+                                  )
+                                )}
+                              </p>
+                              {detail && detail.note ? (
+                                <p className="mt-0.5 text-xs text-[var(--muted)]">
+                                  Note: {String(detail.note)}
+                                </p>
+                              ) : null}
+                              {detail && detail.retryCount !== undefined ? (
+                                <p className="mt-0.5 text-xs text-[var(--muted)]">
+                                  Retry #{String(detail.retryCount)}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <span
+                              className="shrink-0 text-xs text-[var(--muted)]"
+                              title={
+                                isRun
+                                  ? `${new Date(
+                                      last.createdAt,
+                                    ).toLocaleString()} — ${new Date(
+                                      first.createdAt,
+                                    ).toLocaleString()}`
+                                  : new Date(first.createdAt).toLocaleString()
+                              }
+                            >
+                              {timeAgo(first.createdAt)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              ))}
+            </div>
+          );
+        })()
       )}
     </div>
   );

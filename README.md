@@ -120,34 +120,54 @@ prisma/
 
 ## Roadmap to 1.0.0
 
-Lexarr is currently **pre-1.0** (`0.5.0` at the time of writing). Pre-1.0
+Lexarr is currently **pre-1.0** (`0.9.0` as of 2026-04-17). Pre-1.0
 releases may contain backwards-incompatible changes between minor versions.
-Each milestone below has explicit **exit criteria** — a version ships when
-every box is checked, not when a feature list is complete.
+Each milestone has explicit **exit criteria** — a version ships when every
+box is checked, not when a feature list is complete.
 
-### `0.6.0` — UX polish
-- [ ] Every button has loading / success / error state
-- [ ] Every API error → user-visible, actionable message (no silent failures)
-- [ ] Mobile layout audited (dashboard works on phone)
-- [ ] Empty states for every list (no results, no queue, no warnings)
-- [ ] Toasts consistent (color, duration, position, dismissal)
+### Shipped
 
-### `0.7.0` — Reliability
-- [ ] Circuit breakers on every *arr call (partial stack failure ≠ full
-      Lexarr failure)
+#### `0.6.0` — UX polish *(2026-04-16)*
+- [x] Every button has loading / success / error state
+- [x] Every API error → user-visible, actionable message (no silent failures)
+- [x] Mobile layout audited (dashboard works on phone)
+- [x] Empty states for every list (no results, no queue, no warnings)
+- [x] Toasts consistent (color, duration, position, dismissal)
+
+#### `0.7.0` — Reliability *(2026-04-16, partial scope)*
+- [x] No `catch {}` silently swallowing errors without logging
+- [x] Retry logic reviewed — nothing loops forever
+- [ ] Circuit breakers on every *arr call *(deferred to 0.9.0 — timeouts
+      + typed errors landed via `arrFetch`, but per-call breakers still TODO)*
 - [ ] All POST routes either idempotent or documented non-idempotent
-- [ ] Retry logic reviewed — nothing loops forever
-- [ ] No `catch {}` silently swallowing errors without logging
+      *(deferred to 0.9.0)*
 
-### `0.8.0` — Observability
-- [ ] "Diagnose" action on down-service pills (log tail + last error,
+#### `0.7.1` — Stuck-download detection *(2026-04-17, patch)*
+- Surfaces *arr errors to `Request.lastError` for user-visible diagnostics
+- Book stall detection (was missing from 0.7.0)
+- arrId-drift handling — detects when an *arr ID has been reused for a
+  different title and marks the request failed with a clear reason
+
+#### `0.8.0` — Version visibility *(2026-04-17)*
+- [x] Inline version + channel label in nav (`Lexarr v0.8.0 beta`) —
+      derived from `package.json` at build time, channel (`alpha` / `beta` /
+      `rc` / `stable`) derived from the SemVer string
+- [x] CI workflow — typecheck, lint, test on every push and PR
+
+#### `0.9.0` — Observability *(2026-04-17)*
+- [x] "Diagnose" action on down-service pills (log tail + last error,
       read-only, no container control)
-- [ ] Request lifecycle visible end-to-end: submitted → approved → sent →
+- [x] Request lifecycle visible end-to-end: submitted → approved → sent →
       downloading → completed/failed, each step timestamped
-- [ ] Audit log readable without scrolling for common actions
-- [ ] Stack-health tile deep-links to the healthcheck report body
+- [x] Audit log readable without scrolling for common actions
+- [x] Stack-health tile deep-links to the healthcheck report body
+- [x] Per-*arr circuit breakers *(rolled from 0.7.0)*
+- [x] POST route idempotency audit *(rolled from 0.7.0 — see
+      [`docs/POST-idempotency.md`](docs/POST-idempotency.md))*
 
-### `0.9.0` — Release readiness
+### Planned
+
+#### `0.10.0` — Release readiness
 - [ ] README explains setup in ≤ 10 min for someone with an existing *arr
       stack
 - [ ] `.env.example` documents every variable with inline comments
@@ -155,11 +175,13 @@ every box is checked, not when a feature list is complete.
 - [ ] Migration path docs (upgrading from 0.x to 0.y)
 - [ ] Security checklist (secrets rotation, headers, CORS)
 
-### `1.0.0` — Public launch
-- [ ] 0.9.0 ran in prod for a week with no new bug-fix releases needed
+#### `1.0.0` — Public launch
+- [ ] 0.10.0 ran in prod for a week with no new bug-fix releases needed
 - [ ] README is clear enough for a stranger to deploy successfully
 - [ ] GitHub Release notes written manually (1.0.0 matters)
 - [ ] Repo flipped to public
+- [ ] GitHub branch protection enabled on master *(requires public repo
+      or Pro — both blocked on free private tier)*
 
 ## Versioning
 
@@ -171,9 +193,9 @@ conventions that drive automated CHANGELOG generation.
 Release a new version with:
 
 ```bash
-npm run release -- patch    # bug fix:      0.5.0 → 0.5.1
-npm run release -- minor    # new feature:  0.5.0 → 0.6.0
-npm run release -- major    # breaking:     0.5.0 → 1.0.0 (only when 1.0 criteria met)
+npm run release -- patch    # bug fix:      0.9.0 → 0.9.1
+npm run release -- minor    # new feature:  0.9.0 → 0.10.0
+npm run release -- major    # breaking:     0.9.0 → 1.0.0 (only when 1.0 criteria met)
 npm run release -- --dry    # preview without writing
 ```
 

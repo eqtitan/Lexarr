@@ -8,6 +8,10 @@ const SECRET = process.env.LEXARR_WEBHOOK_SECRET;
  * Configure in Sonarr: Settings → Connect → Webhook
  * URL: http://192.168.1.100:5056/api/webhooks/sonarr?token=YOUR_SECRET
  * Events: On Import, On Upgrade
+ *
+ * Idempotency: idempotent — delegates to `checkSingleRequest()`, a
+ * state-reconciling update. Duplicate POSTs from Sonarr retries
+ * converge on the same row state.
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");

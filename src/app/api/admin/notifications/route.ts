@@ -16,7 +16,18 @@ export async function GET() {
   return NextResponse.json({ channels });
 }
 
-// POST: Create a new notification channel
+/**
+ * POST — Create a notification channel.
+ *
+ * Idempotency: idempotent on `webhookUrl`. A second POST with the same
+ * webhookUrl as an existing channel returns the existing channel with
+ * status 200 instead of creating a duplicate. Without this, a rapid
+ * double-click or retried request would produce two channels firing the
+ * same webhook — every notification would send twice.
+ *
+ * `webhookUrl` is the natural key here: name/type are cosmetic, the URL
+ * is what actually receives traffic.
+ */
 export async function POST(req: NextRequest) {
   const session = await auth();
   const adminId = session?.user?.id;
@@ -37,6 +48,14 @@ export async function POST(req: NextRequest) {
       { error: "Invalid type. Must be: discord, slack, or webhook" },
       { status: 400 },
     );
+  }
+
+  // Idempotent upsert by webhookUrl — return existing channel on re-POST
+  const existing = await prisma.notificationChannel.findFirst({
+    where: { webhookUrl },
+  });
+  if (existing) {
+    return NextResponse.json({ channel: existing, alreadyExists: true });
   }
 
   const channel = await prisma.notificationChannel.create({

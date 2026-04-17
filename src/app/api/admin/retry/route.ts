@@ -8,7 +8,23 @@ import type { MediaType } from "@/types";
 
 const MAX_RETRIES = 3;
 
-// POST: Retry a failed or stalled request
+/**
+ * POST — Retry a failed or stalled request.
+ *
+ * Idempotency: state-guarded, NOT token-idempotent.
+ *   - The `canRetry` check rejects POSTs where the request isn't in
+ *     failed/stalled or approved-without-arrId, so a POST that ran to
+ *     completion cannot be replayed (the request is now in
+ *     downloading/available).
+ *   - There is a small race window: two concurrent POSTs can both pass
+ *     the canRetry check before the status update commits, resulting
+ *     in retryCount being bumped twice. Acceptable today (admin-only,
+ *     one human in the UI at a time); revisit if we ever add automated
+ *     retry triggers.
+ *
+ * Not safe to retry a 500 response client-side — partial side effects
+ * (retryCount + pipelineEvent) have likely already been written.
+ */
 export async function POST(req: NextRequest) {
   const session = await auth();
   const role = session?.user?.role;

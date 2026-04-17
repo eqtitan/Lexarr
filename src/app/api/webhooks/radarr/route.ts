@@ -8,6 +8,11 @@ const SECRET = process.env.LEXARR_WEBHOOK_SECRET;
  * Configure in Radarr: Settings → Connect → Webhook
  * URL: http://192.168.1.100:5056/api/webhooks/radarr?token=YOUR_SECRET
  * Events: On Import, On Upgrade
+ *
+ * Idempotency: idempotent. Delegates to `checkSingleRequest()`, which
+ * does a state-reconciling update (status → available / downloading)
+ * and a state-transition pipeline event. Radarr occasionally retries a
+ * webhook on its own — duplicate POSTs converge on the same row state.
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");

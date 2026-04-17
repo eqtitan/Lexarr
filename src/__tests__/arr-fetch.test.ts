@@ -1,11 +1,17 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { arrFetch, ArrApiError } from "@/lib/arr/_fetch";
+import { _resetAllBreakers } from "@/lib/arr/circuit-breaker";
 
 const realFetch = globalThis.fetch;
+
+beforeEach(() => {
+  _resetAllBreakers();
+});
 
 afterEach(() => {
   globalThis.fetch = realFetch;
   vi.restoreAllMocks();
+  _resetAllBreakers();
 });
 
 function mockFetch(

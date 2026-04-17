@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPlexPin, checkPlexPin } from "@/lib/auth/plex";
 
-// POST: Create a new Plex pin for authentication
+/**
+ * POST — Create a new Plex PIN for authentication.
+ *
+ * Idempotency: NOT idempotent by design. Each call mints a fresh PIN
+ * with its own ID and expiry; retrying is safe (cheap) but allocates a
+ * new PIN. PINs auto-expire at Plex's side, so duplicates have no
+ * long-term side effect.
+ */
 export async function POST() {
   try {
     const pin = await createPlexPin();

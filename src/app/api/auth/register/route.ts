@@ -3,6 +3,17 @@ import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 
+/**
+ * POST — Register a new user account.
+ *
+ * Idempotency: idempotent on `name` — retrying a POST that succeeded
+ * returns 409 "User exists" instead of creating a duplicate. Lexarr's
+ * first user becomes admin; subsequent POSTs with the same name hit
+ * the uniqueness check and are safe to retry.
+ *
+ * Rate-limited (5/min per IP) so the existence check isn't usable as
+ * a username oracle.
+ */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers);
   const rateCheck = checkRateLimit(`auth:${ip}`, RATE_LIMITS.auth);

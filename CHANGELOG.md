@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.9.0] — 2026-04-17
+
+### Added
+- feat: audit every POST route for idempotency + dedupe notification channels (9408c33)
+- feat(dashboard): Diagnose action on down-service pills (3bd1674)
+- feat(arr): per-service circuit breakers on every *arr call (68a01be)
+- feat(audit): date buckets + collapse runs of repeat events (7391c63)
+- feat(dashboard): Stack Health tile deep-links to full report (4708a58)
+- feat(requests): expandable lifecycle timeline per row (36e344d)
+
+### Chore
+- docs: check off 0.9.0 Observability milestone in roadmap (7161a88)
+- docs: update Roadmap to 1.0.0 to reflect shipped milestones (ef5ae29)
+- ci: add GitHub Actions workflow for typecheck, lint, and test (d1042d9)
+
 ## [0.8.0] — 2026-04-17
 
 ### Added

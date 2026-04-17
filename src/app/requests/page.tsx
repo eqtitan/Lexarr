@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import PipelineTimeline from "@/components/dashboard/PipelineTimeline";
+import type { PipelineEventDTO } from "@/types/dashboard";
 
 interface RequestItem {
   id: string;
@@ -108,6 +110,34 @@ export default function RequestsPage() {
   const [loading, setLoading] = useState(true);
   const [jellyfinUrl, setJellyfinUrl] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Cached timeline events, keyed by request id.
+  // `null` sentinel = fetch failed; undefined = never fetched.
+  const [timelines, setTimelines] = useState<
+    Record<string, PipelineEventDTO[] | null>
+  >({});
+
+  const toggleTimeline = useCallback(
+    async (req: RequestItem) => {
+      const next = expandedId === req.id ? null : req.id;
+      setExpandedId(next);
+      // Only fetch the first time a row is expanded
+      if (next && timelines[req.id] === undefined) {
+        try {
+          const res = await fetch(`/api/requests/${req.id}/events`);
+          if (res.ok) {
+            const d = await res.json();
+            setTimelines((prev) => ({ ...prev, [req.id]: d.events || [] }));
+          } else {
+            setTimelines((prev) => ({ ...prev, [req.id]: null }));
+          }
+        } catch {
+          setTimelines((prev) => ({ ...prev, [req.id]: null }));
+        }
+      }
+    },
+    [expandedId, timelines],
+  );
 
   const fetchRequests = useCallback(async () => {
     try {
@@ -191,11 +221,20 @@ export default function RequestsPage() {
         {requests.map((req) => {
           const badge = deriveBadge(req);
           const isProblem = req.status === "stalled" || req.status === "failed";
+          const isExpanded = expandedId === req.id;
+          const events = timelines[req.id];
           return (
             <div
               key={req.id}
-              className="flex items-center gap-4 rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]"
+              className="overflow-hidden rounded-xl bg-[var(--card)] ring-1 ring-[var(--border)]"
             >
+              <button
+                type="button"
+                onClick={() => toggleTimeline(req)}
+                className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-[var(--card-hover)]/50"
+                aria-expanded={isExpanded}
+                aria-controls={`timeline-${req.id}`}
+              >
               {req.posterPath && (
                 <img
                   src={req.posterPath}
@@ -236,6 +275,7 @@ export default function RequestsPage() {
                   href={buildJellyfinLink(jellyfinUrl, req.title)}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
                   className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-80"
                   style={{ background: statusColors.available }}
                   title="Open in Jellyfin"
@@ -273,6 +313,49 @@ export default function RequestsPage() {
                     <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                   )}
                 </span>
+              )}
+              <svg
+                className={`h-4 w-4 text-[var(--muted)] transition-transform ${
+                  isExpanded ? "rotate-180" : ""
+                }`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+              </button>
+              {isExpanded && (
+                <div
+                  id={`timeline-${req.id}`}
+                  className="border-t border-[var(--border)] bg-[var(--background)]/40 px-4 py-3"
+                >
+                  {events === undefined ? (
+                    <div className="flex items-center gap-2 py-2 text-xs text-[var(--muted)]">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+                      Loading lifecycle…
+                    </div>
+                  ) : events === null ? (
+                    <p className="py-2 text-xs text-[var(--danger)]">
+                      Couldn&apos;t load lifecycle events.
+                    </p>
+                  ) : events.length === 0 ? (
+                    <p className="py-2 text-xs text-[var(--muted)]">
+                      No lifecycle events recorded yet.
+                    </p>
+                  ) : (
+                    <PipelineTimeline
+                      events={events}
+                      currentStatus={req.status}
+                    />
+                  )}
+                </div>
               )}
             </div>
           );

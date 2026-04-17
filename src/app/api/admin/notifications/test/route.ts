@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
 
-// POST: Send a test notification to a specific channel
+/**
+ * POST — Send a test notification to a specific channel.
+ *
+ * Idempotency: NOT idempotent — every POST sends a new webhook message.
+ * Documented as non-idempotent because this is the intended behaviour;
+ * the UI button lets admins manually verify delivery, and each click is
+ * meaningful. No token dedup needed — the cost of a duplicate test
+ * message is one extra line in a Discord/Slack channel.
+ */
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (session?.user?.role !== "admin") {

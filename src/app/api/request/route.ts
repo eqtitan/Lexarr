@@ -6,6 +6,14 @@ import type { MediaType, MusicReleaseType } from "@/types";
 
 const VALID_RELEASE_TYPES: MusicReleaseType[] = ["album", "single", "ep", "other"];
 
+/**
+ * POST — Create a media request.
+ *
+ * Idempotency: idempotent on the tuple (userId, mediaType, externalId,
+ * externalId2). See `createRequest()` in src/lib/services/request.ts —
+ * a duplicate POST returns the existing request with a 200 response
+ * instead of creating another row. Safe to retry on network failure.
+ */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers);
   const rateCheck = checkRateLimit(`request:${ip}`, RATE_LIMITS.request);

@@ -5,6 +5,11 @@ import { checkAndUpdateStatuses } from "@/lib/status-checker";
 /**
  * Manual status poll — admin only.
  * Delegates to the shared status-checker (same logic as background cron).
+ *
+ * Idempotency: effectively idempotent. Each call re-reads *arr state and
+ * reconciles the DB, so rapid repeat POSTs converge to the same end state.
+ * Pipeline events may be written on state transitions — that's intrinsic
+ * to the reconciliation loop, not a duplication bug.
  */
 export async function POST() {
   const session = await auth();

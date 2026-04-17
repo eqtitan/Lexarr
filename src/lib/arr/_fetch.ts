@@ -54,6 +54,8 @@ export interface ArrFetchOptions extends RequestInit {
 /**
  * Perform a fetch against an *arr service.
  *
+ * - Fails fast (no fetch attempted) when the service's circuit breaker is
+ *   open — see `./circuit-breaker.ts`
  * - Throws `ArrApiError` for any non-2xx response
  * - Throws `ArrApiError` with status=0 for timeouts or network errors
  * - Returns parsed JSON body on success, or raw text if the response has
@@ -66,6 +68,13 @@ export async function arrFetch<T = unknown>(
   options: ArrFetchOptions = {},
 ): Promise<T> {
   const { timeoutMs = ARR_TIMEOUT_MS, headers, ...rest } = options;
+
+  // Lazy import to avoid a circular-dependency hazard (circuit-breaker
+  // imports ArrApiError from this file).
+  const { getBreaker } = await import("./circuit-breaker");
+  const breaker = getBreaker(service);
+  breaker.beforeRequest(path); // throws ArrApiError if open
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -81,8 +90,12 @@ export async function arrFetch<T = unknown>(
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new ArrApiError(service, path, res.status, body);
+      const apiErr = new ArrApiError(service, path, res.status, body);
+      breaker.recordFailure(apiErr);
+      throw apiErr;
     }
+
+    breaker.recordSuccess();
 
     // Some *arr endpoints return empty body on success (e.g. DELETE)
     const ct = res.headers.get("content-type") || "";
@@ -95,7 +108,9 @@ export async function arrFetch<T = unknown>(
     // AbortError = our timeout fired
     const detail =
       err instanceof Error ? err.message : "Unknown network error";
-    throw new ArrApiError(service, path, 0, detail);
+    const apiErr = new ArrApiError(service, path, 0, detail);
+    breaker.recordFailure(apiErr);
+    throw apiErr;
   } finally {
     clearTimeout(timeoutId);
   }

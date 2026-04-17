@@ -19,6 +19,9 @@ interface StatusItem {
  * POST /api/library-status
  * Checks whether search results already exist in the *arr services or Lexarr DB.
  * Returns a map of "mediaType:id" → LibraryStatusValue.
+ *
+ * Idempotency: read-only; trivially idempotent. Uses POST only to carry
+ * a larger JSON body than a GET query string comfortably allows.
  */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers);

@@ -1,6 +1,9 @@
 "use client";
 
-import type { DashboardData } from "@/types/dashboard";
+import { useState } from "react";
+import type { DashboardData, ServiceHealthDTO } from "@/types/dashboard";
+import StackHealthModal from "./StackHealthModal";
+import DiagnoseModal from "./DiagnoseModal";
 
 interface KpiProps {
   data: DashboardData;
@@ -16,6 +19,8 @@ function formatStale(minutes: number): string {
 }
 
 export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
+  const [stackHealthOpen, setStackHealthOpen] = useState(false);
+  const [diagnoseSvc, setDiagnoseSvc] = useState<ServiceHealthDTO | null>(null);
   const totalServices = data.services.length;
   const healthyServices = data.services.filter((s) => s.healthy).length;
   const allHealthy = healthyServices === totalServices;
@@ -38,8 +43,9 @@ export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
       >
         <div className="flex items-stretch gap-3">
           <button
-            onClick={() => onOpenTab("overview")}
+            onClick={() => setStackHealthOpen(true)}
             className="block shrink-0 text-left"
+            title="Open full healthcheck report"
           >
             <div className="flex items-center gap-2">
               <span
@@ -103,12 +109,15 @@ export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
               />
               <div className="flex flex-1 flex-wrap content-start items-start justify-end gap-1.5">
                 {downServices.map((svc) => (
-                  <a
+                  <button
                     key={svc.name}
-                    href={svc.url || "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={svc.error || `${svc.name} is unreachable`}
+                    type="button"
+                    onClick={() => setDiagnoseSvc(svc)}
+                    title={
+                      svc.error
+                        ? `${svc.error} — click to diagnose`
+                        : `${svc.name} is unreachable — click to diagnose`
+                    }
                     className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors hover:brightness-125"
                     style={{
                       background: "rgba(239,68,68,0.14)",
@@ -121,7 +130,7 @@ export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
                       style={{ background: "var(--danger)" }}
                     />
                     {svc.name}
-                  </a>
+                  </button>
                 ))}
               </div>
             </>
@@ -216,6 +225,14 @@ export default function DashboardKpis({ data, onOpenTab }: KpiProps) {
         )}
       </button>
 
+      <StackHealthModal
+        open={stackHealthOpen}
+        onClose={() => setStackHealthOpen(false)}
+      />
+      <DiagnoseModal
+        service={diagnoseSvc}
+        onClose={() => setDiagnoseSvc(null)}
+      />
     </div>
   );
 }
