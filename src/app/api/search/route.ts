@@ -42,7 +42,14 @@ export async function GET(req: NextRequest) {
   }
 
   const resultArrays = await Promise.all(searches);
-  const results = resultArrays.flat();
+  let results = resultArrays.flat();
+
+  // TMDB returns both movies and TV shows in the same response; filter
+  // down to the requested type so the Movies/TV chips are honest.
+  // Music and Books are already type-pure (separate source APIs).
+  if (filter === "movie" || filter === "tv") {
+    results = results.filter((r) => r.mediaType === filter);
+  }
 
   searchCache.set(cacheKey, results);
   return NextResponse.json({ results });

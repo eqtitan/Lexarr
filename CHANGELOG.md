@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.8] — 2026-04-16 (was `v17`)
+
+### Fixed
+- TV/Movies filter chips actually filter by type. TMDB returns both movies
+  and TV in one response; route now post-filters by `mediaType` when
+  either chip is active. Music and Books were unaffected (separate APIs).
+  Reported via "Dinosaurs" TV search showing movie results.
+
 ## [0.4.7] — 2026-04-16 (was `v16`)
 
 ### Fixed
