@@ -27,8 +27,8 @@ function timeAgo(iso: string): string {
 
 interface PendingApprovalsCardProps {
   requests: PipelineRequestDTO[];
-  onApprove: (id: string, note?: string) => void;
-  onDeny: (id: string, note?: string) => void;
+  onApprove: (id: string, note?: string) => Promise<void> | void;
+  onDeny: (id: string, note?: string) => Promise<void> | void;
 }
 
 export default function PendingApprovalsCard({
@@ -39,16 +39,32 @@ export default function PendingApprovalsCard({
   const [noteId, setNoteId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteAction, setNoteAction] = useState<"approve" | "deny">("approve");
+  // Track which row is mid-flight so the user can't spam-click during an
+  // approve/deny that's still resolving on the server.
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [processingAction, setProcessingAction] = useState<
+    "approve" | "deny" | null
+  >(null);
 
   if (requests.length === 0) return null;
 
-  function startAction(id: string, action: "approve" | "deny") {
+  async function startAction(id: string, action: "approve" | "deny") {
+    if (processingId) return; // already working; ignore extra clicks
     if (noteId === id && noteAction === action) {
       // Confirm: execute with note
-      if (action === "approve") onApprove(id, noteText || undefined);
-      else onDeny(id, noteText || undefined);
-      setNoteId(null);
-      setNoteText("");
+      setProcessingId(id);
+      setProcessingAction(action);
+      try {
+        if (action === "approve") await onApprove(id, noteText || undefined);
+        else await onDeny(id, noteText || undefined);
+      } finally {
+        // Parent refreshes the list; the row will disappear. Clear state
+        // so the component is clean if it remounts.
+        setProcessingId(null);
+        setProcessingAction(null);
+        setNoteId(null);
+        setNoteText("");
+      }
     } else {
       // First click: show note field
       setNoteId(id);
@@ -124,7 +140,9 @@ export default function PendingApprovalsCard({
                 <div className="flex flex-shrink-0 gap-2">
                   <button
                     onClick={() => startAction(req.id, "approve")}
-                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    disabled={processingId !== null && processingId !== req.id}
+                    aria-busy={processingId === req.id && processingAction === "approve"}
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background:
                         showNote && noteAction === "approve"
@@ -132,13 +150,17 @@ export default function PendingApprovalsCard({
                           : "var(--success)",
                     }}
                   >
-                    {showNote && noteAction === "approve"
-                      ? "Confirm"
-                      : "Approve"}
+                    {processingId === req.id && processingAction === "approve"
+                      ? "…"
+                      : showNote && noteAction === "approve"
+                        ? "Confirm"
+                        : "Approve"}
                   </button>
                   <button
                     onClick={() => startAction(req.id, "deny")}
-                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    disabled={processingId !== null && processingId !== req.id}
+                    aria-busy={processingId === req.id && processingAction === "deny"}
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background:
                         showNote && noteAction === "deny"
@@ -146,7 +168,11 @@ export default function PendingApprovalsCard({
                           : "var(--danger)",
                     }}
                   >
-                    {showNote && noteAction === "deny" ? "Confirm" : "Deny"}
+                    {processingId === req.id && processingAction === "deny"
+                      ? "…"
+                      : showNote && noteAction === "deny"
+                        ? "Confirm"
+                        : "Deny"}
                   </button>
                 </div>
               </div>

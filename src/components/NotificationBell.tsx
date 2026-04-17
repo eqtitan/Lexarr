@@ -15,6 +15,8 @@ export default function NotificationBell() {
   const { data: session } = useSession();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
+  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
   const [seen, setSeen] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -28,20 +30,34 @@ export default function NotificationBell() {
 
   useEffect(() => {
     if (!session) return;
-    fetch("/api/notifications")
-      .then((r) => r.json())
-      .then((d) => setNotifications(d.notifications || []))
-      .catch(() => {});
 
-    // Poll every 60s
-    const interval = setInterval(() => {
-      fetch("/api/notifications")
-        .then((r) => r.json())
-        .then((d) => setNotifications(d.notifications || []))
-        .catch(() => {});
-    }, 60000);
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/notifications");
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        setNotifications(d.notifications || []);
+        setLastSuccessAt(Date.now());
+        setPollError(null);
+      } catch (err: unknown) {
+        setPollError(err instanceof Error ? err.message : "Network error");
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 60_000);
     return () => clearInterval(interval);
   }, [session]);
+
+  // Consider notifications stale if we haven't had a successful poll in 5 min
+  const STALE_MS = 5 * 60_000;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const isStale =
+    !!pollError && (lastSuccessAt === null || now - lastSuccessAt > STALE_MS);
 
   // Close on outside click
   useEffect(() => {
@@ -88,7 +104,16 @@ export default function NotificationBell() {
     <div ref={ref} className="relative">
       <button
         onClick={handleOpen}
-        className="relative rounded-lg p-2 text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+        title={
+          isStale
+            ? `Notifications may be stale — last updated ${lastSuccessAt ? new Date(lastSuccessAt).toLocaleTimeString() : "never"}`
+            : undefined
+        }
+        className="relative rounded-lg p-2 transition-colors hover:text-[var(--foreground)]"
+        style={{
+          color: isStale ? "var(--warning)" : "var(--muted)",
+          opacity: isStale ? 0.7 : 1,
+        }}
       >
         <svg
           className="h-5 w-5"
@@ -108,12 +133,24 @@ export default function NotificationBell() {
             {unseen.length}
           </span>
         )}
+        {isStale && unseen.length === 0 && (
+          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--warning)]" />
+        )}
       </button>
 
       {open && (
         <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl bg-[var(--card)] ring-1 ring-[var(--border)] shadow-xl shadow-black/30 z-50">
           <div className="border-b border-[var(--border)] px-4 py-2.5">
             <p className="text-sm font-semibold">Notifications</p>
+            {isStale && (
+              <p
+                className="mt-0.5 text-[11px]"
+                style={{ color: "var(--warning)" }}
+                title={pollError || undefined}
+              >
+                Offline — list may be stale
+              </p>
+            )}
           </div>
           {notifications.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-[var(--muted)]">

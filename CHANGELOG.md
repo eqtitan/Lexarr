@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.6.0] — 2026-04-17
+
+### Fixed
+- fix: dashboard tab row doesn't cut off tabs on mobile (fbf0189)
+- fix: NotificationBell shows stale indicator when polling fails (aca9249)
+- fix: approve/deny buttons block spam-clicks during in-flight requests (dd8ba7f)
+- fix: audit log page shows error state instead of infinite spinner (ec668bd)
+- fix: admin settings resilience (surface errors, per-row loading) (648d2e8)
+- fix: DetailPanel surfaces detail-fetch errors instead of silent failure (1c853d4)
+
 ## [0.5.0] — 2026-04-16
 
 Adoption of Semantic Versioning. From here forward every change gets a version

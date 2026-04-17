@@ -51,12 +51,14 @@ export default function DetailPanel({
   onRequest: (qualityProfileId?: number) => void;
 }) {
   const [detail, setDetail] = useState<DetailData | null>(null);
-  const [_loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
 
   const fetchDetail = useCallback(async () => {
-    setLoading(true);
+    setDetailLoading(true);
+    setDetailError(null);
     setDetail(null);
     try {
       // Music detail needs the artist UUID, not the album/release ID
@@ -67,12 +69,18 @@ export default function DetailPanel({
       const res = await fetch(
         `/api/detail?type=${result.mediaType}&id=${encodeURIComponent(rawId)}`,
       );
-      if (res.ok) {
+      if (!res.ok) {
+        setDetailError(`Couldn't load extra details (HTTP ${res.status})`);
+      } else {
         setDetail(await res.json());
       }
-    } catch {}
-    setLoading(false);
-  }, [result.id, result.mediaType]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setDetailError(`Couldn't load extra details — ${msg}`);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [result.id, result.mediaType, result.artistId]);
 
   useEffect(() => {
     fetchDetail();
@@ -168,6 +176,30 @@ export default function DetailPanel({
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Detail fetch error — non-blocking; we still show what we have from the search result */}
+          {detailError && (
+            <div
+              className="rounded-lg px-3 py-2 text-xs ring-1"
+              style={{
+                background: "rgba(239,68,68,0.08)",
+                color: "var(--danger)",
+                borderColor: "rgba(239,68,68,0.3)",
+              }}
+              role="alert"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span>{detailError}</span>
+                <button
+                  onClick={fetchDetail}
+                  disabled={detailLoading}
+                  className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ring-1 ring-current hover:bg-black/10 disabled:opacity-50"
+                >
+                  {detailLoading ? "…" : "Retry"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Title block */}
           <div className="flex gap-4">
             {result.posterUrl && (
@@ -210,12 +242,17 @@ export default function DetailPanel({
                   {detail.network}
                 </p>
               )}
-              {(detail?.seasons != null || detail?.runtime != null) && (
+              {((detail?.seasons != null && detail.seasons > 0) ||
+                (detail?.runtime != null && detail.runtime > 0)) && (
                 <p className="text-xs text-[var(--muted)] mt-1">
-                  {detail.runtime != null && `${detail.runtime} min`}
-                  {detail.seasons != null &&
-                    typeof detail.seasons === "number" &&
-                    `${detail.seasons} season${detail.seasons !== 1 ? "s" : ""}`}
+                  {detail?.runtime != null && detail.runtime > 0
+                    ? `${detail.runtime} min`
+                    : null}
+                  {detail?.seasons != null &&
+                  typeof detail.seasons === "number" &&
+                  detail.seasons > 0
+                    ? `${detail.seasons} season${detail.seasons !== 1 ? "s" : ""}`
+                    : null}
                 </p>
               )}
             </div>

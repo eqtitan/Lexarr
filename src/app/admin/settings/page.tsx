@@ -37,6 +37,8 @@ export default function SettingsPage() {
 
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false);
@@ -45,6 +47,11 @@ export default function SettingsPage() {
   const [newUrl, setNewUrl] = useState("");
   const [newEvents, setNewEvents] = useState("all");
   const [adding, setAdding] = useState(false);
+
+  // Per-row in-flight state (toggle / delete)
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   // Test state
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -60,13 +67,15 @@ export default function SettingsPage() {
   }, [session, sessionStatus, role, router]);
 
   const fetchChannels = useCallback(async () => {
+    setLoadError(null);
     try {
       const res = await fetch("/api/admin/notifications");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setChannels(json.channels || []);
-    } catch {
-      // silent
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setLoadError(`Couldn't load notification channels — ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -76,9 +85,17 @@ export default function SettingsPage() {
     if (role === "admin") fetchChannels();
   }, [role, fetchChannels]);
 
+  // Clear the action-error banner after a few seconds so it doesn't linger.
+  useEffect(() => {
+    if (!actionError) return;
+    const id = setTimeout(() => setActionError(null), 5000);
+    return () => clearTimeout(id);
+  }, [actionError]);
+
   async function handleAdd() {
     if (!newName || !newUrl) return;
     setAdding(true);
+    setActionError(null);
     try {
       const res = await fetch("/api/admin/notifications", {
         method: "POST",
@@ -90,34 +107,81 @@ export default function SettingsPage() {
           events: newEvents,
         }),
       });
-      if (res.ok) {
-        setNewName("");
-        setNewUrl("");
-        setNewEvents("all");
-        setShowAdd(false);
-        fetchChannels();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
+      setNewName("");
+      setNewUrl("");
+      setNewEvents("all");
+      setShowAdd(false);
+      await fetchChannels();
+    } catch (err: unknown) {
+      setActionError(
+        `Add failed — ${err instanceof Error ? err.message : "unknown error"}`,
+      );
     } finally {
       setAdding(false);
     }
   }
 
   async function handleToggle(id: string, enabled: boolean) {
-    await fetch("/api/admin/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, enabled: !enabled }),
-    });
-    fetchChannels();
+    if (togglingId) return;
+    setTogglingId(id);
+    setActionError(null);
+    // Optimistic flip
+    setChannels((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, enabled: !enabled } : c)),
+    );
+    try {
+      const res = await fetch("/api/admin/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, enabled: !enabled }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchChannels();
+    } catch (err: unknown) {
+      // Roll back the optimistic update
+      setChannels((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, enabled } : c)),
+      );
+      setActionError(
+        `Toggle failed — ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function handleDelete(id: string) {
-    await fetch("/api/admin/notifications", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    fetchChannels();
+    if (confirmingDeleteId !== id) {
+      // First click: arm confirmation
+      setConfirmingDeleteId(id);
+      setTimeout(() => {
+        setConfirmingDeleteId((current) => (current === id ? null : current));
+      }, 4000);
+      return;
+    }
+    if (deletingId) return;
+    setDeletingId(id);
+    setConfirmingDeleteId(null);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/admin/notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchChannels();
+    } catch (err: unknown) {
+      setActionError(
+        `Delete failed — ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function handleTest(id: string) {
@@ -151,9 +215,50 @@ export default function SettingsPage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <div
+          className="rounded-xl p-4 ring-1"
+          style={{
+            background: "rgba(239,68,68,0.08)",
+            borderColor: "var(--danger)",
+          }}
+          role="alert"
+        >
+          <p className="text-sm" style={{ color: "var(--danger)" }}>
+            {loadError}
+          </p>
+          <button
+            onClick={fetchChannels}
+            className="mt-3 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+            style={{ background: "var(--accent)" }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold">Settings</h1>
+
+      {actionError && (
+        <div
+          className="rounded-lg px-4 py-2 text-sm ring-1"
+          style={{
+            background: "rgba(239,68,68,0.08)",
+            borderColor: "var(--danger)",
+            color: "var(--danger)",
+          }}
+          role="alert"
+        >
+          {actionError}
+        </div>
+      )}
 
       {/* Notification Channels */}
       <section className="space-y-4">
@@ -297,18 +402,34 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={() => handleToggle(ch.id, ch.enabled)}
-                  className="rounded-lg px-2 py-1 text-xs font-bold text-white transition-opacity hover:opacity-90"
+                  disabled={togglingId === ch.id}
+                  className="rounded-lg px-2 py-1 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: ch.enabled ? "var(--success)" : "var(--muted)",
                   }}
                 >
-                  {ch.enabled ? "ON" : "OFF"}
+                  {togglingId === ch.id ? "…" : ch.enabled ? "ON" : "OFF"}
                 </button>
                 <button
                   onClick={() => handleDelete(ch.id)}
-                  className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--danger)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--danger)] hover:text-white"
+                  disabled={deletingId === ch.id}
+                  className="rounded-lg px-2 py-1 text-xs font-medium ring-1 ring-[var(--border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    color: confirmingDeleteId === ch.id ? "white" : "var(--danger)",
+                    background:
+                      confirmingDeleteId === ch.id ? "var(--danger)" : "transparent",
+                  }}
+                  title={
+                    confirmingDeleteId === ch.id
+                      ? "Click again to confirm — clears in 4s"
+                      : undefined
+                  }
                 >
-                  Delete
+                  {deletingId === ch.id
+                    ? "…"
+                    : confirmingDeleteId === ch.id
+                      ? "Confirm?"
+                      : "Delete"}
                 </button>
               </div>
             </div>

@@ -50,6 +50,7 @@ export default function AuditPage() {
 
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("");
 
   useEffect(() => {
@@ -58,6 +59,7 @@ export default function AuditPage() {
   }, [session, sessionStatus, role, router]);
 
   const fetchLogs = useCallback(async () => {
+    setLoadError(null);
     try {
       const params = new URLSearchParams({ limit: "100" });
       if (filter) params.set("action", filter);
@@ -65,8 +67,9 @@ export default function AuditPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setLogs(json.logs || []);
-    } catch {
-      // silent
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      setLoadError(`Couldn't load audit log — ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -80,6 +83,33 @@ export default function AuditPage() {
     return (
       <div className="flex justify-center py-16">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Audit Log</h1>
+        <div
+          className="rounded-xl p-4 ring-1"
+          style={{
+            background: "rgba(239,68,68,0.08)",
+            borderColor: "var(--danger)",
+          }}
+          role="alert"
+        >
+          <p className="text-sm" style={{ color: "var(--danger)" }}>
+            {loadError}
+          </p>
+          <button
+            onClick={fetchLogs}
+            className="mt-3 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+            style={{ background: "var(--accent)" }}
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

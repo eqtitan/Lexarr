@@ -197,59 +197,82 @@ export default function DashboardPage() {
       </div>
 
 
-      {/* Tabs */}
-      <div
-        role="tablist"
-        aria-label="Dashboard sections"
-        className="flex gap-1 overflow-x-auto scrollbar-none border-b border-[var(--border)]"
-      >
-        {TABS.map((t) => {
-          const isActive = activeTab === t.id;
-          const badge = tabBadge[t.id];
-          // Warnings tab goes red ONLY when a critical warning exists
-          const isWarningsTabRed = t.id === "warnings" && hasCritical;
-          const activeColor = isWarningsTabRed
-            ? "var(--danger)"
-            : "var(--accent)";
-          const tabTextColor = isActive
-            ? activeColor
-            : isWarningsTabRed
+      {/* Tabs. On mobile we tighten padding/text so all 5 fit, and add a
+          right-edge gradient fade to hint at horizontal scroll when they
+          don't. Active tab auto-scrolls into view via scrollIntoView. */}
+      <div className="relative">
+        <div
+          role="tablist"
+          aria-label="Dashboard sections"
+          className="flex gap-1 overflow-x-auto scrollbar-none border-b border-[var(--border)] snap-x snap-mandatory"
+        >
+          {TABS.map((t) => {
+            const isActive = activeTab === t.id;
+            const badge = tabBadge[t.id];
+            // Warnings tab goes red ONLY when a critical warning exists
+            const isWarningsTabRed = t.id === "warnings" && hasCritical;
+            const activeColor = isWarningsTabRed
               ? "var(--danger)"
-              : "var(--muted)";
-          const badgeColor = isWarningsTabRed
-            ? "var(--danger)"
-            : t.id === "warnings"
-              ? "var(--warning)"
-              : t.id === "approvals"
+              : "var(--accent)";
+            const tabTextColor = isActive
+              ? activeColor
+              : isWarningsTabRed
+                ? "var(--danger)"
+                : "var(--muted)";
+            const badgeColor = isWarningsTabRed
+              ? "var(--danger)"
+              : t.id === "warnings"
                 ? "var(--warning)"
-                : "var(--accent)";
-          return (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setActiveTab(t.id)}
-              className="relative shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors"
-              style={{
-                color: tabTextColor,
+                : t.id === "approvals"
+                  ? "var(--warning)"
+                  : "var(--accent)";
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={isActive}
+                onClick={(e) => {
+                  setActiveTab(t.id);
+                  // Scroll the newly-active tab into view on mobile where
+                  // the row can overflow. `nearest` keeps desktop stable.
+                  (e.currentTarget as HTMLButtonElement).scrollIntoView({
+                    behavior: "smooth",
+                    inline: "center",
+                    block: "nearest",
+                  });
+                }}
+                className="relative shrink-0 snap-start flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+                style={{
+                  color: tabTextColor,
                 borderBottom: isActive
                   ? `2px solid ${activeColor}`
                   : "2px solid transparent",
                 marginBottom: "-1px",
               }}
             >
-              {t.label}
-              {badge > 0 && (
-                <span
-                  className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white"
-                  style={{ background: badgeColor }}
-                >
-                  {badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+                {t.label}
+                {badge > 0 && (
+                  <span
+                    className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white sm:px-1.5 sm:text-[10px]"
+                    style={{ background: badgeColor }}
+                  >
+                    {badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {/* Right-edge fade — hint that tabs scroll on narrow screens. Pointer
+            events off so it doesn't block clicks on the last visible tab. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0 top-0 h-full w-8 sm:hidden"
+          style={{
+            background:
+              "linear-gradient(to right, transparent, var(--background) 80%)",
+          }}
+        />
       </div>
 
       {/* Tab panels */}
