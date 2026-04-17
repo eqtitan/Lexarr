@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { MediaType } from "@/types";
 
 const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
@@ -33,17 +33,6 @@ export default function SearchBar({
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
   const [activeSub, setActiveSub] = useState<MusicSubFilter>("album");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Refs for centering the Music sub-chip row under the Music chip.
-  // We measure only the Music button's horizontal center, then anchor
-  // the sub-row there via `left: Xpx; transform: translateX(-50%)`.
-  // That way the browser handles the "center on this point" math —
-  // no subRow.offsetWidth measurement, no flash of unstyled width
-  // before the second paint. Recomputes on ResizeObserver so the
-  // alignment tracks viewport resizes and font-load reflows.
-  const filterRowRef = useRef<HTMLDivElement>(null);
-  const musicButtonRef = useRef<HTMLButtonElement>(null);
-  const [musicCenterPx, setMusicCenterPx] = useState<number | null>(null);
 
   const runSearch = useCallback(
     (q: string, f: MediaType | "all", s: MusicSubFilter) => {
@@ -87,28 +76,6 @@ export default function SearchBar({
     if (activeFilter === "music") setActiveSub("album");
   }, [activeFilter]);
 
-  // Track Music chip's horizontal center relative to the filter row.
-  // We observe the filter row always (not just when active) so switching
-  // INTO music doesn't require a layout measurement before first paint
-  // of the sub-row. By the time activeFilter === "music" triggers the
-  // sub-row render, musicCenterPx is already current.
-  useLayoutEffect(() => {
-    const recalc = () => {
-      const musicEl = musicButtonRef.current;
-      const filterRow = filterRowRef.current;
-      if (!musicEl || !filterRow) return;
-      const musicRect = musicEl.getBoundingClientRect();
-      const rowRect = filterRow.getBoundingClientRect();
-      const center = musicRect.left + musicRect.width / 2 - rowRect.left;
-      setMusicCenterPx(center);
-    };
-
-    recalc();
-
-    const ro = new ResizeObserver(recalc);
-    if (filterRowRef.current) ro.observe(filterRowRef.current);
-    return () => ro.disconnect();
-  }, []);
 
   return (
     <div className="space-y-3">
@@ -140,14 +107,10 @@ export default function SearchBar({
           consistency — user requested). Outer space-y-3 keeps the
           search-input → chip-group gap unchanged at 12px. */}
       <div className="space-y-2">
-      <div
-        ref={filterRowRef}
-        className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none"
-      >
+      <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
         {FILTERS.map((f) => (
           <button
             key={f.value}
-            ref={f.value === "music" ? musicButtonRef : undefined}
             onClick={() => handleFilter(f.value)}
             className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
             style={{
@@ -160,28 +123,14 @@ export default function SearchBar({
         ))}
       </div>
       {/* Music sub-filter row — only visible when Music is active.
-          Anchored directly beneath the Music chip via a single left-
-          position + transform: translateX(-50%) trick. The browser
-          handles the centering math, so there's no measurement race
-          and no flash of unstyled width. Falls back to justify-center
-          when we haven't measured yet (SSR or very first render). */}
+          Left-aligned to match the rhythm of the main chip row: same
+          gap-2 between chips, same starting edge, same flex behavior.
+          The vertical space-y-2 wrapper gives us the 8px gap from the
+          main row. No centering, no anchoring — just a clean second
+          row of chips in the same visual language. */}
       {activeFilter === "music" && (
-        <div className="relative h-8">
-          <div
-            className="absolute top-0 flex gap-2 whitespace-nowrap"
-            style={
-              musicCenterPx !== null
-                ? {
-                    left: `${musicCenterPx}px`,
-                    transform: "translateX(-50%)",
-                  }
-                : {
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                  }
-            }
-          >
-            {MUSIC_SUB_FILTERS.map((s) => (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
+          {MUSIC_SUB_FILTERS.map((s) => (
               <button
                 key={s.value}
                 onClick={() => handleSub(s.value)}
@@ -204,7 +153,6 @@ export default function SearchBar({
                 {s.label}
               </button>
             ))}
-          </div>
         </div>
       )}
       </div>
