@@ -115,9 +115,11 @@ export default function SearchBar({
           </button>
         ))}
       </div>
-      {/* Music sub-filter row — only visible when Music is active. */}
+      {/* Music sub-filter row — only visible when Music is active.
+          Centered horizontally so the chips feel anchored to the Music
+          parent chip rather than dangling from the left edge. */}
       {activeFilter === "music" && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none pl-1">
+        <div className="flex justify-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
           {MUSIC_SUB_FILTERS.map((s) => (
             <button
               key={s.value}

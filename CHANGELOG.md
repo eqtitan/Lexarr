@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.12.2] — 2026-04-17
+
+### Fixed
+- fix: force-dynamic home page + center music sub-filter chips (a2df07f)
+
 ## [0.12.1] — 2026-04-17
 
 ### Fixed
