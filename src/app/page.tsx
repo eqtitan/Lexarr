@@ -83,37 +83,50 @@ export default function Home() {
     [],
   );
 
+  /** After any successful or already-requested POST, mark the item in
+   *  libraryStatuses so the affected card (and any sibling with the same
+   *  key) re-renders its button without a page refresh. */
+  const markRequested = useCallback((r: SearchResult) => {
+    setLibraryStatuses((prev) => ({
+      ...prev,
+      [`${r.mediaType}:${r.id}`]: "requested",
+    }));
+  }, []);
+
   const handleDetailRequest = useCallback(async (qualityProfileId?: number) => {
     if (!selectedResult) return;
+    const target = selectedResult;
     setSelectedResult(null);
     try {
       const res = await fetch("/api/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mediaType: selectedResult.mediaType,
-          externalId: selectedResult.id,
-          title: selectedResult.title,
-          year: selectedResult.year,
-          posterUrl: selectedResult.posterUrl,
-          artist: selectedResult.artist,
-          artistId: selectedResult.artistId,
+          mediaType: target.mediaType,
+          externalId: target.id,
+          title: target.title,
+          year: target.year,
+          posterUrl: target.posterUrl,
+          artist: target.artist,
+          artistId: target.artistId,
           qualityProfileId,
-          releaseType: selectedResult.releaseType,
+          releaseType: target.releaseType,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 409) {
+        markRequested(target);
         toast("Already requested", "info");
       } else if (!res.ok) {
         toast(data.error || "Request failed", "error");
       } else {
-        toast(`Requested: ${selectedResult.title}`, "success");
+        markRequested(target);
+        toast(`Requested: ${target.title}`, "success");
       }
     } catch {
       toast("Network error", "error");
     }
-  }, [selectedResult, toast]);
+  }, [selectedResult, toast, markRequested]);
 
   return (
     <div className="space-y-6">
@@ -160,6 +173,7 @@ export default function Home() {
               result={r}
               libraryStatus={libraryStatuses[`${r.mediaType}:${r.id}`]}
               onClick={() => setSelectedResult(r)}
+              onRequested={markRequested}
             />
           ))}
         </div>

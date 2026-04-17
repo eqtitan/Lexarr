@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.7] — 2026-04-16 (was `v16`)
+
+### Fixed
+- Request button now updates to "Already Requested" without a page refresh.
+  `MediaCard` gained an `onRequested` callback; page maintains authoritative
+  `libraryStatuses` map; both the inline button path and DetailPanel path
+  call it on success / 409.
+
 ## [0.4.6] — 2026-04-16 (was `v15`)
 
 ### Fixed

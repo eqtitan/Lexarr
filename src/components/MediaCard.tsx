@@ -34,10 +34,15 @@ export default function MediaCard({
   result,
   libraryStatus,
   onClick,
+  onRequested,
 }: {
   result: SearchResult;
   libraryStatus?: LibraryStatusValue;
   onClick?: () => void;
+  /** Notify parent after a successful or already-exists request so sibling
+   *  cards (and this one, after a detail-panel request) also reflect the
+   *  new status without a page refresh. */
+  onRequested?: (result: SearchResult) => void;
 }) {
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState(false);
@@ -69,6 +74,7 @@ export default function MediaCard({
       }
       if (res.status === 409) {
         setAlreadyRequested(true);
+        onRequested?.(result);
         return;
       }
       if (!res.ok) {
@@ -76,6 +82,7 @@ export default function MediaCard({
         throw new Error(data.error || "Request failed");
       }
       setRequested(true);
+      onRequested?.(result);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
