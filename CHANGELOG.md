@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.3] — 2026-04-16 (was `v13`)
+
+### Added
+- `LivePill` component — compact pulsing-dot status indicator replacing the
+  H1 + timestamp + auto-refresh checkbox + Refresh button
+- Adaptive dashboard polling: 10s when downloads active, 60s when idle,
+  paused when browser tab is hidden; immediate fetch on tab refocus
+
+### Removed
+- Dashboard H1 heading (redundant with nav)
+
 ## [0.4.2] — 2026-04-16 (was `v12`)
 
 ### Added

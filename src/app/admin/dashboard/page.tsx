@@ -10,6 +10,11 @@ import AnalyticsGrid from "@/components/dashboard/AnalyticsGrid";
 import DashboardKpis from "@/components/dashboard/DashboardKpis";
 import WarningsPanel from "@/components/dashboard/WarningsPanel";
 import IndexerPerformancePanel from "@/components/dashboard/IndexerPerformancePanel";
+import LivePill from "@/components/dashboard/LivePill";
+
+/** Polling intervals. Active downloads → faster poll, idle → slower. */
+const POLL_ACTIVE_MS = 10_000;
+const POLL_IDLE_MS = 60_000;
 
 type TabId = "overview" | "approvals" | "pipeline" | "analytics" | "warnings";
 
@@ -29,9 +34,17 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [autoPoll, setAutoPoll] = useState(true);
+  const [userPaused, setUserPaused] = useState(false);
+  const [tabHidden, setTabHidden] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isLive = !userPaused && !tabHidden;
+  const pausedReason = userPaused
+    ? "Paused"
+    : tabHidden
+      ? "Tab hidden"
+      : null;
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
@@ -60,14 +73,30 @@ export default function DashboardPage() {
     }
   }, [role, fetchDashboard]);
 
+  // Adaptive polling: faster when downloads are active, slower when idle,
+  // paused entirely when the browser tab is hidden or the user paused.
+  const activeDownloads = data?.pipeline.active.length ?? 0;
   useEffect(() => {
-    if (autoPoll && role === "admin") {
-      intervalRef.current = setInterval(fetchDashboard, 15000);
-    }
+    if (!isLive || role !== "admin") return;
+    const interval = activeDownloads > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    intervalRef.current = setInterval(fetchDashboard, interval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [autoPoll, role, fetchDashboard]);
+  }, [isLive, role, fetchDashboard, activeDownloads]);
+
+  // Track browser tab visibility so we don't poll in the background.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const hidden = document.visibilityState === "hidden";
+      setTabHidden(hidden);
+      // Fire immediately on re-focus so the UI feels fresh
+      if (!hidden && role === "admin") fetchDashboard();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [role, fetchDashboard]);
 
   async function handleApprove(id: string, note?: string) {
     await fetch("/api/admin/requests", {
@@ -155,33 +184,16 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          {data.generatedAt && (
-            <p className="text-xs text-[var(--muted)]">
-              Updated {new Date(data.generatedAt).toLocaleTimeString()}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={autoPoll}
-              onChange={(e) => setAutoPoll(e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
-            Auto-refresh
-          </label>
-          <button
-            onClick={fetchDashboard}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--card)]"
-          >
-            Refresh
-          </button>
-        </div>
+      {/* Status pill — replaces title/timestamp/checkbox/refresh button.
+          Nav above already shows "Dashboard"; no need for H1. */}
+      <div className="flex justify-end">
+        <LivePill
+          lastUpdatedAt={data.generatedAt}
+          isLive={isLive}
+          pausedReason={pausedReason}
+          onTogglePause={() => setUserPaused((p) => !p)}
+          onForceRefresh={fetchDashboard}
+        />
       </div>
 
 
