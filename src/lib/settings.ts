@@ -39,7 +39,15 @@ export const SUPPORTED_REGIONS = [
 
 export type RegionCode = (typeof SUPPORTED_REGIONS)[number]["code"];
 
-export const DEFAULT_ALLOWED_REGIONS: RegionCode[] = ["US", "GB"];
+/**
+ * Default is empty (no filter) because MusicBrainz's `release-group`
+ * search index doesn't support a `country:` field. Any non-empty
+ * value applied as a Lucene clause silently zeros the result set.
+ * The admin UI still exposes the setting for forward-compatibility
+ * with a post-fetch filter approach planned for 0.13.x. Until that
+ * lands, the setting is a no-op.
+ */
+export const DEFAULT_ALLOWED_REGIONS: RegionCode[] = [];
 
 const SUPPORTED_REGION_SET = new Set<string>(
   SUPPORTED_REGIONS.map((r) => r.code),

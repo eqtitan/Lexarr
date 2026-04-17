@@ -332,10 +332,18 @@ export default function SettingsPage() {
       {/* Music Search Regions */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Music Search Regions</h2>
+          <h2 className="text-lg font-semibold">
+            Music Search Regions
+            <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] ring-1 ring-[var(--border)]">
+              preview
+            </span>
+          </h2>
           <p className="mt-0.5 text-xs text-[var(--muted)]">
-            Filter MusicBrainz results to releases issued in the selected
-            countries. Leave empty to search all regions. Default: US + UK.
+            Intended to filter MusicBrainz results by release country.
+            Selections are saved but not yet active — MusicBrainz&apos;s
+            release-group search index doesn&apos;t expose a country field,
+            so a post-fetch artist-country filter is planned for a later
+            release. Your choices persist for when it lands.
           </p>
         </div>
 

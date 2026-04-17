@@ -290,8 +290,17 @@ function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
 
 /**
  * Build a MusicBrainz Lucene query combining the user's search term
- * with the optional releaseType and region filters. Keeps the raw
- * search-term wrapping clean so clauses don't bleed into each other.
+ * with the optional releaseType filter. Keeps the raw search-term
+ * wrapping clean so clauses don't bleed into each other.
+ *
+ * Note: `allowedRegions` is intentionally not applied here. MusicBrainz's
+ * `release-group` search index does not expose a `country` field — the
+ * only indexed fields are `arid`, `artist`, `artistname`, `primarytype`,
+ * `secondarytype`, `tag`, `status`, `release`, `releases`, `rgid`, etc.
+ * Adding `country:` as a Lucene clause silently zero-matches, killing
+ * search. The admin-configurable region setting still exists for
+ * forward compatibility with a post-fetch artist-country filter we
+ * plan for 0.13.x, but for now the query builder ignores it.
  */
 export function buildTextSearchQuery(
   query: string,
@@ -309,17 +318,6 @@ export function buildTextSearchQuery(
           ? "EP"
           : "Single";
     clauses.push(`primarytype:${pt}`);
-  }
-  if (opts?.allowedRegions && opts.allowedRegions.length > 0) {
-    // MB `country` codes are lowercase in the Lucene index.
-    const codes = opts.allowedRegions
-      .map((r) => r.toLowerCase())
-      .filter((r) => /^[a-z]{2}$/.test(r));
-    if (codes.length === 1) {
-      clauses.push(`country:${codes[0]}`);
-    } else if (codes.length > 1) {
-      clauses.push(`(${codes.map((c) => `country:${c}`).join(" OR ")})`);
-    }
   }
   return clauses.length === 1 ? clauses[0] : clauses.join(" AND ");
 }

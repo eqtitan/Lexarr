@@ -37,47 +37,38 @@ describe("buildTextSearchQuery", () => {
     ).toBe("centuries AND primarytype:Album");
   });
 
-  it("appends country clause for a single allowed region", () => {
+  it("ignores allowedRegions entirely (MB release-group index has no country field)", () => {
+    // This is a regression guard. Early in 0.12.0 the query builder
+    // emitted `country:us` clauses, which MB silently zero-matched.
+    // The setting still exists for forward-compatibility with a
+    // post-fetch implementation, but the query builder must not
+    // reintroduce the broken clause.
     expect(
       buildTextSearchQuery("centuries", { allowedRegions: ["US"] }),
-    ).toBe("centuries AND country:us");
-  });
-
-  it("appends OR-joined country clause for multiple allowed regions", () => {
+    ).toBe("centuries");
     expect(
       buildTextSearchQuery("centuries", { allowedRegions: ["US", "GB"] }),
-    ).toBe("centuries AND (country:us OR country:gb)");
-  });
-
-  it("combines releaseType and region filters", () => {
+    ).toBe("centuries");
     expect(
       buildTextSearchQuery("centuries", {
         releaseType: "single",
         allowedRegions: ["US", "GB"],
       }),
-    ).toBe(
-      "centuries AND primarytype:Single AND (country:us OR country:gb)",
-    );
+    ).toBe("centuries AND primarytype:Single");
   });
 
-  it("omits region clause when allowedRegions is empty", () => {
+  it("omits all filter clauses when nothing is specified", () => {
     expect(
       buildTextSearchQuery("centuries", { allowedRegions: [] }),
     ).toBe("centuries");
   });
-
-  it("drops non-ISO region codes silently", () => {
-    // Guards against weird data sneaking through from the settings DB.
-    expect(
-      buildTextSearchQuery("centuries", {
-        allowedRegions: ["US", "NOT_A_CODE", "G"],
-      }),
-    ).toBe("centuries AND country:us");
-  });
 });
 
 describe("settings sanitizeRegions", () => {
-  it("returns the default when input is not an array", () => {
+  it("returns the default (empty array) when input is not an array", () => {
+    // Default became empty in 0.12.1 after we removed the broken
+    // country-filter clause. See buildTextSearchQuery docs above.
+    expect(DEFAULT_ALLOWED_REGIONS).toEqual([]);
     expect(sanitizeRegions(null)).toEqual(DEFAULT_ALLOWED_REGIONS);
     expect(sanitizeRegions("US,GB")).toEqual(DEFAULT_ALLOWED_REGIONS);
     expect(sanitizeRegions({})).toEqual(DEFAULT_ALLOWED_REGIONS);
