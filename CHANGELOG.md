@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.11.0] — 2026-04-17
+
+### Added
+- feat(music): 30-second preview snippets on music search results (1be2b6e)
+
+### Chore
+- ci: publish image to ghcr.io on every v* tag (ce4b959)
+
 ## [0.10.1] — 2026-04-17
 
 ### Fixed

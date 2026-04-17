@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { SearchResult, LibraryStatusValue } from "@/types";
+import { playExclusively } from "@/lib/preview-audio";
 
 const typeColors: Record<string, string> = {
   movie: "var(--movie)",
@@ -48,6 +49,79 @@ export default function MediaCard({
   const [requested, setRequested] = useState(false);
   const [alreadyRequested, setAlreadyRequested] = useState(false);
   const [error, setError] = useState<string>();
+
+  // ── Music preview (30s audio sample) ────────────────────────────
+  // Lazy-loaded on first click — we never prefetch for the 15-card grid.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  // `unavailable` is permanent for this mount — neither iTunes nor
+  // Deezer had a matching preview, so subsequent clicks shouldn't
+  // re-fire the lookup.
+  const [previewState, setPreviewState] = useState<
+    "idle" | "loading" | "playing" | "unavailable"
+  >("idle");
+
+  async function handlePreview(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (result.mediaType !== "music" || !result.artist) return;
+
+    // Toggle off if we're currently playing this card
+    if (previewState === "playing") {
+      audioRef.current?.pause();
+      setPreviewState("idle");
+      return;
+    }
+
+    // Kick off the lookup on first click
+    let url = previewUrlRef.current;
+    if (!url) {
+      setPreviewState("loading");
+      try {
+        const q = new URLSearchParams({
+          mbid: result.id,
+          artist: result.artist,
+          title: result.title,
+        });
+        const res = await fetch(`/api/music-preview?${q}`);
+        if (!res.ok) {
+          setPreviewState("unavailable");
+          return;
+        }
+        const data = await res.json();
+        const found = data.preview?.url as string | undefined;
+        if (!found) {
+          setPreviewState("unavailable");
+          return;
+        }
+        url = found;
+        previewUrlRef.current = url;
+      } catch {
+        setPreviewState("unavailable");
+        return;
+      }
+    }
+
+    // Create the audio lazily so the DOM doesn't hold N idle <audio>s
+    if (!audioRef.current) {
+      const a = new Audio(url);
+      a.preload = "none";
+      // Pause fires on both user-click-pause AND peer-card takeover
+      // (playExclusively). Either way we're no longer playing, so reset
+      // unconditionally — simpler than trying to distinguish.
+      a.addEventListener("ended", () => setPreviewState("idle"));
+      a.addEventListener("pause", () => setPreviewState("idle"));
+      audioRef.current = a;
+    }
+
+    try {
+      await playExclusively(audioRef.current);
+      setPreviewState("playing");
+    } catch {
+      // play() can reject on autoplay-blocked browsers, but we're in
+      // direct click handler so that's unlikely; treat as transient.
+      setPreviewState("idle");
+    }
+  }
 
   async function handleRequest(e: React.MouseEvent) {
     e.stopPropagation();
@@ -149,6 +223,50 @@ export default function MediaCard({
             {statusBadge[libraryStatus].label}
           </span>
         )}
+        {/* Music preview button (bottom-left) — 30s sample from iTunes/Deezer */}
+        {result.mediaType === "music" && result.artist &&
+          previewState !== "unavailable" && (
+            <button
+              type="button"
+              onClick={handlePreview}
+              disabled={previewState === "loading"}
+              className="absolute bottom-1 left-1 flex h-6 w-6 items-center justify-center rounded-full text-white shadow-md transition-opacity hover:opacity-90 disabled:opacity-70"
+              style={{ background: "rgba(0,0,0,0.72)" }}
+              title={
+                previewState === "loading"
+                  ? "Loading preview…"
+                  : previewState === "playing"
+                    ? "Pause 30s preview"
+                    : "Play 30s preview"
+              }
+              aria-label={
+                previewState === "playing" ? "Pause preview" : "Play preview"
+              }
+            >
+              {previewState === "loading" ? (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : previewState === "playing" ? (
+                <svg
+                  className="h-3 w-3"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              ) : (
+                <svg
+                  className="ml-0.5 h-3 w-3"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </button>
+          )}
       </div>
 
       {/* Info */}
