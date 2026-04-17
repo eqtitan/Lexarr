@@ -17,6 +17,13 @@ interface MbReleaseGroup {
   title: string;
   "first-release-date"?: string;
   "primary-type"?: string;
+  /**
+   * MB secondary classifications. Common values: "Live", "Remix",
+   * "Compilation", "Soundtrack", "Demo", "Spokenword", "Audiobook",
+   * "DJ-mix". A release-group may have zero or many. Orthogonal to
+   * primary-type: a "Live Album" is primary=Album + secondary=["Live"].
+   */
+  "secondary-types"?: string[];
   "artist-credit"?: { name: string; artist?: { id: string } }[];
   releases?: { id: string }[];
   score?: number;
@@ -33,20 +40,50 @@ function normalizeType(mbType?: string): MusicReleaseType | undefined {
   return "other";
 }
 
+/** Secondary types that are common enough to be worth surfacing in the UI. */
+const SECONDARY_TYPE_WHITELIST = new Set([
+  "Live",
+  "Remix",
+  "Compilation",
+  "Soundtrack",
+  "Demo",
+  "Acoustic",
+  "Mixtape/Street",
+  "DJ-mix",
+  "Interview",
+  "Audiobook",
+  "Audio drama",
+  "Spokenword",
+]);
+
+function filterSecondaryTypes(st?: string[]): string[] | undefined {
+  if (!st || st.length === 0) return undefined;
+  const kept = st.filter((t) => SECONDARY_TYPE_WHITELIST.has(t));
+  return kept.length > 0 ? kept : undefined;
+}
+
 function toResult(rg: MbReleaseGroup): SearchResult {
   const artistCredit = rg["artist-credit"]?.[0];
   const artist = artistCredit?.name || "Unknown Artist";
   const artistId = artistCredit?.artist?.id;
+  const secondaryTypes = filterSecondaryTypes(rg["secondary-types"]);
+  const primary = rg["primary-type"] || "Release";
+  // Overview pulls in secondary-types so users see "Live Album by …"
+  // instead of just "Album by …" when relevant.
+  const typeLabel = secondaryTypes
+    ? `${secondaryTypes.join(" ")} ${primary}`.trim()
+    : primary;
   return {
     id: rg.id,
     mediaType: "music",
     title: rg.title || "Unknown",
     year: rg["first-release-date"]?.slice(0, 4),
-    overview: `${rg["primary-type"] || "Release"} by ${artist}`,
+    overview: `${typeLabel} by ${artist}`,
     posterUrl: `https://coverartarchive.org/release-group/${rg.id}/front-250`,
     artist,
     artistId,
     releaseType: normalizeType(rg["primary-type"]),
+    secondaryTypes,
   };
 }
 
@@ -73,7 +110,7 @@ async function mbGet<T>(path: string): Promise<T | null> {
   }
 }
 
-// ── Primary-type ordering (albums first) ─────────────────────────────
+// ── Primary-type ordering (albums first — tie-break only) ─────────────
 
 const TYPE_WEIGHT: Record<string, number> = {
   album: 0,
@@ -103,7 +140,7 @@ interface ArtistDetection {
 /**
  * True if the top artist is a confident match for the query:
  *   - Top score >= 90
- *   - Top score is >= 15 points above the runner-up (or no runner-up)
+ *   - Top score is >= 10 points above the runner-up (or no runner-up)
  *   - Top artist name matches the query, modulo case + common punctuation
  */
 async function detectArtist(query: string): Promise<ArtistDetection> {
@@ -123,8 +160,6 @@ async function detectArtist(query: string): Promise<ArtistDetection> {
     s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
   const nameMatches = normalize(top.name) === normalize(query);
 
-  // Gap of 10+ is enough: MB scores are in 5–15 pt increments at the top of
-  // the distribution, so 10 reliably separates "it's them" from "close but no".
   const confident =
     topScore >= 90 && (topScore - runnerScore >= 10 || !runnerUp) && nameMatches;
 
@@ -136,36 +171,101 @@ async function detectArtist(query: string): Promise<ArtistDetection> {
 // ── Discography fetch for a known artist ────────────────────────────
 
 async function fetchDiscography(mbid: string): Promise<MbReleaseGroup[]> {
-  // When browsing release-groups BY artist, MB strips artist-credit info
-  // unless we ask for `inc=artist-credits`. Without it every result would
-  // come back with "Unknown Artist". Also note `inc=releases` is rejected
-  // on this endpoint (text-search only).
+  // `inc=artist-credits` keeps artist info in the response (browsing by
+  // artist strips it by default). `inc=releases` is rejected on the
+  // browse endpoint — only available on text search.
   const data = await mbGet<{ "release-groups"?: MbReleaseGroup[] }>(
     `/release-group?artist=${mbid}&limit=100&inc=artist-credits&fmt=json`,
   );
-  const groups = data?.["release-groups"] ?? [];
-  // Sort: albums/EPs first, then singles. Within each bucket, newest first.
-  return groups.sort((a, b) => {
-    const tw = typeWeight(a) - typeWeight(b);
-    if (tw !== 0) return tw;
-    return yearOf(b) - yearOf(a);
-  });
+  return data?.["release-groups"] ?? [];
 }
 
-// ── Fallback text-search ranking ────────────────────────────────────
+/**
+ * Distribute the top N slots across release types so a prolific artist's
+ * singles and EPs aren't completely buried by albums. For Fall Out Boy
+ * with 15+ albums, the naive "sort by year, take 15" returns 15 albums
+ * and the user never sees any singles or EPs. This picker guarantees a
+ * mix while preserving within-bucket year-descending order.
+ *
+ * Budget per 15 slots: 8 albums, 3 EPs, 3 singles, 1 other. If a bucket
+ * has fewer entries than its budget, the leftover goes back to the album
+ * pool — we never leave empty slots when more content exists.
+ */
+function pickDiscographyMix(
+  groups: MbReleaseGroup[],
+  limit: number,
+): MbReleaseGroup[] {
+  const byYear = (a: MbReleaseGroup, b: MbReleaseGroup) =>
+    yearOf(b) - yearOf(a);
+
+  const buckets = {
+    album: groups.filter((g) => typeWeight(g) === 0).sort(byYear),
+    ep: groups.filter((g) => typeWeight(g) === 1).sort(byYear),
+    single: groups.filter((g) => typeWeight(g) === 2).sort(byYear),
+    other: groups.filter((g) => typeWeight(g) === 3).sort(byYear),
+  };
+
+  const targets = [
+    { name: "album" as const, want: Math.ceil(limit * 0.55) },
+    { name: "ep" as const, want: Math.ceil(limit * 0.2) },
+    { name: "single" as const, want: Math.ceil(limit * 0.2) },
+    { name: "other" as const, want: Math.ceil(limit * 0.1) },
+  ];
+
+  const result: MbReleaseGroup[] = [];
+  for (const t of targets) {
+    result.push(...buckets[t.name].slice(0, t.want));
+  }
+  // Fill any shortfall from the leftover in any bucket (albums first,
+  // since they're usually what users look for when a specific type runs
+  // out).
+  if (result.length < limit) {
+    const taken = new Set(result.map((g) => g.id));
+    const leftover = [
+      ...buckets.album,
+      ...buckets.ep,
+      ...buckets.single,
+      ...buckets.other,
+    ].filter((g) => !taken.has(g.id));
+    result.push(...leftover.slice(0, limit - result.length));
+  }
+  // Preserve the type-then-year order overall (albums first in the final
+  // list so the grid isn't jarring).
+  return result
+    .sort((a, b) => {
+      const tw = typeWeight(a) - typeWeight(b);
+      if (tw !== 0) return tw;
+      return byYear(a, b);
+    })
+    .slice(0, limit);
+}
+
+// ── Text-search ranking ─────────────────────────────────────────────
 
 /**
- * Rank text-search results when we have no strong artist hit.
- * MB's score is ~useless (100 for any match), so we use structural signals:
- *   1. Release count (popular RGs have many pressings)
- *   2. Primary-type order (album > ep > single)
- *   3. Year desc tiebreaker
+ * Rank text-search results so exact-title matches beat partial matches.
+ *
+ * MB's `score` is the text-relevance signal — it's 100 for exact-title
+ * matches, 85-ish for substring matches, lower for fuzzy. The previous
+ * ranker ignored score entirely and put release-count first, which meant
+ * a partial-title album (e.g. "Centuries of Sorrow") beat an exact-title
+ * single (e.g. Fall Out Boy's "Centuries") because singles always have
+ * fewer pressings than albums.
+ *
+ * New order:
+ *   1. Score desc — exact-match always beats partial-match
+ *   2. Release count desc — popular pressings within the same score tier
+ *   3. Type weight — album > EP > single only within ties on 1+2
+ *   4. Year desc — final tiebreaker
  */
 function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
   return [...groups].sort((a, b) => {
+    const sa = a.score ?? 0;
+    const sb = b.score ?? 0;
+    if (sa !== sb) return sb - sa;
     const ra = a.releases?.length ?? 0;
     const rb = b.releases?.length ?? 0;
-    if (ra !== rb) return rb - ra; // more releases first
+    if (ra !== rb) return rb - ra;
     const tw = typeWeight(a) - typeWeight(b);
     if (tw !== 0) return tw;
     return yearOf(b) - yearOf(a);
@@ -173,10 +273,9 @@ function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
 }
 
 async function fetchTextResults(query: string): Promise<MbReleaseGroup[]> {
-  // Fetch a wide window so the release-count ranking can find popular hits
-  // even when MB's native scoring buries them. Example: Fleetwood Mac's
-  // "Rumours" has 80 releases but MB puts it at position #24 for the query
-  // "rumours". With limit=100 our ranking surfaces it to the top.
+  // Fetch a wide window (100) so the score-first ranker can surface
+  // exact-title matches even when they sit at position 12+ in MB's
+  // default order.
   const data = await mbGet<{ "release-groups"?: MbReleaseGroup[] }>(
     `/release-group?query=${encodeURIComponent(query)}&limit=100&inc=releases&fmt=json`,
   );
@@ -187,10 +286,15 @@ async function fetchTextResults(query: string): Promise<MbReleaseGroup[]> {
 
 /**
  * Two-pass music search:
- *   1. Try to detect whether the query IS an artist name. If confident,
- *      return that artist's discography (albums first, then EPs, then singles).
- *   2. Otherwise fall back to text-search across all release-groups, ranked
- *      by release count / primary-type / year (NOT by MB's useless `score`).
+ *   1. Detect whether the query IS an artist name. If confident, return
+ *      a distributed mix of the artist's discography (albums, EPs, and
+ *      singles — not just albums).
+ *   2. Otherwise fall back to text-search across all release-groups,
+ *      ranked by MB's text-relevance score (exact-title match wins).
+ *
+ * Results carry `releaseType` (album / single / ep / other) and optional
+ * `secondaryTypes` (Live / Remix / Acoustic / etc) so the UI can label
+ * variants like "Live Album" or "Remix Single" distinctly.
  */
 export async function search(query: string): Promise<SearchResult[]> {
   const trimmed = query.trim();
@@ -200,10 +304,21 @@ export async function search(query: string): Promise<SearchResult[]> {
 
   if (detection.confidence === "strong") {
     const discography = await fetchDiscography(detection.mbid);
-    if (discography.length > 0) return discography.slice(0, 15).map(toResult);
+    if (discography.length > 0) {
+      return pickDiscographyMix(discography, 15).map(toResult);
+    }
     // Artist found but no release-groups (rare) — fall through to text search
   }
 
   const textResults = await fetchTextResults(trimmed);
   return textResults.slice(0, 15).map(toResult);
 }
+
+// ── Test exports — not part of the public runtime API ───────────────
+
+export const __testing = {
+  rankTextResults,
+  pickDiscographyMix,
+  filterSecondaryTypes,
+  toResult,
+};

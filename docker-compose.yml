@@ -1,36 +1,56 @@
+# ============================================================
+# Lexarr — docker-compose example
+# ============================================================
+# A complete, runnable setup. Copy `.env.example` → `.env`, fill in
+# values, then:
+#
+#   docker compose up -d --build
+#   docker compose logs -f lexarr     # watch for "Ready in ..."
+#
+# Open http://<your-host>:5056 — the first user to sign up becomes
+# admin.
+#
+# This config assumes the Lexarr repo is cloned locally and built
+# from source. For pre-built images (post-1.0), swap `build: .` for
+# `image: ghcr.io/eqtitan/lexarr:<version>`.
+# ============================================================
+
 services:
   lexarr:
     build: .
     container_name: lexarr
-    ports:
-      - "5056:5056"
-    environment:
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:5056}
-      - ARR_HOST=${ARR_HOST}
-      - RADARR_API_KEY=${RADARR_API_KEY}
-      - SONARR_API_KEY=${SONARR_API_KEY}
-      - LIDARR_API_KEY=${LIDARR_API_KEY}
-      - LAZYLIBRARIAN_API_KEY=${LAZYLIBRARIAN_API_KEY}
-      - LAZYLIBRARIAN_PORT=${LAZYLIBRARIAN_PORT:-5299}
-      - PROWLARR_API_KEY=${PROWLARR_API_KEY}
-      - QBITTORRENT_URL=${QBITTORRENT_URL}
-      - QBITTORRENT_USER=${QBITTORRENT_USER}
-      - QBITTORRENT_PASS=${QBITTORRENT_PASS}
-      - BAZARR_API_KEY=${BAZARR_API_KEY}
-      - BAZARR_URL=${BAZARR_URL}
-      - NZBGET_URL=${NZBGET_URL}
-      - NZBGET_USER=${NZBGET_USER}
-      - NZBGET_PASS=${NZBGET_PASS}
-      - TMDB_API_KEY=${TMDB_API_KEY}
-      - PLEX_CLIENT_ID=${PLEX_CLIENT_ID:-lexarr}
-      - JELLYFIN_URL=${JELLYFIN_URL}
-      - AUTH_TRUST_HOST=true
-      - LEXARR_WEBHOOK_SECRET=${LEXARR_WEBHOOK_SECRET}
-      - DATABASE_URL=file:/app/data/lexarr.db
-    volumes:
-      - lexarr-data:/app/data
     restart: unless-stopped
+    ports:
+      # Host:Container. Change the host side if 5056 is taken; the
+      # container always listens on 5056 internally.
+      - "5056:5056"
+    env_file: .env
+    # env_file above pulls every variable from .env. We still declare
+    # a couple of Docker-specific overrides below because they use
+    # container-local paths that don't make sense in .env.
+    environment:
+      # DB lives in the named volume below, not wherever .env points.
+      - DATABASE_URL=file:/app/data/lexarr.db
+      - AUTH_TRUST_HOST=true
+    volumes:
+      # SQLite DB + user uploads. Backed up via scripts/lexarr-db-backup.sh
+      # on the Unraid host (if present).
+      - lexarr-data:/app/data
+      # (optional) Read-only mount of the host's stack-healthcheck
+      # report directory. Without this mount, the "Stack Health" KPI
+      # tile on the admin dashboard falls back to its healthy/unhealthy
+      # service ratio — the deep-link modal shows "volume not mounted."
+      # Comment out if you don't run the host-side stack-healthcheck cron.
+      # - /mnt/user/data/stack-healthcheck:/stack-health:ro
+    # Docker-native health check — probes the real /healthz endpoint
+    # that validates DB + at least one *arr. Unraid shows green / red
+    # in the dashboard based on this result.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5056/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   lexarr-data:

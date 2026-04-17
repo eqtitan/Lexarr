@@ -114,11 +114,32 @@ export default function MediaCard({
         <span
           className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white"
           style={{ background: typeColors[result.mediaType] }}
+          title={
+            result.mediaType === "music" && result.secondaryTypes?.length
+              ? result.secondaryTypes.join(" / ")
+              : undefined
+          }
         >
           {result.mediaType === "music" && result.releaseType
             ? musicReleaseLabels[result.releaseType]
             : typeLabels[result.mediaType]}
         </span>
+        {/* Music secondary-type badge (below primary — shows Live / Remix / etc) */}
+        {result.mediaType === "music" &&
+          result.secondaryTypes &&
+          result.secondaryTypes.length > 0 && (
+            <span
+              className="absolute left-1 top-6 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase"
+              style={{
+                background: "rgba(0,0,0,0.7)",
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.35)",
+              }}
+              title={result.secondaryTypes.join(" / ")}
+            >
+              {result.secondaryTypes[0]}
+            </span>
+          )}
         {/* Library status badge (bottom-right) */}
         {libraryStatus && statusBadge[libraryStatus] && (
           <span

@@ -45,3 +45,10 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # Pin the "upgrade from an empty DB" path so a stranger's first
+      # install can't fail on an untested migration. Also catches the
+      # case where someone edits schema.prisma without running
+      # `prisma migrate dev` to generate a matching migration.
+      - name: Migration smoke test
+        run: bash scripts/migration-smoke-test.sh

@@ -37,6 +37,12 @@ export interface SearchResult {
   artist?: string; // music: artist name, book: author
   artistId?: string; // music: MusicBrainz artist UUID for Lidarr
   releaseType?: MusicReleaseType; // music: Album / Single / EP / Other
+  /**
+   * Music only — MusicBrainz "secondary-types" like "Live", "Remix",
+   * "Compilation", "Soundtrack", "Demo", "Acoustic". Orthogonal to
+   * releaseType: a "Live Album" is releaseType=album with secondaryTypes=["Live"].
+   */
+  secondaryTypes?: string[];
 }
 
 export interface RequestStatus {

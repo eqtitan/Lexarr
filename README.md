@@ -24,22 +24,47 @@ Lexarr provides a single search bar that searches across all your media sources,
 - **Pipeline events** tracking every step from request to availability
 - **Docker-ready** with SQLite (zero external dependencies)
 
-## Quick Start (Docker)
+## Quick Start (Docker — ≤ 10 min)
+
+Prereqs: Docker, an already-running *arr stack (at minimum one of
+Radarr / Sonarr / Lidarr), and a free [TMDB API key](https://www.themoviedb.org/settings/api)
+for movie/TV search.
+
+### 1 · Get the code (30 s)
 
 ```bash
-# Clone the repo
 git clone https://github.com/eqtitan/Lexarr.git
 cd Lexarr
+```
 
-# Create your config
+### 2 · Create `.env` (4 min)
+
+```bash
 cp .env.example .env
+```
 
-# Generate a secure secret (required)
-openssl rand -base64 32  # paste this as NEXTAUTH_SECRET in .env
+Open `.env` and fill in — every variable is documented inline with
+where to find it. The absolute minimum:
 
-# Edit .env with your server IP, API keys, etc.
+- `NEXTAUTH_SECRET` — `openssl rand -base64 32`
+- `NEXTAUTH_URL` — `http://<your-server-ip>:5056`
+- `ARR_HOST` — `http://<your-server-ip>` (no port — Lexarr appends 7878/8989/8686 itself)
+- `RADARR_API_KEY` / `SONARR_API_KEY` / `LIDARR_API_KEY` — from each app's Settings → General → API Key
+- `TMDB_API_KEY` — your TMDB key
+- `LEXARR_WEBHOOK_SECRET` — `openssl rand -hex 16`
 
-# Build and run
+### 3 · Start it (2 min)
+
+Using `docker compose` (simplest):
+
+```bash
+docker compose up -d --build
+docker compose logs -f lexarr    # wait for "✓ Ready in …"
+```
+
+Or plain `docker run`:
+
+```bash
 docker build -t lexarr .
 docker run -d \
   --name lexarr \
@@ -50,9 +75,42 @@ docker run -d \
   lexarr
 ```
 
-Lexarr will be available at `http://your-server-ip:5056`.
+### 4 · Verify (30 s)
 
-The first user to sign in becomes admin.
+```bash
+curl http://<your-server-ip>:5056/healthz
+```
+
+Healthy response:
+```json
+{"ok":true,"checks":{"db":{"ok":true,...},"arrs":[...]},"reason":null,...}
+```
+
+### 5 · Sign up (1 min)
+
+Open `http://<your-server-ip>:5056` and register. **The first user
+becomes admin.** If you're bringing in family/friends later, they'll
+need you to approve their signup from the admin dashboard unless you
+set `REGISTRATION_OPEN=true`.
+
+### 6 · (Optional) Webhooks for instant status updates (2 min)
+
+In each *arr (Radarr / Sonarr / Lidarr), go to Settings → Connect →
+Webhook and add:
+
+- **URL** · `http://<lexarr-host>:5056/api/webhooks/<arr>?token=<LEXARR_WEBHOOK_SECRET>`
+  (replace `<arr>` with `radarr` / `sonarr` / `lidarr`)
+- **Events** · On Import, On Upgrade
+- **Method** · POST
+
+Without webhooks, Lexarr polls every 60 s instead.
+
+### Total time: ~10 minutes
+
+If something fails, see
+[`docs/upgrading.md`](docs/upgrading.md) for troubleshooting steps
+and [`docs/security-checklist.md`](docs/security-checklist.md) for
+the secrets/hardening pass.
 
 ## Configuration
 
@@ -120,7 +178,7 @@ prisma/
 
 ## Roadmap to 1.0.0
 
-Lexarr is currently **pre-1.0** (`0.9.0` as of 2026-04-17). Pre-1.0
+Lexarr is currently **pre-1.0** (`0.10.0` as of 2026-04-17). Pre-1.0
 releases may contain backwards-incompatible changes between minor versions.
 Each milestone has explicit **exit criteria** — a version ships when every
 box is checked, not when a feature list is complete.
@@ -167,22 +225,33 @@ box is checked, not when a feature list is complete.
 - [x] POST route idempotency audit *(rolled from 0.7.0 — see
       [`docs/POST-idempotency.md`](docs/POST-idempotency.md))*
 
-### Planned
-
-#### `0.10.0` — Release readiness
-- [ ] README explains setup in ≤ 10 min for someone with an existing *arr
+#### `0.10.0` — Release readiness *(2026-04-17)*
+- [x] README explains setup in ≤ 10 min for someone with an existing *arr
       stack
-- [ ] `.env.example` documents every variable with inline comments
-- [ ] `docker-compose.yml` is a complete working example
-- [ ] Migration path docs (upgrading from 0.x to 0.y)
-- [ ] Security checklist (secrets rotation, headers, CORS)
-- [ ] `SECURITY.md` with private disclosure policy *(GitHub gates the
+- [x] `.env.example` documents every variable with inline comments
+- [x] `docker-compose.yml` is a complete working example *(with
+      Docker-native healthcheck probing `/healthz`)*
+- [x] Migration path docs (upgrading from 0.x to 0.y) — see
+      [`docs/upgrading.md`](docs/upgrading.md)
+- [x] Security checklist (secrets rotation, headers, CORS) — see
+      [`docs/security-checklist.md`](docs/security-checklist.md); four
+      baseline HTTP security headers now applied via `next.config.ts`
+- [x] `SECURITY.md` with private disclosure policy *(GitHub gates the
       Security Advisories feature on this)*
-- [ ] `/healthz` endpoint validating DB reachability + at least one
+- [x] `/healthz` endpoint validating DB reachability + at least one
       *arr key — not just "Next.js is alive"
-- [ ] `npm audit` clean + Docker base-image CVE check documented
-- [ ] Migration smoke test — upgrade from an empty 0.1.0 DB passes
-      `prisma migrate deploy` without manual intervention
+- [x] `npm audit` clean + Docker base-image CVE check documented —
+      see [`docs/security-audit.md`](docs/security-audit.md)
+- [x] Migration smoke test — upgrade from an empty 0.1.0 DB passes
+      `prisma migrate deploy` without manual intervention *(wired into
+      CI as a required step)*
+
+*Also shipped (not on original exit criteria):*
+- Music search ranking fix — singles/EPs surface instead of being buried
+  by partial-match albums; Live / Remix / Acoustic badges
+- Hotfix 0.9.1 — search cache no longer poisoned by upstream outages
+
+### Planned
 
 #### `1.0.0` — Public launch
 - [ ] 0.10.0 ran in prod for 7 consecutive days with no P0 incident
@@ -211,9 +280,9 @@ conventions that drive automated CHANGELOG generation.
 Release a new version with:
 
 ```bash
-npm run release -- patch    # bug fix:      0.9.0 → 0.9.1
-npm run release -- minor    # new feature:  0.9.0 → 0.10.0
-npm run release -- major    # breaking:     0.9.0 → 1.0.0 (only when 1.0 criteria met)
+npm run release -- patch    # bug fix:      0.10.0 → 0.10.1
+npm run release -- minor    # new feature:  0.10.0 → 0.11.0
+npm run release -- major    # breaking:     0.10.0 → 1.0.0 (only when 1.0 criteria met)
 npm run release -- --dry    # preview without writing
 ```
 

@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.10.0] — 2026-04-17
+
+### Added
+- feat(security): baseline HTTP headers + operator security checklist (1de9409)
+- feat(ci): migration smoke test — empty DB → current schema (e79e160)
+- feat(search): rank music results by score; surface singles/EPs/live variants (b1467b4)
+- feat: /healthz endpoint validating DB + at least one *arr (fc8a45c)
+
+### Chore
+- docs: check off 0.10.0 Release-readiness milestone (8a88299)
+- docs: 0.10.0 release-readiness documentation block (9f4ac82)
+- docs: add security-audit.md with dated CVE history (9d91381)
+- docs: add SECURITY.md with private disclosure policy (9573ff5)
+
 ## [0.9.1] — 2026-04-17
 
 ### Fixed
