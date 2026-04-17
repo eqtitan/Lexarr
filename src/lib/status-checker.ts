@@ -174,8 +174,14 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
           data: { lastCheckedAt: now },
         });
       }
-    } catch {
-      // Skip failed checks silently
+    } catch (err: unknown) {
+      // Per-request check failed (e.g. *arr returned 404 for a deleted arrId,
+      // or the *arr service is unreachable). Log for operator visibility but
+      // keep iterating — one bad row shouldn't break the whole sweep.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[status-checker] skip ${req.mediaType} request ${req.id} (${req.title}): ${msg}`,
+      );
     }
   }
 

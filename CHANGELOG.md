@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.7.0] — 2026-04-17
+
+### Fixed
+- fix: Lidarr single-release-group retry bails immediately on network error (4e82374)
+- fix: dashboard fire-and-forget status-check logs errors instead of swallowing (2cd6844)
+- fix: status-checker logs per-request failures instead of silent skip (6d58134)
+- fix: LazyLibrarian post-add errors bubble instead of silently nulling (163ebc4)
+
+### Changed
+- refactor: extract shared arrFetch() helper for all *arr integrations (056a2a3)
+
+### Chore
+- test: arrFetch helper — timeout, error shape, content-type handling (b37106c)
+
 ## [0.6.0] — 2026-04-17
 
 ### Fixed

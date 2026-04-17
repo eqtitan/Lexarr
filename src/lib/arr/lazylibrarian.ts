@@ -1,26 +1,27 @@
+import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
+
 const PORT = process.env.LAZYLIBRARIAN_PORT || "5299";
 const BASE = `${process.env.ARR_HOST}:${PORT}`;
 const KEY = process.env.LAZYLIBRARIAN_API_KEY || "";
-const TIMEOUT_MS = 15000;
 
+// LazyLibrarian's /api endpoint is querystring-based, not REST path-based,
+// and its writes return plain-text "OK" rather than JSON. The shared
+// arrFetch handles the Content-Type heuristic; we still need to parse
+// text responses that happen to be JSON (read endpoints return JSON text
+// with Content-Type: text/html sometimes).
 async function api(cmd: string, params: Record<string, string> = {}) {
   const qs = new URLSearchParams({ cmd, apikey: KEY, ...params });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const raw = await arrFetch<string | unknown>(
+    "LazyLibrarian",
+    BASE,
+    `/api?${qs}`,
+    { timeoutMs: ARR_TIMEOUT_MS },
+  );
+  if (typeof raw !== "string") return raw;
   try {
-    const res = await fetch(`${BASE}/api?${qs}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`LazyLibrarian ${cmd}: ${res.status}`);
-    // LazyLibrarian returns plain text "OK" for write operations (addBook, searchBook)
-    // but JSON for read operations (findBook, getVersion, getAllBooks, etc.)
-    const text = await res.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      // Not JSON — return the text wrapped so callers can check success
-      return text;
-    }
-  } finally {
-    clearTimeout(timeout);
+    return JSON.parse(raw);
+  } catch {
+    return raw;
   }
 }
 
@@ -103,10 +104,20 @@ export async function addBook(
 
   // addBook adds the book but LL defaults author to "Paused" and book to "Skipped"
   await api("addBook", { id: bookId });
-  // queueBook sets the book status to "Wanted" so LL will actually search for it
-  await api("queueBook", { id: bookId }).catch(() => null);
-  // Now trigger the actual search
-  await api("searchBook", { id: bookId }).catch(() => null);
+  // queueBook sets the book status to "Wanted" so LL will actually search for it.
+  // If this fails the request would sit in "approved" forever with no indication,
+  // so let the error bubble — the router marks the Request as "failed" with a
+  // useful lastError, and the admin's retry button recovers.
+  await api("queueBook", { id: bookId });
+  // searchBook failures are less critical — the book is already Wanted; LL will
+  // pick it up on the next RSS sweep even if this immediate search call fails.
+  // We do log the failure so operators see chronic issues.
+  try {
+    await api("searchBook", { id: bookId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[lazylibrarian] searchBook(${bookId}) failed: ${msg} — book is Wanted, LL will retry on RSS sweep`);
+  }
   return { id: bookId, alreadyExists: false };
 }
 
@@ -146,9 +157,15 @@ export async function addBookByTitle(
   return addBook(String(bestId));
 }
 
-/** Force a search for a wanted book — triggers LL to re-scan indexers */
+/** Force a search for a wanted book — triggers LL to re-scan indexers.
+ *  Logged on failure; book stays in Wanted state so LL will retry via RSS. */
 export async function searchForBook(bookId: string): Promise<void> {
-  await api("searchForBook", { id: bookId }).catch(() => null);
+  try {
+    await api("searchForBook", { id: bookId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[lazylibrarian] searchForBook(${bookId}) failed: ${msg}`);
+  }
 }
 
 export async function getQueue() {

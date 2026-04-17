@@ -1,3 +1,5 @@
+import { ARR_TIMEOUT_MS } from "./_fetch";
+
 interface QbTorrent {
   hash: string;
   name: string;
@@ -11,8 +13,24 @@ const BASE = process.env.QBITTORRENT_URL!;
 const USER = process.env.QBITTORRENT_USER!;
 const PASS = process.env.QBITTORRENT_PASS!;
 
+/** qBittorrent uses cookie-based sessions, so it doesn't fit arrFetch's
+ *  pattern cleanly. We wrap each raw fetch in an AbortController with the
+ *  shared timeout so a hung qBit can't stall the whole dashboard. */
+async function qbFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARR_TIMEOUT_MS);
+  try {
+    return await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function login(): Promise<string> {
-  const res = await fetch(`${BASE}/api/v2/auth/login`, {
+  const res = await qbFetch(`/api/v2/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ username: USER, password: PASS }),
@@ -26,9 +44,7 @@ async function login(): Promise<string> {
 }
 
 async function qbGet(path: string, sid: string) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Cookie: `SID=${sid}` },
-  });
+  const res = await qbFetch(path, { headers: { Cookie: `SID=${sid}` } });
   if (!res.ok) throw new Error(`qBittorrent GET ${path}: ${res.status}`);
   return res.json();
 }
@@ -47,7 +63,7 @@ export async function addTorrentFromUrl(
     savepath: savePath,
     category,
   });
-  const res = await fetch(`${BASE}/api/v2/torrents/add`, {
+  const res = await qbFetch(`/api/v2/torrents/add`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -140,7 +156,7 @@ export async function getTorrentInfo(hash: string): Promise<{
 export async function health(): Promise<boolean> {
   try {
     const sid = await login();
-    const res = await fetch(`${BASE}/api/v2/app/version`, {
+    const res = await qbFetch(`/api/v2/app/version`, {
       headers: { Cookie: `SID=${sid}` },
     });
     return res.ok;

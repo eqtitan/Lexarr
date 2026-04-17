@@ -1,6 +1,6 @@
 {
   "name": "lexarr",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Unified media request portal for movies, TV, music, and books",
   "scripts": {
     "dev": "next dev --turbopack",

@@ -1,20 +1,27 @@
+import { arrFetch, ArrApiError } from "./_fetch";
+
 const BASE = process.env.NZBGET_URL!;
 const USER = process.env.NZBGET_USER!;
 const PASS = process.env.NZBGET_PASS!;
 
 async function rpc(method: string, params: unknown[] = []) {
-  const res = await fetch(`${BASE}/jsonrpc`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${Buffer.from(`${USER}:${PASS}`).toString("base64")}`,
+  const data = await arrFetch<{ result?: unknown; error?: { message: string } }>(
+    "NZBGet",
+    BASE,
+    "/jsonrpc",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${USER}:${PASS}`).toString("base64")}`,
+      },
+      body: JSON.stringify({ version: "1.1", method, params }),
     },
-    body: JSON.stringify({ version: "1.1", method, params }),
-  });
-  if (!res.ok) throw new Error(`NZBGet ${method}: ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(`NZBGet ${method}: ${data.error.message}`);
-  return data.result;
+  );
+  // NZBGet returns 200 OK even for method errors — inspect the body.
+  if (data && typeof data === "object" && "error" in data && data.error) {
+    throw new ArrApiError("NZBGet", `/jsonrpc#${method}`, 200, data.error.message);
+  }
+  return data?.result;
 }
 
 export async function addNzbFromUrl(
@@ -28,7 +35,7 @@ export async function addNzbFromUrl(
   const nzbBuffer = await nzbRes.arrayBuffer();
   const nzbBase64 = Buffer.from(nzbBuffer).toString("base64");
   const fileName = nzbUrl.split("/").pop()?.split("?")[0] || "download.nzb";
-  return rpc("append", [
+  return (await rpc("append", [
     fileName,
     nzbBase64,
     category,
@@ -39,7 +46,7 @@ export async function addNzbFromUrl(
     0,
     "SCORE",
     [],
-  ]);
+  ])) as number;
 }
 
 export async function health(): Promise<boolean> {

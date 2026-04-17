@@ -1,28 +1,14 @@
+import { arrFetch, type ArrFetchOptions } from "./_fetch";
+
 const BASE = `${process.env.ARR_HOST}:8989`;
 const KEY = process.env.SONARR_API_KEY!;
-const TIMEOUT_MS = 15000;
 
-async function api(path: string, options?: RequestInit) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        "X-Api-Key": KEY,
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Sonarr ${path}: ${res.status} ${body}`);
-    }
-    return res.json();
-  } finally {
-    clearTimeout(timeout);
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function api<T = any>(path: string, options: ArrFetchOptions = {}) {
+  return arrFetch<T>("Sonarr", BASE, path, {
+    ...options,
+    headers: { "X-Api-Key": KEY, ...options.headers },
+  });
 }
 
 export async function health() {

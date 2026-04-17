@@ -1,28 +1,14 @@
+import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
+
 const BASE = `${process.env.ARR_HOST}:8686`;
 const KEY = process.env.LIDARR_API_KEY!;
-const TIMEOUT_MS = 15000;
 
-async function api(path: string, options?: RequestInit) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        "X-Api-Key": KEY,
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Lidarr ${path}: ${res.status} ${body}`);
-    }
-    return res.json();
-  } finally {
-    clearTimeout(timeout);
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function api<T = any>(path: string, options: ArrFetchOptions = {}) {
+  return arrFetch<T>("Lidarr", BASE, path, {
+    ...options,
+    headers: { "X-Api-Key": KEY, ...options.headers },
+  });
 }
 
 export async function health() {
@@ -198,13 +184,22 @@ export async function addSingleReleaseGroup(
 
   // Find the album (release-group) in Lidarr's catalog for this artist.
   // For a newly-added artist, Lidarr may need a moment to populate albums;
-  // retry briefly to give the metadata refresh a chance.
+  // retry briefly to give the metadata refresh a chance. If Lidarr itself
+  // is unreachable (network error), break immediately — more retries
+  // won't help and we'd just waste 3s of wall time per request.
   let matchedAlbum: LidarrAlbum | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const albums = await getAlbumsForArtist(artistId);
-    matchedAlbum =
-      albums.find((a) => a.foreignAlbumId === releaseGroupId) || null;
-    if (matchedAlbum) break;
+    try {
+      const albums = await getAlbumsForArtist(artistId);
+      matchedAlbum =
+        albums.find((a) => a.foreignAlbumId === releaseGroupId) || null;
+      if (matchedAlbum) break;
+    } catch (err: unknown) {
+      if (err instanceof ArrApiError && err.isNetworkError) {
+        throw err; // Lidarr is down; bail immediately
+      }
+      // Transient 4xx/5xx — fall through to retry
+    }
     await new Promise((r) => setTimeout(r, 750));
   }
 

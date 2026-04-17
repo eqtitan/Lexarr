@@ -215,9 +215,16 @@ export async function GET() {
   });
 
   // ── Piggyback: sync request statuses while admin is watching ────────
+  // Fire-and-forget — we don't want to block the dashboard response waiting
+  // for a (potentially minute-long) sweep. But log failures so operators
+  // can see repeated breakage; the background checker's circuit breaker
+  // handles sustained outages separately.
   import("@/lib/status-checker")
     .then((m) => m.checkAndUpdateStatuses())
-    .catch(() => {}); // fire-and-forget
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[dashboard] piggybacked status-check failed: ${msg}`);
+    });
 
   // ── Response ──────────��────────────────────────────────────────────
   // ── Stack health (from host cron via mounted file) ─────────────────

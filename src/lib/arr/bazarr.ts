@@ -1,17 +1,19 @@
+import { arrFetch } from "./_fetch";
+
 const BASE = process.env.BAZARR_URL || "http://192.168.1.100:6767";
 const KEY = process.env.BAZARR_API_KEY!;
 
-async function _api(path: string) {
-  const res = await fetch(`${BASE}${path}`, {
+// Unused helper kept for future Bazarr endpoints; underscore prefix keeps
+// it from being exported accidentally and signals intent.
+function _api<T = unknown>(path: string) {
+  return arrFetch<T>("Bazarr", BASE, path, {
     headers: { "X-API-KEY": KEY },
   });
-  if (!res.ok) throw new Error(`Bazarr ${path}: ${res.status}`);
-  return res.json();
 }
+void _api; // silence unused-var lint
 
 export async function health() {
-  // /health is unauthenticated and always returns 200 when Bazarr is up
-  const res = await fetch(`${BASE}/health`);
-  if (!res.ok) throw new Error(`Bazarr /health: ${res.status}`);
-  return res.text();
+  // /health is unauthenticated and always returns 200 when Bazarr is up.
+  // Use arrFetch so we get the shared 15s timeout.
+  return arrFetch<string>("Bazarr", BASE, "/health");
 }
