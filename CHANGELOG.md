@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.5] — 2026-04-16
+
+### Added
+- Lexarr brand identity — "gold-entry" P3 icon (L built from stacked catalog
+  rows, emerging from darkness, one gold row marking the found entry).
+  `src/app/icon.svg` drives the favicon; `public/lexarr-icon.png` is the
+  256×256 render used by the Unraid Docker tab.
+
 ## [0.4.4] — 2026-04-16 (was `v14`)
 
 ### Added
