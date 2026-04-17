@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useState, useRef, useEffect } from "react";
 import NotificationBell from "./NotificationBell";
+import { APP_VERSION, getChannel } from "@/lib/version";
 
 const links = [
   { href: "/", label: "Search" },
@@ -49,8 +50,22 @@ export default function Nav() {
   return (
     <nav className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <Link href="/" className="text-xl font-bold tracking-tight">
-          <span className="text-[var(--accent)]">Lex</span>arr
+        <Link
+          href="/"
+          className="flex items-baseline gap-2 text-xl font-bold tracking-tight"
+        >
+          <span>
+            <span className="text-[var(--accent)]">Lex</span>arr
+          </span>
+          <span
+            className="text-xs font-normal tracking-normal text-[var(--muted)]"
+            title={`Lexarr ${APP_VERSION} (${getChannel()})`}
+          >
+            v{APP_VERSION}
+            {getChannel() !== "stable" && (
+              <span className="ml-1 hidden sm:inline">{getChannel()}</span>
+            )}
+          </span>
         </Link>
         <div className="flex items-center gap-1">
           {links.map((l) => (
