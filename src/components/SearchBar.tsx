@@ -34,15 +34,16 @@ export default function SearchBar({
   const [activeSub, setActiveSub] = useState<MusicSubFilter>("album");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Refs + offset state for positioning the Music sub-chip row so its
-  // horizontal center lines up with the Music chip's horizontal center.
-  // Measured via getBoundingClientRect on each render of the Music
-  // sub-row, and recomputed when the viewport resizes so it stays
-  // aligned across window-size changes.
+  // Refs for centering the Music sub-chip row under the Music chip.
+  // We measure only the Music button's horizontal center, then anchor
+  // the sub-row there via `left: Xpx; transform: translateX(-50%)`.
+  // That way the browser handles the "center on this point" math —
+  // no subRow.offsetWidth measurement, no flash of unstyled width
+  // before the second paint. Recomputes on ResizeObserver so the
+  // alignment tracks viewport resizes and font-load reflows.
   const filterRowRef = useRef<HTMLDivElement>(null);
   const musicButtonRef = useRef<HTMLButtonElement>(null);
-  const subRowRef = useRef<HTMLDivElement>(null);
-  const [subOffsetPx, setSubOffsetPx] = useState(0);
+  const [musicCenterPx, setMusicCenterPx] = useState<number | null>(null);
 
   const runSearch = useCallback(
     (q: string, f: MediaType | "all", s: MusicSubFilter) => {
@@ -86,30 +87,20 @@ export default function SearchBar({
     if (activeFilter === "music") setActiveSub("album");
   }, [activeFilter]);
 
-  // Position the sub-chip row centered under the Music button.
-  // useLayoutEffect runs after DOM mutation but before paint, so the
-  // user never sees a flash of unstyled misalignment. ResizeObserver
-  // recomputes when the main chip row changes width (viewport resize,
-  // font load). Clamped to 0 so narrow viewports don't push the row
-  // off-screen — the row just sits flush-left instead.
+  // Track Music chip's horizontal center relative to the filter row.
+  // We observe the filter row always (not just when active) so switching
+  // INTO music doesn't require a layout measurement before first paint
+  // of the sub-row. By the time activeFilter === "music" triggers the
+  // sub-row render, musicCenterPx is already current.
   useLayoutEffect(() => {
-    if (activeFilter !== "music") return;
-
     const recalc = () => {
       const musicEl = musicButtonRef.current;
       const filterRow = filterRowRef.current;
-      const subRow = subRowRef.current;
-      if (!musicEl || !filterRow || !subRow) return;
-
+      if (!musicEl || !filterRow) return;
       const musicRect = musicEl.getBoundingClientRect();
       const rowRect = filterRow.getBoundingClientRect();
-      const subWidth = subRow.offsetWidth;
-
-      // X-center of Music button relative to the filter row's left edge.
-      const musicCenter = musicRect.left + musicRect.width / 2 - rowRect.left;
-      // Left offset that would center the sub-row directly under Music.
-      const offset = musicCenter - subWidth / 2;
-      setSubOffsetPx(Math.max(0, offset));
+      const center = musicRect.left + musicRect.width / 2 - rowRect.left;
+      setMusicCenterPx(center);
     };
 
     recalc();
@@ -117,7 +108,7 @@ export default function SearchBar({
     const ro = new ResizeObserver(recalc);
     if (filterRowRef.current) ro.observe(filterRowRef.current);
     return () => ro.disconnect();
-  }, [activeFilter]);
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -169,15 +160,26 @@ export default function SearchBar({
         ))}
       </div>
       {/* Music sub-filter row — only visible when Music is active.
-          Positioned so its horizontal center aligns with the Music
-          chip's center (measured via useLayoutEffect above). No
-          overflow clipping on this row — if the viewport can't fit
-          the three chips, we'd rather wrap than hide them. */}
+          Anchored directly beneath the Music chip via a single left-
+          position + transform: translateX(-50%) trick. The browser
+          handles the centering math, so there's no measurement race
+          and no flash of unstyled width. Falls back to justify-center
+          when we haven't measured yet (SSR or very first render). */}
       {activeFilter === "music" && (
-        <div style={{ paddingLeft: `${subOffsetPx}px` }}>
+        <div className="relative h-8">
           <div
-            ref={subRowRef}
-            className="inline-flex flex-wrap gap-2"
+            className="absolute top-0 flex gap-2 whitespace-nowrap"
+            style={
+              musicCenterPx !== null
+                ? {
+                    left: `${musicCenterPx}px`,
+                    transform: "translateX(-50%)",
+                  }
+                : {
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                  }
+            }
           >
             {MUSIC_SUB_FILTERS.map((s) => (
               <button
