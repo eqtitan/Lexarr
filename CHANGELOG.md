@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.13.4] — 2026-04-17
+
+### Fixed
+- fix(ui): music sub-chips adopt main-chip visual language (8f10645)
+
 ## [0.13.3] — 2026-04-17
 
 ### Fixed

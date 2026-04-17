@@ -131,28 +131,25 @@ export default function SearchBar({
       {activeFilter === "music" && (
         <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
           {MUSIC_SUB_FILTERS.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => handleSub(s.value)}
-                className="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ring-1"
-                style={{
-                  background:
-                    activeSub === s.value
-                      ? "rgba(99,102,241,0.14)"
-                      : "transparent",
-                  color:
-                    activeSub === s.value
-                      ? "var(--accent)"
-                      : "var(--muted)",
-                  borderColor:
-                    activeSub === s.value
-                      ? "var(--accent)"
-                      : "var(--border)",
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
+            <button
+              key={s.value}
+              onClick={() => handleSub(s.value)}
+              // Same visual language as the main filter chips:
+              // rounded-lg shape, filled background when active.
+              // Smaller (text-xs + py-1) to convey secondary hierarchy.
+              // Active color reuses the Music filter's --music variable
+              // so the chip and its sub-chips feel tied to the same
+              // category color.
+              className="shrink-0 rounded-lg px-3 py-1 text-xs font-medium transition-all"
+              style={{
+                background:
+                  activeSub === s.value ? "var(--music)" : "var(--card)",
+                color: activeSub === s.value ? "white" : "var(--muted)",
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
       )}
       </div>
