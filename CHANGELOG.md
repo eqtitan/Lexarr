@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.2] — 2026-04-16 (was `v12`)
+
+### Added
+- Smart music search — two-pass strategy:
+  - **Pass A** — artist detection via MusicBrainz `/artist?query=`; strong
+    match requires score ≥ 90, ≥ 10-pt gap to runner-up, name-normalized
+    exact match. On strong hit: fetch `/release-group?artist=<mbid>` (with
+    `inc=artist-credits`) → that artist's discography, Albums first then
+    EPs then Singles, newest first.
+  - **Pass B** — text fallback `/release-group?query=<q>&limit=100&inc=releases`,
+    ranked by release count desc → primary-type (Album > EP > Single) →
+    year desc. `limit=100` matters: Fleetwood Mac's "Rumours" has 80
+    releases but sits at MB position #24 for the query.
+
+### Removed
+- Music sub-filter row (All / Albums / Singles / EPs) — the filter was a
+  crutch for MusicBrainz's near-useless text-relevance `score`. Smart search
+  returns the right results without filtering.
+
 ## [0.4.1] — 2026-04-16 (was `v11`)
 
 ### Added

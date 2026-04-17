@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { MediaType, MusicReleaseType } from "@/types";
+import type { MediaType } from "@/types";
 
 const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
   { value: "all", label: "All", color: "var(--accent)" },
@@ -11,35 +11,19 @@ const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
   { value: "book", label: "Books", color: "var(--book)" },
 ];
 
-const MUSIC_SUBFILTERS: { value: MusicReleaseType | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "album", label: "Albums" },
-  { value: "single", label: "Singles" },
-  { value: "ep", label: "EPs" },
-];
-
 export default function SearchBar({
   onSearch,
 }: {
-  onSearch: (
-    query: string,
-    filter: MediaType | null,
-    releaseType: MusicReleaseType | null,
-  ) => void;
+  onSearch: (query: string, filter: MediaType | null) => void;
   isAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
-  const [activeSubFilter, setActiveSubFilter] = useState<MusicReleaseType | "all">("all");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const runSearch = useCallback(
-    (q: string, f: MediaType | "all", sf: MusicReleaseType | "all") => {
-      onSearch(
-        q,
-        f === "all" ? null : f,
-        f === "music" && sf !== "all" ? sf : null,
-      );
+    (q: string, f: MediaType | "all") => {
+      onSearch(q, f === "all" ? null : f);
     },
     [onSearch],
   );
@@ -49,33 +33,18 @@ export default function SearchBar({
       setQuery(value);
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        runSearch(value, activeFilter, activeSubFilter);
+        runSearch(value, activeFilter);
       }, 250);
     },
-    [activeFilter, activeSubFilter, runSearch],
+    [activeFilter, runSearch],
   );
 
   const handleFilter = useCallback(
     (f: MediaType | "all") => {
       setActiveFilter(f);
-      // Reset subfilter when switching away from music
-      const nextSub = f === "music" ? activeSubFilter : "all";
-      setActiveSubFilter(nextSub);
-      if (query.length >= 2) {
-        runSearch(query, f, nextSub);
-      }
+      if (query.length >= 2) runSearch(query, f);
     },
-    [query, activeSubFilter, runSearch],
-  );
-
-  const handleSubFilter = useCallback(
-    (sf: MusicReleaseType | "all") => {
-      setActiveSubFilter(sf);
-      if (query.length >= 2) {
-        runSearch(query, activeFilter, sf);
-      }
-    },
-    [query, activeFilter, runSearch],
+    [query, runSearch],
   );
 
   return (
@@ -117,26 +86,6 @@ export default function SearchBar({
           </button>
         ))}
       </div>
-      {activeFilter === "music" && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
-          {MUSIC_SUBFILTERS.map((sf) => (
-            <button
-              key={sf.value}
-              onClick={() => handleSubFilter(sf.value)}
-              className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ring-1"
-              style={{
-                background:
-                  activeSubFilter === sf.value ? "var(--music)" : "transparent",
-                color:
-                  activeSubFilter === sf.value ? "white" : "var(--muted)",
-                borderColor: "var(--border)",
-              }}
-            >
-              {sf.label}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

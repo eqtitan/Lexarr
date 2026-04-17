@@ -10,7 +10,6 @@ import type {
   SearchResult,
   MediaType,
   LibraryStatusValue,
-  MusicReleaseType,
 } from "@/types";
 
 export default function Home() {
@@ -28,11 +27,7 @@ export default function Home() {
   const { toast } = useToast();
 
   const handleSearch = useCallback(
-    async (
-      query: string,
-      filter: MediaType | null,
-      releaseType: MusicReleaseType | null,
-    ) => {
+    async (query: string, filter: MediaType | null) => {
       if (query.length < 2) {
         setResults([]);
         setSearched(false);
@@ -45,7 +40,6 @@ export default function Home() {
       try {
         const params = new URLSearchParams({ q: query });
         if (filter) params.set("type", filter);
-        if (releaseType) params.set("releaseType", releaseType);
         const res = await fetch(`/api/search?${params}`);
         const data = await res.json();
         const searchResults: SearchResult[] = data.results || [];
