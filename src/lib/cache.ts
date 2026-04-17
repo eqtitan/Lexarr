@@ -68,3 +68,11 @@ export const healthCache = new TTLCache(30 * 1000, 20);
 
 // Library status cache: 60 second TTL (arr libraries change infrequently)
 export const libraryCache = new TTLCache(60 * 1000, 50);
+
+// Artist listener count cache: 24h TTL (Last.fm popularity moves slowly
+// enough that day-old data is fine; we cache nulls as well to avoid
+// re-fetching for artists Last.fm doesn't know about).
+export const lastfmCache = new TTLCache<number | null>(
+  24 * 60 * 60 * 1000,
+  1000,
+);

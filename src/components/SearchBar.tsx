@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import type { MediaType } from "@/types";
 
 const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
@@ -33,6 +33,16 @@ export default function SearchBar({
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
   const [activeSub, setActiveSub] = useState<MusicSubFilter>("album");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Refs + offset state for positioning the Music sub-chip row so its
+  // horizontal center lines up with the Music chip's horizontal center.
+  // Measured via getBoundingClientRect on each render of the Music
+  // sub-row, and recomputed when the viewport resizes so it stays
+  // aligned across window-size changes.
+  const filterRowRef = useRef<HTMLDivElement>(null);
+  const musicButtonRef = useRef<HTMLButtonElement>(null);
+  const subRowRef = useRef<HTMLDivElement>(null);
+  const [subOffsetPx, setSubOffsetPx] = useState(0);
 
   const runSearch = useCallback(
     (q: string, f: MediaType | "all", s: MusicSubFilter) => {
@@ -76,6 +86,39 @@ export default function SearchBar({
     if (activeFilter === "music") setActiveSub("album");
   }, [activeFilter]);
 
+  // Position the sub-chip row centered under the Music button.
+  // useLayoutEffect runs after DOM mutation but before paint, so the
+  // user never sees a flash of unstyled misalignment. ResizeObserver
+  // recomputes when the main chip row changes width (viewport resize,
+  // font load). Clamped to 0 so narrow viewports don't push the row
+  // off-screen — the row just sits flush-left instead.
+  useLayoutEffect(() => {
+    if (activeFilter !== "music") return;
+
+    const recalc = () => {
+      const musicEl = musicButtonRef.current;
+      const filterRow = filterRowRef.current;
+      const subRow = subRowRef.current;
+      if (!musicEl || !filterRow || !subRow) return;
+
+      const musicRect = musicEl.getBoundingClientRect();
+      const rowRect = filterRow.getBoundingClientRect();
+      const subWidth = subRow.offsetWidth;
+
+      // X-center of Music button relative to the filter row's left edge.
+      const musicCenter = musicRect.left + musicRect.width / 2 - rowRect.left;
+      // Left offset that would center the sub-row directly under Music.
+      const offset = musicCenter - subWidth / 2;
+      setSubOffsetPx(Math.max(0, offset));
+    };
+
+    recalc();
+
+    const ro = new ResizeObserver(recalc);
+    if (filterRowRef.current) ro.observe(filterRowRef.current);
+    return () => ro.disconnect();
+  }, [activeFilter]);
+
   return (
     <div className="space-y-3">
       <div className="relative">
@@ -100,10 +143,14 @@ export default function SearchBar({
           className="w-full rounded-xl bg-[var(--card)] py-4 pl-12 pr-4 text-lg outline-none ring-1 ring-[var(--border)] transition-all placeholder:text-[var(--muted)] focus:ring-2 focus:ring-[var(--accent)]"
         />
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
+      <div
+        ref={filterRowRef}
+        className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.value}
+            ref={f.value === "music" ? musicButtonRef : undefined}
             onClick={() => handleFilter(f.value)}
             className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
             style={{
@@ -116,33 +163,40 @@ export default function SearchBar({
         ))}
       </div>
       {/* Music sub-filter row — only visible when Music is active.
-          Centered horizontally so the chips feel anchored to the Music
-          parent chip rather than dangling from the left edge. */}
+          Positioned so its horizontal center aligns with the Music
+          chip's center (measured via useLayoutEffect above). No
+          overflow clipping on this row — if the viewport can't fit
+          the three chips, we'd rather wrap than hide them. */}
       {activeFilter === "music" && (
-        <div className="flex justify-center gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
-          {MUSIC_SUB_FILTERS.map((s) => (
-            <button
-              key={s.value}
-              onClick={() => handleSub(s.value)}
-              className="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ring-1"
-              style={{
-                background:
-                  activeSub === s.value
-                    ? "rgba(99,102,241,0.14)"
-                    : "transparent",
-                color:
-                  activeSub === s.value
-                    ? "var(--accent)"
-                    : "var(--muted)",
-                borderColor:
-                  activeSub === s.value
-                    ? "var(--accent)"
-                    : "var(--border)",
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
+        <div style={{ paddingLeft: `${subOffsetPx}px` }}>
+          <div
+            ref={subRowRef}
+            className="inline-flex flex-wrap gap-2"
+          >
+            {MUSIC_SUB_FILTERS.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => handleSub(s.value)}
+                className="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ring-1"
+                style={{
+                  background:
+                    activeSub === s.value
+                      ? "rgba(99,102,241,0.14)"
+                      : "transparent",
+                  color:
+                    activeSub === s.value
+                      ? "var(--accent)"
+                      : "var(--muted)",
+                  borderColor:
+                    activeSub === s.value
+                      ? "var(--accent)"
+                      : "var(--border)",
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

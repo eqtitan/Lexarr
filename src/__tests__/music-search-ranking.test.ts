@@ -103,6 +103,82 @@ describe("rankTextResults (score-first)", () => {
   });
 });
 
+describe("rankTextResults with listener signal", () => {
+  // Build a tie-band of same-score same-release-count singles from
+  // different artists, then prove the listener map sorts them by
+  // popularity. Mirrors the Fall Out Boy "Centuries" fix.
+  function artistRg(id: string, artistId: string, score = 100, year = 2020) {
+    return {
+      id,
+      title: "Centuries",
+      "primary-type": "Single",
+      "first-release-date": `${year}-01-01`,
+      releases: [{ id: `${id}-r1` }],
+      score,
+      "artist-credit": [{ name: `A-${artistId}`, artist: { id: artistId } }],
+    };
+  }
+
+  it("ranks artists with more Last.fm listeners above less-popular same-score matches", () => {
+    const fob = artistRg("fob", "artist-fob");
+    const cover1 = artistRg("c1", "artist-cover1");
+    const cover2 = artistRg("c2", "artist-cover2");
+
+    const listeners = new Map([
+      ["artist-fob", 5_234_567],
+      ["artist-cover1", 50_000],
+      ["artist-cover2", 5_000],
+    ]);
+
+    const ranked = rankTextResults([cover1, cover2, fob], listeners);
+    expect(ranked[0].id).toBe("fob");
+    expect(ranked[1].id).toBe("c1");
+    expect(ranked[2].id).toBe("c2");
+  });
+
+  it("falls back to release-count/year order when the listener map is empty", () => {
+    // Last.fm disabled or not yet cached — should behave like pre-0.13.0
+    const a = artistRg("a", "artist-a", 100, 2024);
+    const b = artistRg("b", "artist-b", 100, 2020);
+    const ranked = rankTextResults([b, a], new Map());
+    // Both have same score + same release count, so year-desc breaks the tie
+    expect(ranked[0].id).toBe("a");
+  });
+
+  it("treats artists with no listener data as less popular than any known artist", () => {
+    const known = artistRg("k", "artist-known", 100, 2024);
+    const unknown = artistRg("u", "artist-unknown", 100, 2024);
+    const listeners = new Map([["artist-known", 100]]);
+    const ranked = rankTextResults([unknown, known], listeners);
+    expect(ranked[0].id).toBe("k");
+    expect(ranked[1].id).toBe("u");
+  });
+
+  it("listener signal does not override score — partial match stays below exact match", () => {
+    // Ensure popularity can't smuggle a wrong-title match ahead of an
+    // exact-title hit.
+    const exactObscure = artistRg("ex", "artist-obscure", 100);
+    const partialPopular = artistRg("pp", "artist-popular");
+    partialPopular.score = 85;
+    const listeners = new Map([
+      ["artist-obscure", 500],
+      ["artist-popular", 10_000_000],
+    ]);
+    const ranked = rankTextResults([partialPopular, exactObscure], listeners);
+    expect(ranked[0].id).toBe("ex");
+  });
+
+  it("omits listeners arg entirely → legacy behaviour preserved", () => {
+    // Backwards compatibility: callers that don't pass listeners get
+    // the exact same order they would have got before the map param
+    // was added.
+    const a = artistRg("a", "artist-a", 100, 2024);
+    const b = artistRg("b", "artist-b", 100, 2020);
+    const ranked = rankTextResults([b, a]);
+    expect(ranked[0].id).toBe("a");
+  });
+});
+
 describe("pickDiscographyMix", () => {
   it("distributes across types instead of returning 15 albums", () => {
     // Fall Out Boy shape: many albums, some EPs, some singles

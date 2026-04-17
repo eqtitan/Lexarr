@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.13.0] — 2026-04-17
+
+### Added
+- feat(music): Last.fm artist-popularity tiebreak for exact-title matches (48c377a)
+
+### Fixed
+- fix(ui): center music sub-filter chips under Music button (fa16385)
+
 ## [0.12.3] — 2026-04-17
 
 ### Fixed

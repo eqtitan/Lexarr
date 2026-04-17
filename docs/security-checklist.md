@@ -16,6 +16,10 @@ you find a gap in the Lexarr codebase itself, see
 - [ ] *arr API keys (`RADARR_API_KEY`, `SONARR_API_KEY`, `LIDARR_API_KEY`)
       are copied directly from each app's Settings → General → API Key.
       Don't share a "combined" key across services.
+- [ ] `LASTFM_API_KEY` (optional, for music popularity ranking) is
+      tied to a Last.fm account you control. Rotating doesn't lose
+      user data — the cache repopulates on next search. Treat as
+      low-sensitivity (read-only, public-data API).
 - [ ] `.env` is in `.gitignore` (it is — confirmed for this repo).
 - [ ] No secrets in git history — check with
       `git log -p | grep -iE 'api.?key|secret|password' | grep -v example`.

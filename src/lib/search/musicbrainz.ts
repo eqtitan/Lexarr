@@ -1,4 +1,6 @@
 import type { SearchResult, MusicReleaseType } from "@/types";
+import { getArtistListeners, isLastfmEnabled } from "./lastfm";
+import { lastfmCache } from "@/lib/cache";
 
 const BASE = "https://musicbrainz.org/ws/2";
 const UA = "Lexarr/1.0 (media-request-portal)";
@@ -259,26 +261,45 @@ function pickDiscographyMix(
 // ── Text-search ranking ─────────────────────────────────────────────
 
 /**
- * Rank text-search results so exact-title matches beat partial matches.
+ * Rank text-search results so exact-title matches beat partial matches
+ * and, within exact matches, more-popular artists rank above obscure
+ * ones.
  *
- * MB's `score` is the text-relevance signal — it's 100 for exact-title
- * matches, 85-ish for substring matches, lower for fuzzy. The previous
- * ranker ignored score entirely and put release-count first, which meant
- * a partial-title album (e.g. "Centuries of Sorrow") beat an exact-title
- * single (e.g. Fall Out Boy's "Centuries") because singles always have
- * fewer pressings than albums.
+ * MB's `score` is the text-relevance signal — 100 for exact-title,
+ * 85-ish for substring, lower for fuzzy. Without a popularity signal,
+ * every score=100 match looks equivalent to the ranker, so a cover
+ * band's "Centuries" ends up ahead of Fall Out Boy's by recency.
  *
- * New order:
+ * The `listenersByArtist` map (when provided) is pulled from Last.fm
+ * via enrichWithListeners() and keyed by artist MBID. When Last.fm
+ * isn't configured or didn't have data for an artist, the listener
+ * count falls through to -1 so those rows sort below anything with a
+ * real listener count — but still above nothing.
+ *
+ * Order:
  *   1. Score desc — exact-match always beats partial-match
- *   2. Release count desc — popular pressings within the same score tier
- *   3. Type weight — album > EP > single only within ties on 1+2
- *   4. Year desc — final tiebreaker
+ *   2. Listeners desc — popularity breaks same-score ties
+ *   3. Release count desc — popular pressings
+ *   4. Type weight — album > EP > single
+ *   5. Year desc — final tiebreaker
  */
-function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
+function rankTextResults(
+  groups: MbReleaseGroup[],
+  listenersByArtist?: Map<string, number>,
+): MbReleaseGroup[] {
+  const listenersOf = (rg: MbReleaseGroup): number => {
+    const artistId = rg["artist-credit"]?.[0]?.artist?.id;
+    if (!artistId || !listenersByArtist) return -1;
+    return listenersByArtist.get(artistId) ?? -1;
+  };
+
   return [...groups].sort((a, b) => {
     const sa = a.score ?? 0;
     const sb = b.score ?? 0;
     if (sa !== sb) return sb - sa;
+    const la = listenersOf(a);
+    const lb = listenersOf(b);
+    if (la !== lb) return lb - la;
     const ra = a.releases?.length ?? 0;
     const rb = b.releases?.length ?? 0;
     if (ra !== rb) return rb - ra;
@@ -286,6 +307,49 @@ function rankTextResults(groups: MbReleaseGroup[]): MbReleaseGroup[] {
     if (tw !== 0) return tw;
     return yearOf(b) - yearOf(a);
   });
+}
+
+/**
+ * Fetch Last.fm listener counts for every unique artist in the
+ * candidate list, in parallel, with per-artist 24h caching. Returns
+ * a map keyed by artist MBID → listener count. Omits entries for
+ * artists Last.fm has no data on.
+ *
+ * Fast-paths when LASTFM_API_KEY is unset: returns an empty map
+ * immediately so music search works identically to pre-0.13.0 on
+ * installs that haven't configured a key.
+ */
+async function enrichWithListeners(
+  groups: MbReleaseGroup[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!isLastfmEnabled()) return out;
+
+  // Dedupe artist IDs across the candidate set so one prolific artist
+  // with many release-groups costs one Last.fm call, not one per RG.
+  const artistIds = new Set<string>();
+  for (const g of groups) {
+    const id = g["artist-credit"]?.[0]?.artist?.id;
+    if (id) artistIds.add(id);
+  }
+
+  await Promise.all(
+    Array.from(artistIds).map(async (id) => {
+      const cacheKey = `lastfm:listeners:${id}`;
+      const cached = lastfmCache.get(cacheKey);
+      if (cached !== undefined) {
+        if (cached !== null) out.set(id, cached);
+        return;
+      }
+      const listeners = await getArtistListeners(id);
+      // Cache nulls too — prevents re-fetching for artists Last.fm
+      // doesn't know about every 5 minutes.
+      lastfmCache.set(cacheKey, listeners);
+      if (listeners !== null) out.set(id, listeners);
+    }),
+  );
+
+  return out;
 }
 
 /**
@@ -333,7 +397,19 @@ async function fetchTextResults(
   const data = await mbGet<{ "release-groups"?: MbReleaseGroup[] }>(
     `/release-group?query=${encodeURIComponent(built)}&limit=100&inc=releases&fmt=json`,
   );
-  return rankTextResults(data?.["release-groups"] ?? []);
+  const groups = data?.["release-groups"] ?? [];
+
+  // Only enrich the top-tier score band. MB returns 100 results; we
+  // slice to top 15. The highest-scoring group of rows is what
+  // listener-count actually affects — lower tiers are already
+  // differentiated by score. Enriching just the top band keeps the
+  // Last.fm request count low (typically ~10 unique artists) and
+  // avoids spending budget on rows that'll never make the cut.
+  const topScore = Math.max(...groups.map((g) => g.score ?? 0), 0);
+  const tieBand = groups.filter((g) => (g.score ?? 0) === topScore);
+  const listeners = await enrichWithListeners(tieBand);
+
+  return rankTextResults(groups, listeners);
 }
 
 // ── Public API ──────────────────────────────────────────────────────
@@ -404,4 +480,5 @@ export const __testing = {
   filterSecondaryTypes,
   toResult,
   buildTextSearchQuery,
+  enrichWithListeners,
 };
