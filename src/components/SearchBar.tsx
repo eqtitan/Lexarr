@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import type { MediaType } from "@/types";
 
 const FILTERS: { value: MediaType | "all"; label: string; color: string }[] = [
@@ -33,6 +33,14 @@ export default function SearchBar({
   const [activeFilter, setActiveFilter] = useState<MediaType | "all">("all");
   const [activeSub, setActiveSub] = useState<MusicSubFilter>("album");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Track the Music chip's horizontal center so we can anchor the
+  // sub-chip row directly beneath it via transform: translateX(-50%).
+  // Measurement runs on mount + on ResizeObserver so the anchor stays
+  // correct across viewport resizes and font-load reflows.
+  const filterRowRef = useRef<HTMLDivElement>(null);
+  const musicButtonRef = useRef<HTMLButtonElement>(null);
+  const [musicCenterPx, setMusicCenterPx] = useState<number | null>(null);
 
   const runSearch = useCallback(
     (q: string, f: MediaType | "all", s: MusicSubFilter) => {
@@ -76,6 +84,21 @@ export default function SearchBar({
     if (activeFilter === "music") setActiveSub("album");
   }, [activeFilter]);
 
+  useLayoutEffect(() => {
+    const recalc = () => {
+      const m = musicButtonRef.current;
+      const r = filterRowRef.current;
+      if (!m || !r) return;
+      const mr = m.getBoundingClientRect();
+      const rr = r.getBoundingClientRect();
+      setMusicCenterPx(mr.left + mr.width / 2 - rr.left);
+    };
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    if (filterRowRef.current) ro.observe(filterRowRef.current);
+    return () => ro.disconnect();
+  }, []);
+
 
   return (
     <div className="space-y-3">
@@ -107,10 +130,14 @@ export default function SearchBar({
           consistency — user requested). Outer space-y-3 keeps the
           search-input → chip-group gap unchanged at 12px. */}
       <div className="space-y-2">
-      <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
+      <div
+        ref={filterRowRef}
+        className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.value}
+            ref={f.value === "music" ? musicButtonRef : undefined}
             onClick={() => handleFilter(f.value)}
             className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
             style={{
@@ -123,33 +150,42 @@ export default function SearchBar({
         ))}
       </div>
       {/* Music sub-filter row — only visible when Music is active.
-          Left-aligned to match the rhythm of the main chip row: same
-          gap-2 between chips, same starting edge, same flex behavior.
-          The vertical space-y-2 wrapper gives us the 8px gap from the
-          main row. No centering, no anchoring — just a clean second
-          row of chips in the same visual language. */}
+          Anchored directly under the Music chip: measure Music's
+          horizontal center (one number), then render the sub-row
+          absolutely-positioned at `left: X` with translateX(-50%)
+          so the browser centers it on that point. Sub-chips use the
+          exact same padding + text size as main chips so the rows
+          feel like siblings. The outer relative container reserves
+          the sub-row's vertical space so the results grid below
+          doesn't jump when sub-row appears. */}
       {activeFilter === "music" && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none">
-          {MUSIC_SUB_FILTERS.map((s) => (
-            <button
-              key={s.value}
-              onClick={() => handleSub(s.value)}
-              // Same visual language as the main filter chips:
-              // rounded-lg shape, filled background when active.
-              // Smaller (text-xs + py-1) to convey secondary hierarchy.
-              // Active color reuses the Music filter's --music variable
-              // so the chip and its sub-chips feel tied to the same
-              // category color.
-              className="shrink-0 rounded-lg px-3 py-1 text-xs font-medium transition-all"
-              style={{
-                background:
-                  activeSub === s.value ? "var(--music)" : "var(--card)",
-                color: activeSub === s.value ? "white" : "var(--muted)",
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
+        <div className="relative h-9">
+          <div
+            className="absolute top-0 flex gap-2 whitespace-nowrap"
+            style={
+              musicCenterPx !== null
+                ? {
+                    left: `${musicCenterPx}px`,
+                    transform: "translateX(-50%)",
+                  }
+                : { left: "50%", transform: "translateX(-50%)" }
+            }
+          >
+            {MUSIC_SUB_FILTERS.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => handleSub(s.value)}
+                className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
+                style={{
+                  background:
+                    activeSub === s.value ? "var(--music)" : "var(--card)",
+                  color: activeSub === s.value ? "white" : "var(--muted)",
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       </div>
