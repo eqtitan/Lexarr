@@ -3,6 +3,20 @@
  * Polls *arr apps and updates request statuses in the database.
  * Used by: /api/status (admin), /api/admin/dashboard (piggyback),
  *          instrumentation.ts (background interval), and webhook handlers.
+ *
+ * 2026-04 — stuck-download detection hardening:
+ *   - Errors inside the per-request loop now write lastError + lastCheckedAt
+ *     instead of being silently swallowed (items previously became invisible
+ *     to Tier B because lastCheckedAt stayed NULL).
+ *   - Tier B now includes books (was movie/tv/music only).
+ *   - Tier B's stale filter now also matches lastCheckedAt IS NULL.
+ *   - New diagnostic rule: monitored + not-in-queue + percent<100 + age>12h
+ *     is flagged as stalled with reason "No releases found after <N>h".
+ *   - Unreleased detection broadened to movies with status==="announced"
+ *     and no known release dates.
+ *   - arrId identity guard: detects when the *arr's ID has been reused for
+ *     a different title (deletion + re-add) and marks request failed with
+ *     a clear reason instead of silently tracking the wrong item.
  */
 import { prisma } from "./db";
 import * as radarr from "./arr/radarr";
@@ -24,6 +38,18 @@ export interface StatusCheckResult {
   stuckFlagged: number;
   autoRetried: number;
   autoFailed: number;
+}
+
+// Hours before a monitored, never-found item is considered "no sources found".
+const NO_SOURCES_HOURS = 12;
+
+/**
+ * Format a duration (ms) as a short human string like "14h" or "3d".
+ */
+function ageLabel(ms: number): string {
+  const hrs = Math.floor(ms / 3_600_000);
+  if (hrs < 48) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
 }
 
 /**
@@ -49,13 +75,12 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
     try {
       let isAvailable = false;
       let inQueue = false;
+      let identityMismatch: string | null = null;
 
       if (req.mediaType === "book") {
         const llBookId = req.externalId2 || String(req.arrId);
         if (!llBookId) continue;
-        const status = await lazylibrarian
-          .getBookStatus(llBookId)
-          .catch(() => null);
+        const status = await lazylibrarian.getBookStatus(llBookId);
         isAvailable = status === "Have";
         if (!isAvailable && req.status === "approved") {
           const wanted = await lazylibrarian
@@ -69,8 +94,15 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       } else if (req.mediaType === "movie" && req.arrId) {
         const movie = await radarr.getMovie(req.arrId);
 
-        // Fix 4: Unreleased content detection
-        if (req.status === "downloading") {
+        // arrId drift: Radarr's numeric ID has been reused for a different film.
+        if (movie.tmdbId && req.externalId && String(movie.tmdbId) !== String(req.externalId)) {
+          identityMismatch = `Radarr id ${req.arrId} now tracks tmdbId=${movie.tmdbId} but request expected tmdbId=${req.externalId}`;
+        }
+
+        // Unreleased content detection (broadened):
+        //   1. Known digital/physical release date still in the future
+        //   2. Radarr status === "announced" with no release date at all
+        if (!identityMismatch && req.status === "downloading") {
           const digitalRelease = movie.digitalRelease
             ? new Date(movie.digitalRelease)
             : null;
@@ -104,6 +136,26 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
             updated++;
             continue;
           }
+
+          if (movie.status === "announced" && !earliestRelease) {
+            await prisma.request.update({
+              where: { id: req.id },
+              data: {
+                status: "approved",
+                lastError: "Not yet released (no release date announced)",
+                lastCheckedAt: now,
+              },
+            });
+            await prisma.pipelineEvent.create({
+              data: {
+                requestId: req.id,
+                event: "approved",
+                detail: JSON.stringify({ reason: "announced_no_date" }),
+              },
+            });
+            updated++;
+            continue;
+          }
         }
 
         isAvailable = movie.hasFile === true;
@@ -115,6 +167,14 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         }
       } else if (req.mediaType === "tv" && req.arrId) {
         const series = await sonarr.getSeries(req.arrId);
+
+        // arrId drift: Sonarr's id has been reused. Lexarr stores tmdbId in externalId
+        // (same as Radarr), so compare against series.tmdbId.
+        if (series.tmdbId && req.externalId && /^\d+$/.test(String(req.externalId)) &&
+            String(series.tmdbId) !== String(req.externalId)) {
+          identityMismatch = `Sonarr id ${req.arrId} now tracks tmdbId=${series.tmdbId} but request expected tmdbId=${req.externalId}`;
+        }
+
         isAvailable = series.statistics?.percentOfEpisodes === 100;
         if (!isAvailable && req.status === "approved") {
           const queues = await sonarr.getQueue();
@@ -124,6 +184,13 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         }
       } else if (req.mediaType === "music" && req.arrId) {
         const artist = await lidarr.getArtist(req.arrId);
+
+        // arrId drift on MusicBrainz foreign id
+        if (artist.foreignArtistId && req.externalId2 &&
+            artist.foreignArtistId !== req.externalId2) {
+          identityMismatch = `Lidarr id ${req.arrId} now tracks MBID=${artist.foreignArtistId} but request expected ${req.externalId2}`;
+        }
+
         isAvailable =
           artist.statistics?.albumCount > 0 &&
           artist.statistics?.percentOfTracks === 100;
@@ -135,10 +202,30 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         }
       }
 
+      if (identityMismatch) {
+        await prisma.request.update({
+          where: { id: req.id },
+          data: {
+            status: "failed",
+            lastError: `Tracker drift — please re-request. ${identityMismatch}`,
+            lastCheckedAt: now,
+          },
+        });
+        await prisma.pipelineEvent.create({
+          data: {
+            requestId: req.id,
+            event: "failed",
+            detail: JSON.stringify({ reason: "arrid_drift", note: identityMismatch }),
+          },
+        });
+        updated++;
+        continue;
+      }
+
       if (isAvailable && req.status !== "available") {
         await prisma.request.update({
           where: { id: req.id },
-          data: { status: "available", availableAt: now, lastCheckedAt: now },
+          data: { status: "available", availableAt: now, lastCheckedAt: now, lastError: null },
         });
         await prisma.pipelineEvent.create({
           data: { requestId: req.id, event: "available" },
@@ -162,7 +249,7 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       } else if (!isAvailable && req.status === "approved" && inQueue) {
         await prisma.request.update({
           where: { id: req.id },
-          data: { status: "downloading", lastCheckedAt: now },
+          data: { status: "downloading", lastCheckedAt: now, lastError: null },
         });
         await prisma.pipelineEvent.create({
           data: { requestId: req.id, event: "downloading" },
@@ -175,17 +262,164 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         });
       }
     } catch (err: unknown) {
-      // Per-request check failed (e.g. *arr returned 404 for a deleted arrId,
-      // or the *arr service is unreachable). Log for operator visibility but
-      // keep iterating — one bad row shouldn't break the whole sweep.
+      // Do NOT swallow. Surface the error so admins can see why an item is stuck,
+      // and always bump lastCheckedAt so Tier B stale-detection can see this row.
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[status-checker] skip ${req.mediaType} request ${req.id} (${req.title}): ${msg}`,
-      );
+      const isDeleted = /\b404\b/.test(msg);
+      try {
+        if (isDeleted) {
+          // Item was deleted from the *arr — no point retrying. Flip to failed now.
+          await prisma.request.update({
+            where: { id: req.id },
+            data: {
+              status: "failed",
+              lastCheckedAt: now,
+              lastError: `Deleted from *arr — please re-request`,
+            },
+          });
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "failed",
+              detail: JSON.stringify({ reason: "arr_404", raw: msg.slice(0, 200) }),
+            },
+          });
+        } else {
+          await prisma.request.update({
+            where: { id: req.id },
+            data: {
+              lastCheckedAt: now,
+              lastError: `Check failed: ${msg.slice(0, 240)}`,
+            },
+          });
+        }
+      } catch {
+        // If even the DB write fails there's nothing meaningful we can do here.
+      }
     }
   }
 
-  // Stuck detection: anything in "downloading" for > 24 h with no status check progress
+  // ────────────────────────────────────────────────────────────────────
+  // Tier B — "No releases found" stall detection (NEW)
+  // Covers monitored items that have never downloaded anything and are
+  // not in the *arr queue. Books are now included. Uses a 12h floor so
+  // we don't race the *arr's initial search cycle.
+  // ────────────────────────────────────────────────────────────────────
+  const noSourcesCutoff = new Date(now.getTime() - NO_SOURCES_HOURS * 60 * 60 * 1000);
+  // Age-based filter: any download older than 12h gets re-evaluated regardless of
+  // when we last looked. Internal checks return early if the item is in queue /
+  // has hasFile, so running this every cycle for old items is cheap.
+  const neverFoundCandidates = await prisma.request.findMany({
+    where: {
+      status: "downloading",
+      arrId: { not: null },
+      createdAt: { lt: noSourcesCutoff },
+    },
+  });
+
+  for (const req of neverFoundCandidates) {
+    try {
+      let inArrQueue = false;
+      let hasFile = false;
+      let percent = 0;
+
+      if (req.mediaType === "movie" && req.arrId) {
+        const movie = await radarr.getMovie(req.arrId);
+        hasFile = movie.hasFile === true;
+        percent = hasFile ? 100 : 0;
+        if (!hasFile) {
+          const queues = await radarr.getQueue();
+          inArrQueue = (queues?.records || []).some(
+            (r: ArrQueueRecord) => r.movieId === req.arrId,
+          );
+        }
+      } else if (req.mediaType === "tv" && req.arrId) {
+        const series = await sonarr.getSeries(req.arrId);
+        percent = series.statistics?.percentOfEpisodes ?? 0;
+        hasFile = percent === 100;
+        if (!hasFile) {
+          const queues = await sonarr.getQueue();
+          inArrQueue = (queues?.records || []).some(
+            (r: ArrQueueRecord) => r.seriesId === req.arrId,
+          );
+        }
+      } else if (req.mediaType === "music" && req.arrId) {
+        const artist = await lidarr.getArtist(req.arrId);
+        percent = artist.statistics?.percentOfTracks ?? 0;
+        hasFile =
+          artist.statistics?.albumCount > 0 &&
+          percent === 100;
+        if (!hasFile) {
+          const queues = await lidarr.getQueue();
+          inArrQueue = (queues?.records || []).some(
+            (r: ArrQueueRecord) => r.artistId === req.arrId,
+          );
+        }
+      } else if (req.mediaType === "book") {
+        const llBookId = req.externalId2 || String(req.arrId);
+        const status = await lazylibrarian.getBookStatus(llBookId);
+        hasFile = status === "Have";
+        // Note: LazyLibrarian's "Wanted" state is "still searching, nothing found"
+        // — NOT an active download like Radarr/Sonarr queues. So we do NOT treat
+        // Wanted-list membership as inArrQueue. Age-based stall applies.
+        inArrQueue = false;
+      }
+
+      if (hasFile) {
+        // Becomes available naturally on the next poll cycle.
+        continue;
+      }
+      if (inArrQueue) {
+        // Genuinely downloading — stamp lastCheckedAt so we don't loop on it.
+        await prisma.request.update({
+          where: { id: req.id },
+          data: { lastCheckedAt: now },
+        });
+        continue;
+      }
+
+      const ageMs = now.getTime() - new Date(req.createdAt).getTime();
+      const reason =
+        percent > 0
+          ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
+          : `No releases found after ${ageLabel(ageMs)} — indexers returned nothing`;
+
+      await prisma.request.update({
+        where: { id: req.id },
+        data: {
+          status: "stalled",
+          lastError: reason,
+          lastCheckedAt: now,
+        },
+      });
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: req.id,
+          event: "stalled",
+          detail: JSON.stringify({
+            reason: "no_sources_found",
+            ageHours: Math.floor(ageMs / 3_600_000),
+            percent,
+          }),
+        },
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        await prisma.request.update({
+          where: { id: req.id },
+          data: {
+            lastCheckedAt: now,
+            lastError: `Stall check failed: ${msg.slice(0, 240)}`,
+          },
+        });
+      } catch {
+        // Skip
+      }
+    }
+  }
+
+  // Legacy stuck-event marker retained for PipelineEvent history (24h cutoff).
   const stuckCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const stuck = await prisma.request.findMany({
     where: {
@@ -302,73 +536,6 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
     }
   }
 
-  // ── Auto-escalation Tier B: Downloading + not in arr queue + >6 hours → stalled ──
-  const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-  const staleDownloading = await prisma.request.findMany({
-    where: {
-      status: "downloading",
-      arrId: { not: null },
-      lastCheckedAt: { lt: sixHoursAgo },
-    },
-  });
-
-  for (const req of staleDownloading) {
-    try {
-      let inArrQueue = false;
-      let hasFile = false;
-
-      if (req.mediaType === "movie" && req.arrId) {
-        const movie = await radarr.getMovie(req.arrId);
-        hasFile = movie.hasFile === true;
-        if (!hasFile) {
-          const queues = await radarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.movieId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "tv" && req.arrId) {
-        const series = await sonarr.getSeries(req.arrId);
-        hasFile = series.statistics?.percentOfEpisodes === 100;
-        if (!hasFile) {
-          const queues = await sonarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.seriesId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "music" && req.arrId) {
-        const artist = await lidarr.getArtist(req.arrId);
-        hasFile =
-          artist.statistics?.albumCount > 0 &&
-          artist.statistics?.percentOfTracks === 100;
-        if (!hasFile) {
-          const queues = await lidarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.artistId === req.arrId,
-          );
-        }
-      }
-
-      if (!inArrQueue && !hasFile) {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { status: "stalled", lastCheckedAt: now },
-        });
-        await prisma.pipelineEvent.create({
-          data: {
-            requestId: req.id,
-            event: "stalled",
-            detail: JSON.stringify({
-              reason: "Not in arr queue after 6 hours",
-              escalatedAt: now.toISOString(),
-            }),
-          },
-        });
-      }
-    } catch {
-      // Skip failed checks
-    }
-  }
-
   // ── Auto-escalation Tier C: Stalled + >48 hours → failed ──
   let autoFailed = 0;
   const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
@@ -384,7 +551,7 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       where: { id: req.id },
       data: {
         status: "failed",
-        lastError: "Auto-failed: no progress after 48 hours",
+        lastError: req.lastError || "Auto-failed: no progress after 48 hours",
       },
     });
     await prisma.pipelineEvent.create({
@@ -445,7 +612,7 @@ export async function checkSingleRequest(
   if (isAvailable && request.status !== "available") {
     await prisma.request.update({
       where: { id: request.id },
-      data: { status: "available", availableAt: now, lastCheckedAt: now },
+      data: { status: "available", availableAt: now, lastCheckedAt: now, lastError: null },
     });
     await prisma.pipelineEvent.create({
       data: { requestId: request.id, event: "available" },
@@ -468,7 +635,7 @@ export async function checkSingleRequest(
   } else if (!isAvailable && request.status === "approved") {
     await prisma.request.update({
       where: { id: request.id },
-      data: { status: "downloading", lastCheckedAt: now },
+      data: { status: "downloading", lastCheckedAt: now, lastError: null },
     });
     await prisma.pipelineEvent.create({
       data: { requestId: request.id, event: "downloading" },

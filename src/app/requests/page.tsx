@@ -9,6 +9,7 @@ interface RequestItem {
   year?: string;
   posterPath?: string;
   status: string;
+  lastError?: string | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -39,6 +40,53 @@ const typeLabels: Record<string, string> = {
   music: "Music",
   book: "Book",
 };
+
+/**
+ * Derive a short, user-friendly badge label for the request pill.
+ * When the poller has surfaced a reason, prefer it over the generic status word
+ * so users see "Not Found", "Unreleased", etc. instead of "Downloading" forever.
+ */
+function deriveBadge(req: RequestItem): { label: string; tooltip: string } {
+  const err = (req.lastError || "").trim();
+  const lower = err.toLowerCase();
+
+  // Stalled — broken down by reason
+  if (req.status === "stalled") {
+    if (lower.includes("no releases found") || lower.includes("indexers returned nothing")) {
+      return { label: "Not Found", tooltip: err };
+    }
+    if (lower.includes("partial")) {
+      return { label: "Partial — no more sources", tooltip: err };
+    }
+    if (lower.includes("no progress")) {
+      return { label: "Stalled", tooltip: err };
+    }
+    return { label: "Stalled", tooltip: err || "Stalled — no progress detected" };
+  }
+
+  // Failed — includes arrId drift + max-retries
+  if (req.status === "failed") {
+    if (lower.includes("tracker drift") || lower.includes("arrid")) {
+      return { label: "Tracker drift — re-request", tooltip: err };
+    }
+    if (lower.includes("not yet released")) {
+      return { label: "Unreleased", tooltip: err };
+    }
+    return { label: "Not Found", tooltip: err || "Could not be delivered" };
+  }
+
+  // Approved but carrying a diagnostic note (e.g. "Awaiting release")
+  if (req.status === "approved" && err) {
+    if (lower.includes("awaiting release") || lower.includes("not yet released")) {
+      return { label: "Unreleased", tooltip: err };
+    }
+  }
+
+  return {
+    label: statusLabels[req.status] || req.status,
+    tooltip: err || statusLabels[req.status] || req.status,
+  };
+}
 
 function buildJellyfinLink(jellyfinUrl: string, title: string): string {
   return `${jellyfinUrl}/web/index.html#!/search.html?query=${encodeURIComponent(title)}`;
@@ -140,81 +188,95 @@ export default function RequestsPage() {
         </button>
       </div>
       <div className="space-y-2">
-        {requests.map((req) => (
-          <div
-            key={req.id}
-            className="flex items-center gap-4 rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]"
-          >
-            {req.posterPath && (
-              <img
-                src={req.posterPath}
-                alt={req.title}
-                className="h-16 w-11 rounded object-cover"
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">
-                {req.title}
-                {req.year && (
-                  <span className="ml-1 text-sm text-[var(--muted)]">
-                    ({req.year})
-                  </span>
+        {requests.map((req) => {
+          const badge = deriveBadge(req);
+          const isProblem = req.status === "stalled" || req.status === "failed";
+          return (
+            <div
+              key={req.id}
+              className="flex items-center gap-4 rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]"
+            >
+              {req.posterPath && (
+                <img
+                  src={req.posterPath}
+                  alt={req.title}
+                  className="h-16 w-11 rounded object-cover"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">
+                  {req.title}
+                  {req.year && (
+                    <span className="ml-1 text-sm text-[var(--muted)]">
+                      ({req.year})
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-[var(--muted)]">
+                  {typeLabels[req.mediaType] || req.mediaType} &middot;{" "}
+                  {new Date(req.createdAt).toLocaleDateString()}
+                  {req.status === "downloading" && (
+                    <span className="ml-1 text-[var(--tv)]">
+                      &middot; {timeAgo(req.updatedAt || req.createdAt)}
+                    </span>
+                  )}
+                </p>
+                {isProblem && req.lastError && (
+                  <p
+                    className="mt-1 truncate text-xs"
+                    style={{ color: "var(--muted)" }}
+                    title={req.lastError}
+                  >
+                    {req.lastError}
+                  </p>
                 )}
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                {typeLabels[req.mediaType] || req.mediaType} &middot;{" "}
-                {new Date(req.createdAt).toLocaleDateString()}
-                {req.status === "downloading" && (
-                  <span className="ml-1 text-[var(--tv)]">
-                    &middot; {timeAgo(req.updatedAt || req.createdAt)}
-                  </span>
-                )}
-              </p>
-            </div>
-            {req.status === "available" && jellyfinUrl ? (
-              <a
-                href={buildJellyfinLink(jellyfinUrl, req.title)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-80"
-                style={{ background: statusColors.available }}
-                title="Open in Jellyfin"
-              >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
+              </div>
+              {req.status === "available" && jellyfinUrl ? (
+                <a
+                  href={buildJellyfinLink(jellyfinUrl, req.title)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-80"
+                  style={{ background: statusColors.available }}
+                  title="Open in Jellyfin"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                Watch
-              </a>
-            ) : (
-              <span
-                className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                style={{
-                  background: statusColors[req.status] || "var(--muted)",
-                }}
-              >
-                {statusLabels[req.status] || req.status}
-                {req.status === "downloading" && (
-                  <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                )}
-              </span>
-            )}
-          </div>
-        ))}
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  Watch
+                </a>
+              ) : (
+                <span
+                  className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                  style={{
+                    background: statusColors[req.status] || "var(--muted)",
+                  }}
+                  title={badge.tooltip}
+                >
+                  {badge.label}
+                  {req.status === "downloading" && (
+                    <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                  )}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
