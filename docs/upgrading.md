@@ -22,7 +22,7 @@ git pull && docker compose build # when building from source
 docker compose up -d
 
 # 4. Verify
-curl http://localhost:5056/healthz | jq
+curl http://localhost:5056/api/healthz | jq
 docker compose logs --tail 50 lexarr | grep -E 'migrations|Ready'
 ```
 
@@ -73,7 +73,7 @@ docker start lexarr
      you've downgraded. Roll the DB back from the backup.)
    - **On disk but not applied** → runs them in order.
    - **All match** → no-op; continues.
-3. Next.js starts. `/healthz` returns 200 once DB + at least one *arr
+3. Next.js starts. `/api/healthz` returns 200 once DB + at least one *arr
    respond.
 
 If step 2 fails, the container exits and Docker keeps restarting it

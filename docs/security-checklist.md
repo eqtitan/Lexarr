@@ -28,7 +28,7 @@ you find a gap in the Lexarr codebase itself, see
 3. `docker restart lexarr` — NextAuth rotation invalidates every
    existing session; *arr rotations require a matching update in the
    source app's Settings → General.
-4. Confirm via `/healthz` that at least one *arr still responds.
+4. Confirm via `/api/healthz` that at least one *arr still responds.
 
 ## HTTP security headers
 

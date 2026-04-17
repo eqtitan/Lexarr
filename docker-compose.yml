@@ -42,11 +42,11 @@ services:
       # service ratio — the deep-link modal shows "volume not mounted."
       # Comment out if you don't run the host-side stack-healthcheck cron.
       # - /mnt/user/data/stack-healthcheck:/stack-health:ro
-    # Docker-native health check — probes the real /healthz endpoint
+    # Docker-native health check — probes the real /api/healthz endpoint
     # that validates DB + at least one *arr. Unraid shows green / red
     # in the dashboard based on this result.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5056/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:5056/api/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -78,7 +78,7 @@ docker run -d \
 ### 4 · Verify (30 s)
 
 ```bash
-curl http://<your-server-ip>:5056/healthz
+curl http://<your-server-ip>:5056/api/healthz
 ```
 
 Healthy response:
@@ -230,7 +230,7 @@ box is checked, not when a feature list is complete.
       stack
 - [x] `.env.example` documents every variable with inline comments
 - [x] `docker-compose.yml` is a complete working example *(with
-      Docker-native healthcheck probing `/healthz`)*
+      Docker-native healthcheck probing `/api/healthz`)*
 - [x] Migration path docs (upgrading from 0.x to 0.y) — see
       [`docs/upgrading.md`](docs/upgrading.md)
 - [x] Security checklist (secrets rotation, headers, CORS) — see
@@ -238,7 +238,7 @@ box is checked, not when a feature list is complete.
       baseline HTTP security headers now applied via `next.config.ts`
 - [x] `SECURITY.md` with private disclosure policy *(GitHub gates the
       Security Advisories feature on this)*
-- [x] `/healthz` endpoint validating DB reachability + at least one
+- [x] `/api/healthz` endpoint validating DB reachability + at least one
       *arr key — not just "Next.js is alive"
 - [x] `npm audit` clean + Docker base-image CVE check documented —
       see [`docs/security-audit.md`](docs/security-audit.md)
