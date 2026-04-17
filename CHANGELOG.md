@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.4.6] — 2026-04-16 (was `v15`)
+
+### Fixed
+- Dockerfile copies `public/` into the runner stage (Next.js standalone
+  output doesn't include it by default). `/icon.svg` and `/lexarr-icon.png`
+  now serve HTTP 200; browser favicon picks up the P3 icon automatically.
+
 ## [0.4.5] — 2026-04-16
 
 ### Added

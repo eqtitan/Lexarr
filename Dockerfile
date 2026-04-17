@@ -34,6 +34,9 @@ RUN mkdir -p /app/public
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# public/ holds static assets (e.g. lexarr-icon.png) served at the root URL.
+# Next.js standalone mode does NOT include public/ in the standalone output, so we copy it explicitly.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
