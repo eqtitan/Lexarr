@@ -1,4 +1,5 @@
 import { arrFetch, type ArrFetchOptions } from "./_fetch";
+import { pickDefaultProfile, SONARR_DEFAULT_PATTERNS } from "./quality-profile";
 
 const BASE = `${process.env.ARR_HOST}:8989`;
 const KEY = process.env.SONARR_API_KEY!;
@@ -57,7 +58,11 @@ export async function addSeries(tmdbId: number, _title: string, qualityProfileId
   const mediaFolder =
     folders.find((f: { path: string }) => f.path.includes("/media/")) || folders[0];
 
-  const profileId = qualityProfileId ?? profiles[0]?.id;
+  // See comment in radarr.ts — avoids falling back to "Any" which
+  // would bypass size caps.
+  const profileId =
+    qualityProfileId ??
+    pickDefaultProfile(profiles, SONARR_DEFAULT_PATTERNS)?.id;
 
   const result = await api("/api/v3/series", {
     method: "POST",

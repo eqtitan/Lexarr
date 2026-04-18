@@ -1,4 +1,5 @@
 import { arrFetch, type ArrFetchOptions } from "./_fetch";
+import { pickDefaultProfile, RADARR_DEFAULT_PATTERNS } from "./quality-profile";
 
 const BASE = `${process.env.ARR_HOST}:7878`;
 const KEY = process.env.RADARR_API_KEY!;
@@ -49,7 +50,12 @@ export async function addMovie(tmdbId: number, _title: string, qualityProfileId?
   const mediaFolder =
     folders.find((f: { path: string }) => f.path.includes("/media/")) || folders[0];
 
-  const profileId = qualityProfileId ?? profiles[0]?.id;
+  // Pick a capped WEB/HD profile by name, falling back to any non-"Any"
+  // profile. The old fallback `profiles[0]?.id` returned "Any" which
+  // allows CAM, workprint, Remux-2160p — blowing any size caps.
+  const profileId =
+    qualityProfileId ??
+    pickDefaultProfile(profiles, RADARR_DEFAULT_PATTERNS)?.id;
 
   const result = await api("/api/v3/movie", {
     method: "POST",

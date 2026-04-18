@@ -1,4 +1,5 @@
 import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
+import { pickDefaultProfile, LIDARR_DEFAULT_PATTERNS } from "./quality-profile";
 
 const BASE = `${process.env.ARR_HOST}:8686`;
 const KEY = process.env.LIDARR_API_KEY!;
@@ -64,11 +65,16 @@ export async function addArtist(foreignArtistId: string, _artistName: string) {
   const mediaFolder =
     folders.find((f: { path: string }) => f.path.includes("/media/")) || folders[0];
 
+  // See src/lib/arr/quality-profile.ts for why we don't use profiles[0]
+  // as the fallback — avoids a pathological "Any" default.
+  const qpId =
+    pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
+    profiles[0]?.id;
   const result = await api("/api/v1/artist", {
     method: "POST",
     body: JSON.stringify({
       ...artistData,
-      qualityProfileId: profiles[0]?.id,
+      qualityProfileId: qpId,
       metadataProfileId: metaProfiles[0]?.id,
       rootFolderPath: mediaFolder?.path || "/music",
       monitored: true,
@@ -164,11 +170,14 @@ export async function addSingleReleaseGroup(
       folders.find((f: { path: string }) => f.path.includes("/media/")) ||
       folders[0];
 
+    const qpId =
+      pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
+      profiles[0]?.id;
     const created = await api("/api/v1/artist", {
       method: "POST",
       body: JSON.stringify({
         ...artistData,
-        qualityProfileId: profiles[0]?.id,
+        qualityProfileId: qpId,
         metadataProfileId: metaProfiles[0]?.id,
         rootFolderPath: mediaFolder?.path || "/music",
         monitored: false,
