@@ -61,13 +61,13 @@ export default function DetailPanel({
     setDetailError(null);
     setDetail(null);
     try {
-      // Music detail needs the artist UUID, not the album/release ID
-      const rawId =
-        result.mediaType === "music" && result.artistId
-          ? result.artistId
-          : result.id;
+      // Use the search result's own id as the detail fetch key.
+      // Historically music pivoted to the artist UUID here — that caused
+      // clicking "The Nothing" to load the full Korn discography.
+      // /api/detail's music branch now treats the id as a release-group
+      // MBID and returns that release's context instead.
       const res = await fetch(
-        `/api/detail?type=${result.mediaType}&id=${encodeURIComponent(rawId)}`,
+        `/api/detail?type=${result.mediaType}&id=${encodeURIComponent(result.id)}`,
       );
       if (!res.ok) {
         setDetailError(`Couldn't load extra details (HTTP ${res.status})`);
@@ -126,9 +126,25 @@ export default function DetailPanel({
   const mediaTypeLabel: Record<string, string> = {
     movie: "Movie",
     tv: "TV Show",
-    music: "Artist",
+    music: "Release",
     book: "Book",
   };
+
+  // For music, prefer the specific release-type label (Album / Single /
+  // EP) over the generic "Release". Historic: this badge said "Artist"
+  // because music requests used to be artist-level — since we now
+  // request at the release-group level, the badge describes the thing
+  // the user is actually requesting.
+  const musicReleaseLabels: Record<string, string> = {
+    album: "Album",
+    single: "Single",
+    ep: "EP",
+    other: "Release",
+  };
+  const detailTypeLabel =
+    result.mediaType === "music" && result.releaseType
+      ? musicReleaseLabels[result.releaseType]
+      : mediaTypeLabel[result.mediaType];
 
   const accentColor = mediaTypeColor[result.mediaType] || "var(--accent)";
 
@@ -216,7 +232,7 @@ export default function DetailPanel({
                   className="rounded px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider"
                   style={{ background: accentColor }}
                 >
-                  {mediaTypeLabel[result.mediaType]}
+                  {detailTypeLabel}
                 </span>
                 {result.year && (
                   <span className="text-xs text-[var(--muted)]">
@@ -316,29 +332,10 @@ export default function DetailPanel({
             </div>
           )}
 
-          {/* Albums (music) */}
-          {detail?.albums && detail.albums.length > 0 && (
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
-                Albums
-              </h3>
-              <div className="space-y-1">
-                {detail.albums.map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex items-center justify-between rounded-lg bg-[var(--card)] px-3 py-2"
-                  >
-                    <span className="text-sm">{a.title}</span>
-                    {a.year && (
-                      <span className="text-xs text-[var(--muted)]">
-                        {a.year}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Album discography list deliberately removed — music detail
+              is now release-group level, not artist level. Showing the
+              whole catalog when the user clicked a specific album was
+              confusing (and made it unclear what Request actually did). */}
 
           {/* TV info */}
           {result.mediaType === "tv" && typeof detail?.seasons === "number" && (

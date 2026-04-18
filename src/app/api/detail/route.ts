@@ -5,7 +5,6 @@ import type {
   TmdbTvShow,
   TmdbCastMember,
   TmdbGenre,
-  MusicBrainzArtist,
   MusicBrainzReleaseGroup,
   OpenLibraryWork,
 } from "@/types/external-apis";
@@ -113,28 +112,38 @@ export async function GET(req: NextRequest) {
         rating: data.vote_average,
       };
     } else if (type === "music") {
-      const artistRes = await fetch(
-        `${MB_BASE}/artist/${id}?inc=release-groups&fmt=json`,
+      // Music search results are release-groups (albums / singles /
+      // EPs) — the id passed here is a release-group MBID. Fetch the
+      // release-group with artist-credits so the detail panel can show
+      // `Title · Artist · Year · Type` without a second round-trip.
+      const rgRes = await fetch(
+        `${MB_BASE}/release-group/${id}?inc=artist-credits&fmt=json`,
         {
           headers: { "User-Agent": "Lexarr/1.0 (media-request-portal)" },
         },
       );
-      if (!artistRes.ok)
-        throw new Error(`MusicBrainz artist ${id}: ${artistRes.status}`);
-      const artist: MusicBrainzArtist = await artistRes.json();
-      const albums = (artist["release-groups"] || [])
-        .filter((rg: MusicBrainzReleaseGroup) => rg["primary-type"] === "Album")
-        .map((rg: MusicBrainzReleaseGroup) => ({
-          id: rg.id,
-          title: rg.title,
-          year: rg["first-release-date"]?.slice(0, 4),
-        }))
-        .slice(0, 20);
+      if (!rgRes.ok) {
+        throw new Error(`MusicBrainz release-group ${id}: ${rgRes.status}`);
+      }
+      const rg: MusicBrainzReleaseGroup = await rgRes.json();
+      const artistCredit = rg["artist-credit"]?.[0];
+      const artistName = artistCredit?.name || "Unknown Artist";
+      const primary = rg["primary-type"] || "Release";
+      const secondary = rg["secondary-types"] || [];
+      const typeLabel =
+        secondary.length > 0
+          ? `${secondary.join(" ")} ${primary}`.trim()
+          : primary;
+
       result = {
-        title: artist.name,
-        overview: artist.disambiguation || undefined,
-        genres: artist.genres?.map((g: { name: string }) => g.name),
-        albums,
+        title: rg.title,
+        year: rg["first-release-date"]?.slice(0, 4),
+        overview: `${typeLabel} by ${artistName}`,
+        artist: artistName,
+        // MB doesn't host art — Cover Art Archive keys on release-group id.
+        posterUrl: `https://coverartarchive.org/release-group/${rg.id}/front-500`,
+        releaseType: primary.toLowerCase(),
+        secondaryTypes: secondary,
       };
     } else if (type === "book") {
       const workPath = id.startsWith("/") ? id : `/works/${id}`;

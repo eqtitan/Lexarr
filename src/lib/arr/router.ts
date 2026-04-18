@@ -42,21 +42,25 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
     }
 
     case "music": {
+      // All Lexarr music requests narrow-monitor at the release-group
+      // level — clicking an album means "I want THIS album", not the
+      // entire artist catalog. Same for singles and EPs. This applies
+      // regardless of releaseType.
+      //
+      // If for some reason we don't have an artist MBID (externalId2),
+      // fall through to whole-artist as a last resort so the request
+      // doesn't 500 — but in practice every search result carries
+      // artist-credit via MusicBrainz's inc=artist-credits.
       const artistForeignId = externalId2;
-      // Single / EP requests: narrow monitoring to just the release-group
-      if (
-        (input.releaseType === "single" || input.releaseType === "ep") &&
-        artistForeignId
-      ) {
+      if (artistForeignId) {
         const result = await lidarr.addSingleReleaseGroup(
           artistForeignId,
           externalId,
         );
         return { arrId: result.id, alreadyExists: result.alreadyExists };
       }
-      // Album / default: monitor the whole artist
-      const lidarrId = artistForeignId || externalId;
-      const result = await lidarr.addArtist(lidarrId, title);
+      // Fallback only (missing artist id on the search result)
+      const result = await lidarr.addArtist(externalId, title);
       return { arrId: result.id, alreadyExists: result.alreadyExists };
     }
 

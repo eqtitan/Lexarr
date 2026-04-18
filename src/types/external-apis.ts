@@ -71,7 +71,12 @@ export interface MusicBrainzReleaseGroup {
   id: string;
   title: string;
   "primary-type"?: string;
+  "secondary-types"?: string[];
   "first-release-date"?: string;
+  "artist-credit"?: {
+    name: string;
+    artist?: { id: string; name?: string };
+  }[];
 }
 
 export interface MusicBrainzSearchResult {
