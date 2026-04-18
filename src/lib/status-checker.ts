@@ -80,7 +80,11 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       if (req.mediaType === "book") {
         const llBookId = req.externalId2 || String(req.arrId);
         if (!llBookId) continue;
-        const status = await lazylibrarian.getBookStatus(llBookId);
+        // Audiobook requests poll LL's AudioStatus field rather than Status.
+        // Legacy rows with null bookFormat are treated as ebook.
+        const llType =
+          req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
+        const status = await lazylibrarian.getBookStatus(llBookId, llType);
         isAvailable = status === "Have";
         if (!isAvailable && req.status === "approved") {
           const wanted = await lazylibrarian
@@ -398,7 +402,9 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         }
       } else if (req.mediaType === "book") {
         const llBookId = req.externalId2 || String(req.arrId);
-        const status = await lazylibrarian.getBookStatus(llBookId);
+        const llType =
+          req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
+        const status = await lazylibrarian.getBookStatus(llBookId, llType);
         hasFile = status === "Have";
         // Note: LazyLibrarian's "Wanted" state is "still searching, nothing found"
         // — NOT an active download like Radarr/Sonarr queues. So we do NOT treat
@@ -514,6 +520,11 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         title: req.title,
         userName: req.user?.name || "Unknown",
         posterUrl: req.posterPath || undefined,
+        releaseType:
+          (req.releaseType as import("@/types").MusicReleaseType | null) ||
+          undefined,
+        bookFormat:
+          (req.bookFormat as import("@/types").BookFormat | null) || undefined,
       });
 
       if (!arrError) {

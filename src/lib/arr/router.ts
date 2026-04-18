@@ -7,7 +7,7 @@ import * as radarr from "./radarr";
 import * as sonarr from "./sonarr";
 import * as lidarr from "./lidarr";
 import * as lazylibrarian from "./lazylibrarian";
-import type { MediaType, MusicReleaseType } from "@/types";
+import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 export interface RouteResult {
   arrId?: number;
@@ -21,6 +21,8 @@ interface RouteInput {
   title: string;
   qualityProfileId?: number;
   releaseType?: MusicReleaseType;
+  /** Books only — "ebook" (default) or "audiobook". Maps to LL's `type` param. */
+  bookFormat?: BookFormat;
 }
 
 /**
@@ -68,10 +70,15 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
       const [_bookKey, authorHint] = externalId.split("|");
       let result: { id: string; alreadyExists: boolean };
 
+      // Books default to ebook when the caller didn't specify a format —
+      // this preserves behaviour for existing callers (e.g. retry flow
+      // replaying a pre-0.17 request that never had bookFormat stored).
+      const llType = input.bookFormat === "audiobook" ? "AudioBook" : "eBook";
+
       if (externalId2 && externalId2 !== externalId) {
-        result = await lazylibrarian.addBook(externalId2);
+        result = await lazylibrarian.addBook(externalId2, llType);
       } else {
-        result = await lazylibrarian.addBookByTitle(title, authorHint);
+        result = await lazylibrarian.addBookByTitle(title, authorHint, llType);
       }
 
       return {

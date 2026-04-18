@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.17.0] — 2026-04-18
+
+### Added
+- feat(books): add audiobook support alongside ebooks (1b8be12)
+
 ## [0.16.2] — 2026-04-18
 
 ### Fixed

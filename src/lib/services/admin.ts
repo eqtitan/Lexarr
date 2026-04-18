@@ -9,7 +9,7 @@ import { sendToArrAndUpdateStatus } from "./request";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
-import type { MediaType, MusicReleaseType } from "@/types";
+import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -133,7 +133,9 @@ export async function approveRequest(
     user: adminName,
   });
 
-  // Send to *arr — carry releaseType through so singles/EPs stay narrow-monitored on admin approve
+  // Send to *arr — carry releaseType and bookFormat through so singles/EPs
+  // stay narrow-monitored and audiobooks land in the audio pipeline on
+  // admin approve (not just on user auto-approve).
   const arrError = await sendToArrAndUpdateStatus(request, {
     mediaType: request.mediaType as MediaType,
     externalId: request.externalId,
@@ -141,6 +143,7 @@ export async function approveRequest(
     title: request.title,
     userName: adminName,
     releaseType: (request.releaseType as MusicReleaseType | null) || undefined,
+    bookFormat: (request.bookFormat as BookFormat | null) || undefined,
   });
 
   return { request, arrError };

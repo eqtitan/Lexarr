@@ -5,7 +5,7 @@
 import { prisma } from "@/lib/db";
 import { routeToArr } from "@/lib/arr/router";
 import { notify } from "@/lib/notifications";
-import type { MediaType, MusicReleaseType } from "@/types";
+import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -19,6 +19,7 @@ interface CreateRequestInput {
   artistId?: string;
   qualityProfileId?: number;
   releaseType?: MusicReleaseType;
+  bookFormat?: BookFormat;
 }
 
 interface ValidationError {
@@ -96,10 +97,28 @@ export function validateRequestInput(input: {
 export async function checkDuplicate(
   externalId: string,
   mediaType: string,
+  bookFormat?: BookFormat,
 ): Promise<DuplicateError | null> {
-  const existing = await prisma.request.findFirst({
-    where: { externalId, mediaType },
-  });
+  // Books are unique on (externalId, mediaType, bookFormat) because the
+  // same OpenLibrary work can be legitimately requested as both an ebook
+  // and an audiobook — they're separate fulfillments in LazyLibrarian.
+  // A null bookFormat in the DB (legacy pre-0.17 rows) is treated as
+  // "ebook" for duplicate-detection purposes.
+  const where =
+    mediaType === "book"
+      ? {
+          externalId,
+          mediaType,
+          OR: [
+            { bookFormat: bookFormat ?? "ebook" },
+            ...(bookFormat === "ebook" || bookFormat === undefined
+              ? [{ bookFormat: null }]
+              : []),
+          ],
+        }
+      : { externalId, mediaType };
+
+  const existing = await prisma.request.findFirst({ where });
   if (existing) {
     return {
       ok: false,
@@ -124,6 +143,7 @@ export async function sendToArrAndUpdateStatus(
     posterUrl?: string;
     qualityProfileId?: number;
     releaseType?: MusicReleaseType;
+    bookFormat?: BookFormat;
   },
 ): Promise<string | undefined> {
   let arrError: string | undefined;
@@ -136,6 +156,7 @@ export async function sendToArrAndUpdateStatus(
       title: opts.title,
       qualityProfileId: opts.qualityProfileId,
       releaseType: opts.releaseType,
+      bookFormat: opts.bookFormat,
     });
 
     if (result.arrId !== undefined) {
@@ -235,6 +256,7 @@ export async function createRequest(
     artistId,
     qualityProfileId,
     releaseType,
+    bookFormat,
   } = input;
 
   // Validation
@@ -247,8 +269,8 @@ export async function createRequest(
   });
   if (validationError) return validationError;
 
-  // Duplicate check
-  const dupError = await checkDuplicate(externalId, mediaType);
+  // Duplicate check — books dedupe per-format (ebook vs audiobook)
+  const dupError = await checkDuplicate(externalId, mediaType, bookFormat);
   if (dupError) return dupError;
 
   // Quota check
@@ -290,6 +312,7 @@ export async function createRequest(
       approvedAt: autoApprove ? new Date() : undefined,
       source: "lexarr",
       releaseType: releaseType || undefined,
+      bookFormat: bookFormat || undefined,
     },
   });
 
@@ -332,6 +355,7 @@ export async function createRequest(
     posterUrl,
     qualityProfileId,
     releaseType,
+    bookFormat,
   });
 
   return { ok: true, request, arrError };

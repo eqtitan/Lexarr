@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { SearchResult, LibraryStatusValue } from "@/types";
+import type { SearchResult, LibraryStatusValue, BookFormat } from "@/types";
 
 interface CastMember {
   name: string;
@@ -48,13 +48,16 @@ export default function DetailPanel({
   result: SearchResult;
   libraryStatus?: LibraryStatusValue;
   onClose: () => void;
-  onRequest: (qualityProfileId?: number) => void;
+  onRequest: (opts: { qualityProfileId?: number; bookFormat?: BookFormat }) => void;
 }) {
   const [detail, setDetail] = useState<DetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
+  // Books-only: which format to request. Default ebook; user toggles to
+  // audiobook before hitting Request. Not persisted — one-shot choice.
+  const [bookFormat, setBookFormat] = useState<BookFormat>("ebook");
 
   const fetchDetail = useCallback(async () => {
     setDetailLoading(true);
@@ -377,6 +380,41 @@ export default function DetailPanel({
 
         {/* Request button footer */}
         <div className="flex-shrink-0 border-t border-[var(--border)] p-4 space-y-3">
+          {result.mediaType === "book" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Format
+              </label>
+              <div
+                className="flex gap-1 rounded-lg p-1 ring-1 ring-[var(--border)]"
+                style={{ background: "var(--card)" }}
+                role="radiogroup"
+                aria-label="Book format"
+              >
+                {(["ebook", "audiobook"] as const).map((fmt) => {
+                  const active = bookFormat === fmt;
+                  return (
+                    <button
+                      key={fmt}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setBookFormat(fmt)}
+                      className="flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                      style={{
+                        background: active ? accentColor : "transparent",
+                        color: active
+                          ? "white"
+                          : "var(--foreground)",
+                      }}
+                    >
+                      {fmt === "ebook" ? "eBook" : "Audiobook"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {(result.mediaType === "movie" || result.mediaType === "tv") && qualityProfiles.length > 0 && (
             <div>
               <label
@@ -400,7 +438,12 @@ export default function DetailPanel({
             </div>
           )}
           <button
-            onClick={() => onRequest(selectedProfileId)}
+            onClick={() =>
+              onRequest({
+                qualityProfileId: selectedProfileId,
+                bookFormat: result.mediaType === "book" ? bookFormat : undefined,
+              })
+            }
             disabled={libraryStatus === "available" || libraryStatus === "monitored"}
             className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60"
             style={{
@@ -420,7 +463,9 @@ export default function DetailPanel({
                 ? "Already Monitored"
                 : libraryStatus === "requested"
                   ? "Already Requested"
-                  : `Request ${result.title}`}
+                  : result.mediaType === "book" && bookFormat === "audiobook"
+                    ? `Request Audiobook: ${result.title}`
+                    : `Request ${result.title}`}
           </button>
         </div>
       </div>

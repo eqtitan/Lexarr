@@ -45,6 +45,7 @@ model Request {
   qaCheckedAt     DateTime?        // Last time QA was evaluated
   source          String           @default("lexarr") // "lexarr" | "system"
   releaseType     String?          // music only: "album" | "single" | "ep" | "other" — drives narrow-monitoring for singles/EPs
+  bookFormat      String?          // book only: "ebook" | "audiobook" — routes LazyLibrarian to the correct search/download category
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   events          PipelineEvent[]

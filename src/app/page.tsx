@@ -101,7 +101,7 @@ export default function Home() {
     }));
   }, []);
 
-  const handleDetailRequest = useCallback(async (qualityProfileId?: number) => {
+  const handleDetailRequest = useCallback(async (opts: { qualityProfileId?: number; bookFormat?: "ebook" | "audiobook" }) => {
     if (!selectedResult) return;
     const target = selectedResult;
     setSelectedResult(null);
@@ -117,8 +117,9 @@ export default function Home() {
           posterUrl: target.posterUrl,
           artist: target.artist,
           artistId: target.artistId,
-          qualityProfileId,
+          qualityProfileId: opts.qualityProfileId,
           releaseType: target.releaseType,
+          bookFormat: opts.bookFormat,
         }),
       });
       const data = await res.json().catch(() => ({}));

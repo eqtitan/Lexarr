@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { createRequest } from "@/lib/services/request";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
-import type { MediaType, MusicReleaseType } from "@/types";
+import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 const VALID_RELEASE_TYPES: MusicReleaseType[] = ["album", "single", "ep", "other"];
+const VALID_BOOK_FORMATS: BookFormat[] = ["ebook", "audiobook"];
 
 /**
  * POST — Create a media request.
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  const { mediaType, externalId, title, year, posterUrl, artistId, qualityProfileId, releaseType } = body as {
+  const { mediaType, externalId, title, year, posterUrl, artistId, qualityProfileId, releaseType, bookFormat } = body as {
     mediaType: MediaType;
     externalId: string;
     title: string;
@@ -45,10 +46,17 @@ export async function POST(req: NextRequest) {
     artistId?: string;
     qualityProfileId?: number;
     releaseType?: string;
+    bookFormat?: string;
   };
 
   const validReleaseType = VALID_RELEASE_TYPES.includes(releaseType as MusicReleaseType)
     ? (releaseType as MusicReleaseType)
+    : undefined;
+  // Anything the client sends that isn't one of our known formats is
+  // dropped silently — keeps the API forward-compat with future values
+  // without forcing a 400.
+  const validBookFormat = VALID_BOOK_FORMATS.includes(bookFormat as BookFormat)
+    ? (bookFormat as BookFormat)
     : undefined;
 
   const result = await createRequest({
@@ -61,6 +69,7 @@ export async function POST(req: NextRequest) {
     artistId,
     qualityProfileId,
     releaseType: validReleaseType,
+    bookFormat: validBookFormat,
   });
 
   if (!result.ok) {

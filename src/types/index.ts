@@ -2,6 +2,8 @@ export type MediaType = "movie" | "tv" | "music" | "book";
 
 export type MusicReleaseType = "album" | "single" | "ep" | "other";
 
+export type BookFormat = "ebook" | "audiobook";
+
 export type RequestStatusValue =
   | "pending"
   | "approved"
