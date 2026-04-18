@@ -1,53 +1,237 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
+import { logAudit } from "@/lib/audit";
+
+/**
+ * Admin user management.
+ *
+ * GET    — list all users (minus the pseudo "system" user)
+ * POST   — create a new local-credentials user
+ * PATCH  — update role / autoApprove / maxRequests (existing callers)
+ * DELETE — remove a user; transactionally clears their Request rows
+ *          and nulls their AuditLog userId to satisfy FK constraints
+ *
+ * All endpoints audit-log. DELETE refuses to delete self so an admin
+ * can't lock themselves out in one click.
+ */
+
+// Shared user-list projection — keeps responses consistent across verbs.
+const USER_PROJECTION = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  autoApprove: true,
+  maxRequests: true,
+  plexId: true,
+  jellyfinId: true,
+  avatar: true,
+  createdAt: true,
+  _count: { select: { requests: true } },
+} as const;
 
 export async function GET() {
   const session = await auth();
-  const role = session?.user?.role;
-  if (role !== "admin") {
+  if (session?.user?.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   const users = await prisma.user.findMany({
     where: { id: { not: "system" } },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      autoApprove: true,
-      plexId: true,
-      jellyfinId: true,
-      avatar: true,
-      createdAt: true,
-      _count: { select: { requests: true } },
-    },
+    select: USER_PROJECTION,
     orderBy: { createdAt: "desc" },
   });
   return NextResponse.json({ users });
 }
 
-export async function PATCH(req: NextRequest) {
+// ── POST: create a new local-credentials user ────────────────────────
+
+interface CreateUserBody {
+  name?: string;
+  password?: string;
+  role?: string;
+  autoApprove?: boolean;
+  maxRequests?: number;
+}
+
+export async function POST(req: NextRequest) {
   const session = await auth();
-  const role = session?.user?.role;
-  if (role !== "admin") {
+  const adminId = session?.user?.id;
+  if (session?.user?.role !== "admin" || !adminId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const { userId, role: newRole, autoApprove } = await req.json();
-  if (!userId) {
+  const body = (await req.json().catch(() => null)) as CreateUserBody | null;
+  if (!body) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { name, password, role, autoApprove, maxRequests } = body;
+
+  // Validation — match the constraints from src/app/api/auth/register.
+  if (!name || typeof name !== "string" || name.length < 2 || name.length > 50) {
+    return NextResponse.json(
+      { error: "Name must be 2-50 characters" },
+      { status: 400 },
+    );
+  }
+  if (!password || typeof password !== "string" || password.length < 8) {
+    return NextResponse.json(
+      { error: "Password must be at least 8 characters" },
+      { status: 400 },
+    );
+  }
+  if (role && !["admin", "user"].includes(role)) {
+    return NextResponse.json(
+      { error: "Role must be 'admin' or 'user'" },
+      { status: 400 },
+    );
+  }
+
+  // Name uniqueness — same case-insensitive rule as the register route.
+  const existing = await prisma.user.findFirst({
+    where: { name: { equals: name } },
+  });
+  if (existing) {
+    return NextResponse.json(
+      { error: "A user with that name already exists" },
+      { status: 409 },
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const created = await prisma.user.create({
+    data: {
+      name,
+      password: passwordHash,
+      role: role || "user",
+      autoApprove: autoApprove ?? false,
+      maxRequests: typeof maxRequests === "number" ? maxRequests : 0,
+    },
+    select: USER_PROJECTION,
+  });
+
+  logAudit(
+    adminId,
+    "create_user",
+    { type: "user", id: created.id },
+    { name: created.name, role: created.role },
+  );
+
+  return NextResponse.json({ user: created }, { status: 201 });
+}
+
+// ── PATCH: update role / autoApprove / maxRequests ───────────────────
+
+interface PatchUserBody {
+  userId?: string;
+  role?: string;
+  autoApprove?: boolean;
+  maxRequests?: number;
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  const adminId = session?.user?.id;
+  if (session?.user?.role !== "admin" || !adminId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  const body = (await req.json().catch(() => null)) as PatchUserBody | null;
+  if (!body?.userId) {
     return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+  }
+
+  const { userId, role: newRole, autoApprove, maxRequests } = body;
+
+  if (newRole !== undefined && !["admin", "user"].includes(newRole)) {
+    return NextResponse.json(
+      { error: "Role must be 'admin' or 'user'" },
+      { status: 400 },
+    );
   }
 
   const data: Record<string, unknown> = {};
   if (newRole !== undefined) data.role = newRole;
   if (autoApprove !== undefined) data.autoApprove = autoApprove;
+  if (typeof maxRequests === "number" && maxRequests >= 0) {
+    data.maxRequests = maxRequests;
+  }
 
   const user = await prisma.user.update({
     where: { id: userId },
     data,
+    select: USER_PROJECTION,
   });
 
+  logAudit(
+    adminId,
+    "update_user",
+    { type: "user", id: userId },
+    { changes: data },
+  );
+
   return NextResponse.json({ user });
+}
+
+// ── DELETE: remove user + cascade their request history ─────────────
+
+interface DeleteUserBody {
+  userId?: string;
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  const adminId = session?.user?.id;
+  if (session?.user?.role !== "admin" || !adminId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  const body = (await req.json().catch(() => null)) as DeleteUserBody | null;
+  if (!body?.userId) {
+    return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+  }
+  const userId = body.userId;
+
+  // Self-delete guard: an admin deleting themselves is almost never
+  // intentional, and if the last admin is removed the app is bricked
+  // (bootstrap vars are the only recovery). Refuse at the API layer.
+  if (userId === adminId) {
+    return NextResponse.json(
+      { error: "Cannot delete your own account" },
+      { status: 400 },
+    );
+  }
+
+  // Fetch name for the audit log before we delete
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true },
+  });
+  if (!target) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  // Transaction: clear requests + null-out audit-log userIds + delete user.
+  // This preserves audit history (entries remain, just anonymized) but
+  // drops the user's request records since they have no one to belong to.
+  await prisma.$transaction([
+    prisma.request.deleteMany({ where: { userId } }),
+    prisma.auditLog.updateMany({
+      where: { userId },
+      data: { userId: null },
+    }),
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
+
+  logAudit(
+    adminId,
+    "delete_user",
+    { type: "user", id: userId },
+    { name: target.name },
+  );
+
+  return NextResponse.json({ deleted: true, id: userId });
 }

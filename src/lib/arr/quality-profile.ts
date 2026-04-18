@@ -43,8 +43,16 @@ export function pickDefaultProfile<T extends NamedProfile>(
  * DetailPanel; these only apply when the caller passes no profile id.
  */
 
-/** Radarr: prefer HD Bluray + WEB, then any WEB 1080p profile. */
+/**
+ * Radarr: prefer a strict "WEB 1080p" profile (WEBDL/WEBRip-1080p only,
+ * no Bluray, size-capped via quality definitions). Falls through to
+ * broader HD profiles if a strict WEB-only profile doesn't exist.
+ *
+ * Priority order matters — most-restrictive first so oversized Bluray
+ * releases can't slip through an ambiguously-named profile.
+ */
 export const RADARR_DEFAULT_PATTERNS: RegExp[] = [
+  /^WEB 1080p$/i, // strict WEB-DL/WEBRip only, paired with size cap
   /^HD Bluray \+ WEB$/i,
   /WEB.*1080p/i,
   /1080p/i,
@@ -52,6 +60,7 @@ export const RADARR_DEFAULT_PATTERNS: RegExp[] = [
 
 /** Sonarr: same naming conventions as Radarr in most setups. */
 export const SONARR_DEFAULT_PATTERNS: RegExp[] = [
+  /^WEB 1080p$/i,
   /^HD Bluray \+ WEB$/i,
   /WEB.*1080p/i,
   /1080p/i,

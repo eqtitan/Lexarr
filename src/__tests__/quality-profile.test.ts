@@ -27,15 +27,23 @@ const radarrProfiles = [
 ];
 
 describe("pickDefaultProfile", () => {
-  it("Radarr: prefers HD Bluray + WEB over any other", () => {
+  it("Radarr: prefers strict 'WEB 1080p' over everything else", () => {
+    const withWebOnly = [
+      ...radarrProfiles,
+      { id: 10, name: "WEB 1080p" }, // our new strict profile
+    ];
+    const pick = pickDefaultProfile(withWebOnly, RADARR_DEFAULT_PATTERNS);
+    expect(pick?.name).toBe("WEB 1080p");
+  });
+
+  it("falls through to HD Bluray + WEB when strict WEB 1080p missing", () => {
     const pick = pickDefaultProfile(radarrProfiles, RADARR_DEFAULT_PATTERNS);
     expect(pick?.name).toBe("HD Bluray + WEB");
   });
 
-  it("falls through to WEB.*1080p when HD Bluray + WEB is absent", () => {
+  it("falls through to WEB.*1080p when both strict and HD Bluray + WEB absent", () => {
     const trimmed = radarrProfiles.filter((p) => p.name !== "HD Bluray + WEB");
     const pick = pickDefaultProfile(trimmed, RADARR_DEFAULT_PATTERNS);
-    // "Remux + WEB 1080p" matches WEB.*1080p
     expect(pick?.name).toBe("Remux + WEB 1080p");
   });
 
