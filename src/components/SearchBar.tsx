@@ -132,7 +132,7 @@ export default function SearchBar({
       <div className="space-y-3">
       <div
         ref={filterRowRef}
-        className="flex gap-3 overflow-x-auto pb-1 -mb-1 scrollbar-none"
+        className="flex gap-3 overflow-x-auto scrollbar-none"
       >
         {FILTERS.map((f) => (
           <button
