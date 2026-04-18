@@ -67,7 +67,19 @@ export interface DashboardWarning {
   severity: WarningSeverity;
   title: string;
   detail?: string;
+  /**
+   * For warnings about a specific user request — enables per-request
+   * actions (Retry / Approve / Deny) in the admin dashboard panel.
+   */
   requestId?: string;
+  /**
+   * For warnings about a specific *arr-queue item (e.g. failed/stalled
+   * downloads) — enables per-queue actions (Blocklist + remove from
+   * download client) in the admin dashboard panel.
+   */
+  queueId?: number;
+  /** Which *arr owns the queueId above — dispatches the DELETE call. */
+  queueSource?: "radarr" | "sonarr" | "lidarr";
 }
 
 // ── Analytics ───────────────────────────────────────────────────────────

@@ -69,12 +69,14 @@ function actionForWarning(w: DashboardWarning): ActionKind {
   ) {
     return "retry";
   }
-  if (t.startsWith("Failed download") || t.startsWith("Stalled download")) {
-    // These are queue-item warnings, but we don't get the queue id in
-    // the warning payload — would need a schema extension. Punt to
-    // "none" for now and flag in the UI that this one needs manual
-    // handling. Future work: thread queue id through.
-    return "none";
+  // Queue-item warnings now carry queueId + queueSource (0.16.0) so
+  // we can fire a blocklist+remove against the right *arr.
+  if (
+    (t.startsWith("Failed download") || t.startsWith("Stalled download")) &&
+    w.queueId !== undefined &&
+    w.queueSource
+  ) {
+    return "blocklist-queue";
   }
   return "none";
 }
@@ -97,7 +99,9 @@ export default function WarningsPanel({
   if (warnings.length === 0) return null;
 
   function keyFor(w: DashboardWarning, i: number): string {
-    return w.requestId ? `req:${w.requestId}` : `idx:${i}`;
+    if (w.requestId) return `req:${w.requestId}`;
+    if (w.queueId !== undefined) return `queue:${w.queueSource}:${w.queueId}`;
+    return `idx:${i}`;
   }
 
   async function doRetry(w: DashboardWarning, key: string) {
@@ -122,6 +126,41 @@ export default function WarningsPanel({
       setRowError((p) => ({
         ...p,
         [key]: err instanceof Error ? err.message : "Retry failed",
+      }));
+    } finally {
+      setInflight((p) => {
+        const { [key]: _, ...rest } = p;
+        return rest;
+      });
+    }
+  }
+
+  async function doBlocklist(w: DashboardWarning, key: string) {
+    if (w.queueId === undefined || !w.queueSource) return;
+    setInflight((p) => ({ ...p, [key]: "blocklist" }));
+    setRowError((p) => {
+      const { [key]: _, ...rest } = p;
+      return rest;
+    });
+    try {
+      const res = await fetch("/api/admin/queue", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: w.queueSource,
+          id: w.queueId,
+          blocklist: true,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      onActionComplete?.();
+    } catch (err: unknown) {
+      setRowError((p) => ({
+        ...p,
+        [key]: err instanceof Error ? err.message : "Blocklist failed",
       }));
     } finally {
       setInflight((p) => {
@@ -226,6 +265,17 @@ export default function WarningsPanel({
                           title="Retry this request"
                         >
                           {busy === "retry" ? "…" : "Retry"}
+                        </button>
+                      )}
+                      {action === "blocklist-queue" && (
+                        <button
+                          onClick={() => doBlocklist(w, key)}
+                          disabled={!!busy}
+                          className="rounded-md px-2.5 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                          style={{ background: "var(--warning)" }}
+                          title="Remove from download client + blocklist the release so it isn't re-grabbed"
+                        >
+                          {busy === "blocklist" ? "…" : "Blocklist"}
                         </button>
                       )}
                       {action === "approve-deny" && w.requestId && (

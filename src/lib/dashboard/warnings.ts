@@ -28,18 +28,22 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
     }
   }
 
-  // Critical: failed downloads
+  // Critical: failed downloads. Thread queueId + source so the admin
+  // dashboard can wire a per-warning Blocklist button that dispatches
+  // DELETE against the right *arr.
   for (const item of input.queue) {
     if (item.status === "failed" || item.status === "warning") {
       warnings.push({
         severity: "critical",
         title: `Failed download: ${item.title}`,
         detail: item.statusMessages.join("; ") || `Status: ${item.status}`,
+        queueId: item.id,
+        queueSource: item.source,
       });
     }
   }
 
-  // Warning: stalled downloads (no progress descriptions / status messages indicating stall)
+  // Warning: stalled downloads (progress > 0 < 100 with a stall message).
   for (const item of input.queue) {
     if (
       item.progress > 0 &&
@@ -56,6 +60,8 @@ export function generateWarnings(input: WarningInput): DashboardWarning[] {
           severity: "warning",
           title: `Stalled download: ${item.title}`,
           detail: item.statusMessages.join("; "),
+          queueId: item.id,
+          queueSource: item.source,
         });
       }
     }

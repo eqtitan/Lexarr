@@ -9,6 +9,7 @@ type AuditAction =
   | "deny_request"
   | "cancel_request"
   | "retry_request"
+  | "blocklist_queue"
   | "create_user"
   | "update_user"
   | "delete_user"
