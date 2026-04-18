@@ -85,6 +85,29 @@ describe("LazyLibrarian status field dispatch", () => {
   });
 });
 
+// ── "Audiobook on disk" predicate (mirrors isAudiobookOnDisk in lazylibrarian.ts)
+function isAudiobookOnDisk(status: string | null): boolean {
+  return status === "Have" || status === "Open";
+}
+
+describe("audiobook availability — Open counts as on-disk", () => {
+  it("Have → available", () => {
+    expect(isAudiobookOnDisk("Have")).toBe(true);
+  });
+  it("Open → available (file on disk, LL post-proc not finalized)", () => {
+    // LL leaves many audiobooks perpetually at "Open" once the file is
+    // in the library folder. Lexarr must not block on Have-only or the
+    // card stays "downloading" forever.
+    expect(isAudiobookOnDisk("Open")).toBe(true);
+  });
+  it("Wanted / Snatched / Skipped / null → NOT available", () => {
+    expect(isAudiobookOnDisk("Wanted")).toBe(false);
+    expect(isAudiobookOnDisk("Snatched")).toBe(false);
+    expect(isAudiobookOnDisk("Skipped")).toBe(false);
+    expect(isAudiobookOnDisk(null)).toBe(false);
+  });
+});
+
 // ── Duplicate-detection semantics (mirrors services/request.checkDuplicate)
 /** Simplified predicate: does a proposed request collide with existing rows? */
 function isDuplicate(

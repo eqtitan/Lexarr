@@ -42,6 +42,10 @@ interface LazyLibrarianBook {
   bookid?: string;
   BookName?: string;
   bookname?: string;
+  AuthorID?: string;
+  authorid?: string;
+  AuthorName?: string;
+  authorname?: string;
   /** Ebook download status: "Wanted" | "Have" | "Skipped" | "Ignored" | "Open" */
   Status?: string;
   status?: string;
@@ -86,11 +90,19 @@ export async function getBook(bookId: string): Promise<LazyLibrarianBook | null>
 }
 
 /**
- * Get a book's download status: "Wanted" | "Have" | "Skipped" | "Ignored".
+ * Get a book's download status: "Wanted" | "Have" | "Skipped" | "Ignored" | "Open".
  *
  * When `bookType === "AudioBook"`, returns the audiobook `AudioStatus`
  * field LL exposes when `audio_tab=1` is set in its config. Callers that
  * don't pass a type get the ebook status for backward compatibility.
+ *
+ * Audiobook-specific nuance: LL flags an audiobook as "Open" once the
+ * file is detected in the library folder but its post-processor hasn't
+ * finished renaming/metadata-tagging yet. For our purposes (file
+ * playable in Jellyfin) "Open" + an `AudioFile` set on the row means
+ * the file is already on disk — callers that care about availability
+ * (status-checker) should treat that as available. This function
+ * returns the raw status string; interpretation lives at the caller.
  */
 export async function getBookStatus(
   bookId: string,
@@ -99,6 +111,20 @@ export async function getBookStatus(
   const book = await getBook(bookId);
   if (!book) return null;
   return statusForType(book, bookType);
+}
+
+/**
+ * Check whether an audiobook's physical file is present on disk — which
+ * is all that matters for Jellyfin playback. Returns true for both
+ * "Have" (LL fully post-processed) and "Open" (file exists, post-proc
+ * not yet finalized). Using getBookStatus alone misses the "Open" case
+ * and would leave Lexarr stuck showing "downloading" indefinitely.
+ */
+export async function isAudiobookOnDisk(bookId: string): Promise<boolean> {
+  const book = await getBook(bookId);
+  if (!book) return false;
+  const status = statusForType(book, "AudioBook");
+  return status === "Have" || status === "Open";
 }
 
 /** Get all authors in the library */
@@ -140,15 +166,41 @@ export async function addBook(
     return { id: bookId, alreadyExists: existingStatus === "Have" };
   }
 
-  // addBook adds the book but LL defaults author to "Paused" and book to "Skipped"
-  await api("addBook", { id: bookId });
-  // queueBook sets the book status to "Wanted" so LL will actually search for it.
-  // The `type` parameter is what tells LL to queue the audiobook side instead
-  // of the ebook side (or both, if caller wants eBook after an AudioBook add).
-  // If this fails the request would sit in "approved" forever with no indication,
-  // so let the error bubble — the router marks the Request as "failed" with a
-  // useful lastError, and the admin's retry button recovers.
+  // CRITICAL: only call addBook if LL doesn't already know the book. LL's
+  // addBook endpoint spawns a background thread that re-fetches metadata
+  // via GoodReads/OpenLibrary and REWRITES the Status + AudioStatus rows
+  // back to their NEWAUTHOR_STATUS / NEWAUDIO_STATUS defaults (typically
+  // "Skipped"). If we then call queueBook, a race occurs — sometimes our
+  // Wanted flip sticks, sometimes the refresher thread overwrites it.
+  // Symptom: queueBook returns "OK" but AudioStatus stays "Skipped" and
+  // LL never searches. Fix is to skip the re-add entirely when LL
+  // already has the book, regardless of its per-format status.
+  if (!existing) {
+    // `wait` param forces addBook to run synchronously; otherwise LL
+    // returns immediately and we'd race with the background thread when
+    // queueBook runs a moment later.
+    await api("addBook", { id: bookId, wait: "1" });
+  }
+
+  // queueBook sets the book's per-format status to "Wanted" so LL will
+  // search for it. The `type` parameter is what tells LL to queue the
+  // audiobook side (AudioStatus) instead of the ebook side (Status).
+  // If this fails the request would sit in "approved" forever with no
+  // indication, so let the error bubble — the router marks the Request
+  // as "failed" with a useful lastError, and the admin's retry recovers.
   await api("queueBook", { id: bookId, type: bookType });
+
+  // Resume the author — LL defaults new authors to "Paused" and paused
+  // authors are SKIPPED by the cron search sweep. Without this a Wanted
+  // book sits forever because no search ever runs for it. Best-effort:
+  // re-fetch the book post-queue so we have the AuthorID reliably (it
+  // may not have been on the initial lookup response in some LL builds).
+  const refreshed = await getBook(bookId).catch(() => null);
+  const authorId = refreshed?.AuthorID || refreshed?.authorid;
+  if (authorId) {
+    await resumeAuthor(String(authorId));
+  }
+
   // searchBook failures are less critical — the book is already Wanted; LL will
   // pick it up on the next RSS sweep even if this immediate search call fails.
   // We do log the failure so operators see chronic issues.
@@ -196,6 +248,25 @@ export async function addBookByTitle(
   }
 
   return addBook(String(bestId), bookType);
+}
+
+/**
+ * Resume an author in LazyLibrarian, best-effort.
+ *
+ * LL defaults newly-added authors to Status="Paused", and its cron
+ * searches do NOT run for paused authors — even if the book underneath
+ * is marked Wanted, the search never fires. Whenever we queue a book
+ * we resume its author to unblock the scheduled search sweep. Silent on
+ * failure: if LL is restarting or the author doesn't exist yet, leave
+ * a warning and let the cron sort it out.
+ */
+export async function resumeAuthor(authorId: string): Promise<void> {
+  try {
+    await api("resumeAuthor", { id: authorId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[lazylibrarian] resumeAuthor(${authorId}) failed: ${msg}`);
+  }
 }
 
 /** Force a search for a wanted book — triggers LL to re-scan indexers.

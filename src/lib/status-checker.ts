@@ -82,10 +82,17 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         if (!llBookId) continue;
         // Audiobook requests poll LL's AudioStatus field rather than Status.
         // Legacy rows with null bookFormat are treated as ebook.
-        const llType =
-          req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
-        const status = await lazylibrarian.getBookStatus(llBookId, llType);
-        isAvailable = status === "Have";
+        if (req.bookFormat === "audiobook") {
+          // For audiobooks, "Open" = file on disk but LL hasn't fully
+          // finalized post-processing. Jellyfin playback works as soon
+          // as the file is on disk, so we treat Open as available too.
+          // Without this check, Lexarr would sit in "downloading"
+          // forever because LL leaves many audiobooks at Open.
+          isAvailable = await lazylibrarian.isAudiobookOnDisk(llBookId);
+        } else {
+          const status = await lazylibrarian.getBookStatus(llBookId, "eBook");
+          isAvailable = status === "Have";
+        }
         if (!isAvailable && req.status === "approved") {
           const wanted = await lazylibrarian
             .getQueue()
@@ -402,10 +409,12 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
         }
       } else if (req.mediaType === "book") {
         const llBookId = req.externalId2 || String(req.arrId);
-        const llType =
-          req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
-        const status = await lazylibrarian.getBookStatus(llBookId, llType);
-        hasFile = status === "Have";
+        if (req.bookFormat === "audiobook") {
+          hasFile = await lazylibrarian.isAudiobookOnDisk(llBookId);
+        } else {
+          const status = await lazylibrarian.getBookStatus(llBookId, "eBook");
+          hasFile = status === "Have";
+        }
         // Note: LazyLibrarian's "Wanted" state is "still searching, nothing found"
         // — NOT an active download like Radarr/Sonarr queues. So we do NOT treat
         // Wanted-list membership as inArrQueue. Age-based stall applies.
