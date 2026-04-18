@@ -37,6 +37,12 @@ export default function AdminUsersPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
+  // Reset-password inline prompt state
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetPromptId, setResetPromptId] = useState<string | null>(null);
+  const [resetPromptValue, setResetPromptValue] = useState("");
+  const [resetOkId, setResetOkId] = useState<string | null>(null);
+
   const fetchUsers = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/users");
@@ -143,6 +149,38 @@ export default function AdminUsersPage() {
       );
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function handleResetPassword(userId: string) {
+    if (resetPromptValue.length < 8) {
+      setActionError("Password must be at least 8 characters");
+      return;
+    }
+    setResettingId(userId);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, password: resetPromptValue }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setResetPromptValue("");
+      setResetPromptId(null);
+      setResetOkId(userId);
+      setTimeout(() => setResetOkId(null), 3000);
+    } catch (err: unknown) {
+      setActionError(
+        err instanceof Error
+          ? `Reset failed — ${err.message}`
+          : "Reset failed",
+      );
+    } finally {
+      setResettingId(null);
     }
   }
 
@@ -309,11 +347,13 @@ export default function AdminUsersPage() {
         <div className="space-y-2">
           {users.map((user) => {
             const isSelf = user.id === selfId;
+            const resetOpen = resetPromptId === user.id;
             return (
               <div
                 key={user.id}
-                className="flex items-center gap-4 rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]"
+                className="overflow-hidden rounded-xl bg-[var(--card)] ring-1 ring-[var(--border)]"
               >
+                <div className="flex items-center gap-4 p-4">
                 {user.avatar ? (
                   <img
                     src={user.avatar}
@@ -369,6 +409,18 @@ export default function AdminUsersPage() {
                     {user.role === "admin" ? "Demote" : "Promote"}
                   </button>
                   <button
+                    onClick={() => {
+                      setResetPromptValue("");
+                      setResetPromptId(
+                        resetPromptId === user.id ? null : user.id,
+                      );
+                    }}
+                    className="rounded-lg bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] ring-1 ring-[var(--border)] transition-all hover:text-[var(--foreground)]"
+                    title="Reset this user's password"
+                  >
+                    {resetOkId === user.id ? "Reset ✓" : "Reset"}
+                  </button>
+                  <button
                     onClick={() => handleDelete(user.id)}
                     disabled={isSelf || deletingId === user.id}
                     className="rounded-lg px-3 py-1.5 text-xs font-medium ring-1 ring-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -392,6 +444,59 @@ export default function AdminUsersPage() {
                         : "Delete"}
                   </button>
                 </div>
+                </div>
+                {/* Inline reset-password prompt — appears below the row
+                    when the Reset button is clicked. Cancelling clears
+                    both the input and the prompt state. */}
+                {resetOpen && (
+                  <div className="flex items-center gap-2 border-t border-[var(--border)] bg-[var(--background)]/40 px-4 py-3">
+                    <label className="shrink-0 text-xs text-[var(--muted)]">
+                      New password:
+                    </label>
+                    <input
+                      type="password"
+                      value={resetPromptValue}
+                      onChange={(e) => setResetPromptValue(e.target.value)}
+                      placeholder="At least 8 characters"
+                      autoComplete="new-password"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Enter" &&
+                          resetPromptValue.length >= 8 &&
+                          resettingId !== user.id
+                        ) {
+                          handleResetPassword(user.id);
+                        } else if (e.key === "Escape") {
+                          setResetPromptId(null);
+                          setResetPromptValue("");
+                        }
+                      }}
+                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-sm text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleResetPassword(user.id)}
+                      disabled={
+                        resetPromptValue.length < 8 || resettingId === user.id
+                      }
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      {resettingId === user.id ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetPromptId(null);
+                        setResetPromptValue("");
+                      }}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--muted)] ring-1 ring-[var(--border)] transition-colors hover:text-[var(--foreground)]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

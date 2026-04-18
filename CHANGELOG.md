@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.15.0] — 2026-04-18
+
+### Added
+- feat(dashboard): actionable Warnings panel — Retry / Approve / Deny (89b1ec6)
+- feat(admin): password reset via PATCH /api/admin/users (6a6dafb)
+- feat(ui): LivePill — hover-to-refresh, drop timestamp + refresh icon (6f1d658)
+
+### Fixed
+- fix(ui): bump chip row gaps from 8px to 12px for breathing room (16df472)
+
 ## [0.14.0] — 2026-04-18
 
 ### Added

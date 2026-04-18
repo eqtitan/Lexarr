@@ -125,14 +125,14 @@ export default function SearchBar({
         />
       </div>
       {/* Chip row group — main chips + optional music sub-row.
-          Uses space-y-2 internally so the gap between main + sub row
-          matches the horizontal gap-2 between main chips (visual
-          consistency — user requested). Outer space-y-3 keeps the
-          search-input → chip-group gap unchanged at 12px. */}
-      <div className="space-y-2">
+          Uses gap-3 (12px) both horizontally (between chips in a row)
+          and vertically (between main row and sub row) for consistent
+          visual rhythm. User feedback: the previous gap-2 (8px) was
+          too tight and chips felt cramped. */}
+      <div className="space-y-3">
       <div
         ref={filterRowRef}
-        className="flex gap-2 overflow-x-auto pb-1 -mb-1 scrollbar-none"
+        className="flex gap-3 overflow-x-auto pb-1 -mb-1 scrollbar-none"
       >
         {FILTERS.map((f) => (
           <button
@@ -161,7 +161,7 @@ export default function SearchBar({
       {activeFilter === "music" && (
         <div className="relative h-9">
           <div
-            className="absolute top-0 flex gap-2 whitespace-nowrap"
+            className="absolute top-0 flex gap-3 whitespace-nowrap"
             style={
               musicCenterPx !== null
                 ? {

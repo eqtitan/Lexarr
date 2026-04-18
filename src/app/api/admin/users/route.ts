@@ -130,6 +130,8 @@ interface PatchUserBody {
   role?: string;
   autoApprove?: boolean;
   maxRequests?: number;
+  /** New plaintext password — server bcrypt-hashes before writing. */
+  password?: string;
 }
 
 export async function PATCH(req: NextRequest) {
@@ -144,7 +146,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing userId" }, { status: 400 });
   }
 
-  const { userId, role: newRole, autoApprove, maxRequests } = body;
+  const { userId, role: newRole, autoApprove, maxRequests, password } = body;
 
   if (newRole !== undefined && !["admin", "user"].includes(newRole)) {
     return NextResponse.json(
@@ -153,11 +155,34 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
+  // Password reset — same length policy as POST /api/auth/register and
+  // as our local-creds admin POST above.
+  if (password !== undefined) {
+    if (typeof password !== "string" || password.length < 8) {
+      return NextResponse.json(
+        { error: "Password must be at least 8 characters" },
+        { status: 400 },
+      );
+    }
+  }
+
   const data: Record<string, unknown> = {};
-  if (newRole !== undefined) data.role = newRole;
-  if (autoApprove !== undefined) data.autoApprove = autoApprove;
+  const auditChanges: string[] = [];
+  if (newRole !== undefined) {
+    data.role = newRole;
+    auditChanges.push("role");
+  }
+  if (autoApprove !== undefined) {
+    data.autoApprove = autoApprove;
+    auditChanges.push("autoApprove");
+  }
   if (typeof maxRequests === "number" && maxRequests >= 0) {
     data.maxRequests = maxRequests;
+    auditChanges.push("maxRequests");
+  }
+  if (password !== undefined) {
+    data.password = await bcrypt.hash(password, 10);
+    auditChanges.push("password");
   }
 
   const user = await prisma.user.update({
@@ -170,7 +195,7 @@ export async function PATCH(req: NextRequest) {
     adminId,
     "update_user",
     { type: "user", id: userId },
-    { changes: data },
+    { changes: auditChanges },
   );
 
   return NextResponse.json({ user });

@@ -314,7 +314,10 @@ export default function DashboardPage() {
         {activeTab === "warnings" && (
           <>
             {data.warnings.length > 0 ? (
-              <WarningsPanel warnings={data.warnings} />
+              <WarningsPanel
+                warnings={data.warnings}
+                onActionComplete={fetchDashboard}
+              />
             ) : (
               <div
                 className="rounded-xl px-4 py-10 text-center ring-1 ring-[var(--border)]"
