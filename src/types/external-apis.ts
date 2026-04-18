@@ -112,6 +112,9 @@ export interface ArrQueueRecord {
   movieId?: number;
   seriesId?: number;
   artistId?: number;
+  /** Lidarr queue items carry an albumId — used by the status-checker
+   *  to match queue entries against release-group-level requests. */
+  albumId?: number;
   title: string;
   status: string;
   size?: number;

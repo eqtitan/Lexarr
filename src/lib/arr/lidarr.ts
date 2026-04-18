@@ -1,6 +1,39 @@
 import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
 import { pickDefaultProfile, LIDARR_DEFAULT_PATTERNS } from "./quality-profile";
 
+/**
+ * Pick a metadata profile that allows Singles + EPs so Lexarr's
+ * release-group requests populate properly. Preference order:
+ *   1. Profile named "All Music" (TRaSH / community convention)
+ *   2. Any profile whose name matches /all|everything/i
+ *   3. Any non-"None" / non-"Standard" profile (Standard is
+ *      Albums-only in Lidarr's default install — filters singles)
+ *   4. First profile as last resort
+ *
+ * Using profiles[0] blindly — which was the old behaviour — picks
+ * "Standard" on default Lidarr installs. That silently hides any
+ * single/EP the user adds. See TRaSH Guides "Recommended metadata
+ * profile: All Music" for rationale.
+ */
+interface LidarrMetadataProfile {
+  id: number;
+  name: string;
+}
+export function pickDefaultMetadataProfile(
+  profiles: LidarrMetadataProfile[],
+): LidarrMetadataProfile | undefined {
+  if (profiles.length === 0) return undefined;
+  const patterns = [/^all music$/i, /all|everything/i];
+  for (const pat of patterns) {
+    const match = profiles.find((p) => pat.test(p.name));
+    if (match) return match;
+  }
+  // Last-resort filter: anything not "None" or "Standard"
+  return (
+    profiles.find((p) => !/^(none|standard)$/i.test(p.name)) ?? profiles[0]
+  );
+}
+
 const BASE = `${process.env.ARR_HOST}:8686`;
 const KEY = process.env.LIDARR_API_KEY!;
 
@@ -26,13 +59,27 @@ export async function lookupAlbum(term: string) {
 
 import { libraryCache } from "@/lib/cache";
 
+const ARTIST_CACHE_KEY = "lidarr:artists";
+
 /** Get all artists with 60s cache for batch lookups */
 export async function getAllArtistsCached(): Promise<{ id: number; foreignArtistId: string }[]> {
-  const cached = libraryCache.get("lidarr:artists");
+  const cached = libraryCache.get(ARTIST_CACHE_KEY);
   if (cached) return cached as { id: number; foreignArtistId: string }[];
   const artists: { id: number; foreignArtistId: string }[] = await api("/api/v1/artist");
-  libraryCache.set("lidarr:artists", artists);
+  libraryCache.set(ARTIST_CACHE_KEY, artists);
   return artists;
+}
+
+/**
+ * Drop the cached artists list. Called whenever we add a new artist
+ * so the next getArtistByForeignId() lookup sees the fresh state
+ * rather than stale cache. Without this, back-to-back single-requests
+ * for the same artist hit a 400 "This artist has already been added"
+ * on the second request — the first added the artist but the cache
+ * still reported them missing.
+ */
+export function invalidateArtistCache(): void {
+  libraryCache.delete(ARTIST_CACHE_KEY);
 }
 
 /** Check if an artist already exists in Lidarr by MusicBrainz ID */
@@ -70,17 +117,20 @@ export async function addArtist(foreignArtistId: string, _artistName: string) {
   const qpId =
     pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
     profiles[0]?.id;
+  const metaId =
+    pickDefaultMetadataProfile(metaProfiles)?.id ?? metaProfiles[0]?.id;
   const result = await api("/api/v1/artist", {
     method: "POST",
     body: JSON.stringify({
       ...artistData,
       qualityProfileId: qpId,
-      metadataProfileId: metaProfiles[0]?.id,
+      metadataProfileId: metaId,
       rootFolderPath: mediaFolder?.path || "/music",
       monitored: true,
       addOptions: { searchForMissingAlbums: true },
     }),
   });
+  invalidateArtistCache();
   return { id: result.id, alreadyExists: false };
 }
 
@@ -173,23 +223,56 @@ export async function addSingleReleaseGroup(
     const qpId =
       pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
       profiles[0]?.id;
-    const created = await api("/api/v1/artist", {
-      method: "POST",
-      body: JSON.stringify({
-        ...artistData,
-        qualityProfileId: qpId,
-        metadataProfileId: metaProfiles[0]?.id,
-        rootFolderPath: mediaFolder?.path || "/music",
-        monitored: false,
-        addOptions: {
-          searchForMissingAlbums: false,
-          monitor: "none",
-        },
-      }),
-    });
-    artistId = created.id;
-    artistAlreadyExisted = false;
+    const metaId =
+      pickDefaultMetadataProfile(metaProfiles)?.id ?? metaProfiles[0]?.id;
+    try {
+      const created = await api("/api/v1/artist", {
+        method: "POST",
+        body: JSON.stringify({
+          ...artistData,
+          qualityProfileId: qpId,
+          metadataProfileId: metaId,
+          rootFolderPath: mediaFolder?.path || "/music",
+          monitored: false,
+          addOptions: {
+            searchForMissingAlbums: false,
+            monitor: "none",
+          },
+        }),
+      });
+      artistId = created.id;
+      artistAlreadyExisted = false;
+    } catch (err: unknown) {
+      // Recovery path for stale cache: getArtistByForeignId said the
+      // artist wasn't in Lidarr, but Lidarr itself rejects the POST
+      // with 400 "This artist has already been added." In that case
+      // our local cache is stale — invalidate and re-fetch, then use
+      // whatever Lidarr actually has. Anything else re-throws.
+      const msg = err instanceof Error ? err.message : String(err);
+      const isDuplicate =
+        err instanceof ArrApiError &&
+        err.status === 400 &&
+        /artist has already been added/i.test(msg);
+      if (!isDuplicate) throw err;
+      invalidateArtistCache();
+      const refreshed = await getArtistByForeignId(foreignArtistId);
+      if (!refreshed) {
+        // Cache miss after invalidation — Lidarr and our lookup
+        // disagree. Bail with a clear message, preserving cause.
+        throw new Error(
+          `Lidarr reports artist ${foreignArtistId} already added but we can't find it in /api/v1/artist — manual Lidarr cleanup may be needed`,
+          { cause: err },
+        );
+      }
+      artistId = refreshed.id;
+      artistAlreadyExisted = true;
+    }
   }
+
+  // If we reach this point having just created a new artist, also bust
+  // the cache so a subsequent addSingleReleaseGroup for the same artist
+  // in the next ~60s doesn't re-POST and trip the 400 again.
+  if (!artistAlreadyExisted) invalidateArtistCache();
 
   // Find the album (release-group) in Lidarr's catalog for this artist.
   // For a newly-added artist, Lidarr may need a moment to populate albums;
@@ -232,6 +315,20 @@ export async function addSingleReleaseGroup(
 
 export async function getArtist(arrId: number) {
   return api(`/api/v1/artist/${arrId}`);
+}
+
+/**
+ * Fetch a single album by its Lidarr album ID.
+ *
+ * Used by the status-checker when a music request was created via
+ * addSingleReleaseGroup — in that flow the arrId stored on the
+ * Request is the ALBUM id, not the artist id. Calling getArtist with
+ * an album id returns 404, which historically made the poller mark
+ * the request as "Deleted from *arr" even when the album was
+ * downloading fine.
+ */
+export async function getAlbum(arrId: number) {
+  return api(`/api/v1/album/${arrId}`);
 }
 
 export async function getHistory(pageSize = 50) {

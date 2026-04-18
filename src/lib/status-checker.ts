@@ -183,22 +183,50 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
           );
         }
       } else if (req.mediaType === "music" && req.arrId) {
-        const artist = await lidarr.getArtist(req.arrId);
-
-        // arrId drift on MusicBrainz foreign id
-        if (artist.foreignArtistId && req.externalId2 &&
-            artist.foreignArtistId !== req.externalId2) {
-          identityMismatch = `Lidarr id ${req.arrId} now tracks MBID=${artist.foreignArtistId} but request expected ${req.externalId2}`;
-        }
-
-        isAvailable =
-          artist.statistics?.albumCount > 0 &&
-          artist.statistics?.percentOfTracks === 100;
-        if (!isAvailable && req.status === "approved") {
-          const queues = await lidarr.getQueue();
-          inQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.artistId === req.arrId,
-          );
+        // Two flavors of music requests:
+        //   - Full-artist (rare / fallback): req.releaseType is null,
+        //     arrId = Lidarr artist id → check at artist level.
+        //   - Release-group (default in 0.16.1+): req.releaseType is
+        //     "album" | "single" | "ep" | "other", arrId = Lidarr
+        //     album id → must use getAlbum, not getArtist.
+        // Earlier versions unconditionally called getArtist(arrId),
+        // which returned 404 when arrId was actually an album id,
+        // and the catch block falsely marked the request as
+        // "Deleted from *arr".
+        if (req.releaseType) {
+          const album = await lidarr.getAlbum(req.arrId);
+          // arrId drift on album — MB release-group id stored in
+          // externalId, not externalId2, for release-group requests.
+          if (album.foreignAlbumId && req.externalId &&
+              album.foreignAlbumId !== req.externalId) {
+            identityMismatch = `Lidarr album ${req.arrId} now tracks RG=${album.foreignAlbumId} but request expected ${req.externalId}`;
+          }
+          // An album is "available" when fully downloaded.
+          isAvailable =
+            album.statistics?.percentOfTracks === 100 &&
+            (album.statistics?.trackFileCount ?? 0) > 0;
+          if (!isAvailable && req.status === "approved") {
+            const queues = await lidarr.getQueue();
+            inQueue = (queues?.records || []).some(
+              (r: ArrQueueRecord) => r.albumId === req.arrId,
+            );
+          }
+        } else {
+          // Full-artist fallback path
+          const artist = await lidarr.getArtist(req.arrId);
+          if (artist.foreignArtistId && req.externalId2 &&
+              artist.foreignArtistId !== req.externalId2) {
+            identityMismatch = `Lidarr id ${req.arrId} now tracks MBID=${artist.foreignArtistId} but request expected ${req.externalId2}`;
+          }
+          isAvailable =
+            artist.statistics?.albumCount > 0 &&
+            artist.statistics?.percentOfTracks === 100;
+          if (!isAvailable && req.status === "approved") {
+            const queues = await lidarr.getQueue();
+            inQueue = (queues?.records || []).some(
+              (r: ArrQueueRecord) => r.artistId === req.arrId,
+            );
+          }
         }
       }
 
@@ -344,16 +372,29 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
           );
         }
       } else if (req.mediaType === "music" && req.arrId) {
-        const artist = await lidarr.getArtist(req.arrId);
-        percent = artist.statistics?.percentOfTracks ?? 0;
-        hasFile =
-          artist.statistics?.albumCount > 0 &&
-          percent === 100;
-        if (!hasFile) {
-          const queues = await lidarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.artistId === req.arrId,
-          );
+        // Same release-group-vs-artist split as the main loop above —
+        // see comment there. Tier B runs against the same records so
+        // it needs the same dispatch.
+        if (req.releaseType) {
+          const album = await lidarr.getAlbum(req.arrId);
+          percent = album.statistics?.percentOfTracks ?? 0;
+          hasFile = percent === 100 && (album.statistics?.trackFileCount ?? 0) > 0;
+          if (!hasFile) {
+            const queues = await lidarr.getQueue();
+            inArrQueue = (queues?.records || []).some(
+              (r: ArrQueueRecord) => r.albumId === req.arrId,
+            );
+          }
+        } else {
+          const artist = await lidarr.getArtist(req.arrId);
+          percent = artist.statistics?.percentOfTracks ?? 0;
+          hasFile = artist.statistics?.albumCount > 0 && percent === 100;
+          if (!hasFile) {
+            const queues = await lidarr.getQueue();
+            inArrQueue = (queues?.records || []).some(
+              (r: ArrQueueRecord) => r.artistId === req.arrId,
+            );
+          }
         }
       } else if (req.mediaType === "book") {
         const llBookId = req.externalId2 || String(req.arrId);
@@ -598,10 +639,21 @@ export async function checkSingleRequest(
       const series = await sonarr.getSeries(arrId);
       isAvailable = series.statistics?.percentOfEpisodes === 100;
     } else if (mediaType === "music") {
-      const artist = await lidarr.getArtist(arrId);
-      isAvailable =
-        artist.statistics?.albumCount > 0 &&
-        artist.statistics?.percentOfTracks === 100;
+      // Same split as above — release-group requests store album id
+      // as arrId, not artist id. Use request.releaseType as the
+      // dispatch key so the webhook-triggered check hits the right
+      // Lidarr endpoint.
+      if (request.releaseType) {
+        const album = await lidarr.getAlbum(arrId);
+        isAvailable =
+          album.statistics?.percentOfTracks === 100 &&
+          (album.statistics?.trackFileCount ?? 0) > 0;
+      } else {
+        const artist = await lidarr.getArtist(arrId);
+        isAvailable =
+          artist.statistics?.albumCount > 0 &&
+          artist.statistics?.percentOfTracks === 100;
+      }
     }
   } catch {
     return false;
