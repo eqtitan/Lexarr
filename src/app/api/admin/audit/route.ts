@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
 
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50", 10);
   const action = req.nextUrl.searchParams.get("action");
 
-  const where: Record<string, string> = {};
+  const where: Prisma.AuditLogWhereInput = {};
   if (action) where.action = action;
 
   const logs = await prisma.auditLog.findMany({

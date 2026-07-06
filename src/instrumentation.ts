@@ -15,8 +15,8 @@ export async function register() {
       const { prisma } = await import("./lib/db");
       await ensureBootstrapAdmin(prisma);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[bootstrap-admin] Failed: ${msg}`);
+      const { log } = await import("./lib/log");
+      log.error("bootstrap-admin failed", { err });
     }
 
     // Start background polling after a short delay to let the server fully initialize
@@ -37,18 +37,22 @@ export async function register() {
 
         pollCycleCount++;
 
+        const { log } = await import("./lib/log");
         try {
           const { checkAndUpdateStatuses, cleanDeadDownloads } =
             await import("./lib/status-checker");
           const result = await checkAndUpdateStatuses();
           if (consecutiveFailures >= MAX_FAILURES) {
-            console.log("[status-checker] Recovered after backoff");
+            log.info("status-checker recovered after backoff");
           }
           consecutiveFailures = 0;
           if (result.updated > 0 || result.stuckFlagged > 0 || result.autoRetried > 0 || result.autoFailed > 0) {
-            console.log(
-              `[status-checker] Updated: ${result.updated}, Stalled: ${result.stuckFlagged}, Retried: ${result.autoRetried}, Failed: ${result.autoFailed}`,
-            );
+            log.info("status-checker cycle completed", {
+              updated: result.updated,
+              stalled: result.stuckFlagged,
+              retried: result.autoRetried,
+              failed: result.autoFailed,
+            });
           }
 
           // Clean dead downloads every 15th cycle (every 15 minutes)
@@ -56,23 +60,21 @@ export async function register() {
             try {
               const cleaned = await cleanDeadDownloads();
               if (cleaned > 0) {
-                console.log(`[status-checker] Cleaned ${cleaned} dead downloads`);
+                log.info("status-checker cleaned dead downloads", { cleaned });
               }
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : String(err);
-              console.error(`[status-checker] cleanDeadDownloads error: ${msg}`);
+              log.error("status-checker cleanDeadDownloads error", { err });
             }
           }
         } catch (err) {
           consecutiveFailures++;
-          console.error(
-            `[status-checker] Error (${consecutiveFailures}/${MAX_FAILURES}):`,
+          log.error("status-checker cycle error", {
+            consecutiveFailures,
+            maxFailures: MAX_FAILURES,
             err,
-          );
+          });
           if (consecutiveFailures === MAX_FAILURES) {
-            console.error(
-              "[status-checker] Too many failures, backing off to 5-minute interval",
-            );
+            log.error("status-checker too many failures, backing off to 5-minute interval");
           }
         }
       }, 60_000);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
+import { log } from "@/lib/log";
 import { searchCache } from "@/lib/cache";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
@@ -14,7 +15,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req.headers);
-  const rateCheck = checkRateLimit(`quality-profiles:${ip}`, RATE_LIMITS.general);
+  const rateCheck = await checkRateLimit(`quality-profiles:${ip}`, RATE_LIMITS.general);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Try again shortly." },
@@ -54,8 +55,7 @@ export async function GET(req: NextRequest) {
     searchCache.set(cacheKey, slim, CACHE_TTL_MS);
     return NextResponse.json(slim);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`Failed to fetch quality profiles (${type}): ${message}`);
+    log.error("quality-profiles fetch failed", { arrType: type, err });
     return NextResponse.json(
       { error: "Failed to fetch quality profiles" },
       { status: 502 },

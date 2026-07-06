@@ -1,8 +1,6 @@
 import { arrFetch } from "./_fetch";
 
-const BASE = process.env.ARR_HOST
-  ? `${process.env.ARR_HOST}:9696`
-  : "http://192.168.1.100:9696";
+const BASE = `${process.env.ARR_HOST}:9696`;
 const KEY = process.env.PROWLARR_API_KEY!;
 
 function api<T = unknown>(path: string) {

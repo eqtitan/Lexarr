@@ -18,6 +18,7 @@
  * cache results for 24h per MBID, so at most ~15 calls per music
  * search, well under budget.
  */
+import { log } from "@/lib/log";
 
 const BASE = "https://ws.audioscrobbler.com/2.0/";
 const FETCH_TIMEOUT_MS = 3_000;
@@ -65,9 +66,10 @@ export async function getArtistListeners(
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      console.warn(
-        `[lastfm] artist.getinfo ${mbid.slice(0, 8)} → HTTP ${res.status}`,
-      );
+      log.warn("lastfm.artist.getinfo HTTP error", {
+        mbid: mbid.slice(0, 8),
+        status: res.status,
+      });
       return null;
     }
     const data = (await res.json().catch(() => null)) as LastfmArtistInfo | null;
@@ -75,9 +77,11 @@ export async function getArtistListeners(
       if (data?.error) {
         // error code 6 = "no entity found" — expected for obscure artists
         if (data.error !== 6) {
-          console.warn(
-            `[lastfm] artist.getinfo ${mbid.slice(0, 8)} → error ${data.error}: ${data.message ?? ""}`,
-          );
+          log.warn("lastfm.artist.getinfo API error", {
+            mbid: mbid.slice(0, 8),
+            errorCode: data.error,
+            message: data.message ?? "",
+          });
         }
       }
       return null;
@@ -87,11 +91,11 @@ export async function getArtistListeners(
     const parsed = parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : null;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
     // AbortError when our timeout fires — fold into the null signal.
-    console.warn(
-      `[lastfm] artist.getinfo ${mbid.slice(0, 8)} → ${msg}`,
-    );
+    log.warn("lastfm.artist.getinfo network error", {
+      mbid: mbid.slice(0, 8),
+      err,
+    });
     return null;
   } finally {
     clearTimeout(timer);

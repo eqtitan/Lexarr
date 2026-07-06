@@ -15,7 +15,7 @@ const VALID_SUB_FILTERS: MusicSubFilter[] = ["single", "ep", "album"];
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req.headers);
-  const rateCheck = checkRateLimit(`search:${ip}`, RATE_LIMITS.search);
+  const rateCheck = await checkRateLimit(`search:${ip}`, RATE_LIMITS.search);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Try again shortly." },

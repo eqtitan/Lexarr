@@ -15,6 +15,14 @@ export interface ServiceDefinition {
   category: ServiceCategory;
   url: string;
   health: () => Promise<unknown>;
+  /**
+   * (M2-01/M2-02) Docker container name on the Unraid host. Optional for
+   * back-compat — when omitted, callers default to `name.toLowerCase()`,
+   * which matches the convention on this stack ("Radarr" → "radarr").
+   * M2-02 populates this for every entry once verified against
+   * `docker ps --format '{{.Names}}'`.
+   */
+  unraidContainerName?: string;
 }
 
 /**
@@ -26,57 +34,66 @@ export const SERVICE_REGISTRY: ServiceDefinition[] = [
   {
     name: "Radarr",
     category: "arr",
-    url: "http://192.168.1.100:7878",
+    url: "http://your-server-ip:7878",
     health: radarr.health,
+    unraidContainerName: "radarr",
   },
   {
     name: "Sonarr",
     category: "arr",
-    url: "http://192.168.1.100:8989",
+    url: "http://your-server-ip:8989",
     health: sonarr.health,
+    unraidContainerName: "sonarr",
   },
   {
     name: "Lidarr",
     category: "arr",
-    url: "http://192.168.1.100:8686",
+    url: "http://your-server-ip:8686",
     health: lidarr.health,
+    unraidContainerName: "lidarr",
   },
   {
     name: "Prowlarr",
     category: "arr",
-    url: "http://192.168.1.100:9696",
+    url: "http://your-server-ip:9696",
     health: prowlarr.health,
+    unraidContainerName: "prowlarr",
   },
   {
     name: "Bazarr",
     category: "arr",
-    url: "http://192.168.1.100:6767",
+    url: "http://your-server-ip:6767",
     health: bazarr.health,
+    unraidContainerName: "bazarr",
   },
   {
     name: "LazyLibrarian",
     category: "arr",
-    url: "http://192.168.1.100:5299",
+    url: "http://your-server-ip:5299",
     health: lazylibrarian.health,
+    unraidContainerName: "lazylibrarian",
   },
   // ── Download clients ──────────────────────────────────────────────
   {
     name: "qBittorrent",
     category: "download",
-    url: "http://192.168.1.100:8080",
+    url: "http://your-server-ip:8080",
     health: qbittorrent.health,
+    unraidContainerName: "qbittorrent",
   },
   {
     name: "NZBGet",
     category: "download",
-    url: "http://192.168.1.100:6789",
+    url: "http://your-server-ip:6789",
     health: nzbget.health,
+    unraidContainerName: "nzbget",
   },
   // ── Media servers ─────────────────────────────────────────────────
   {
     name: "Jellyfin",
     category: "media",
-    url: "http://192.168.1.100:8096",
+    url: "http://your-server-ip:8096",
     health: jellyfin.health,
+    unraidContainerName: "jellyfin",
   },
 ];

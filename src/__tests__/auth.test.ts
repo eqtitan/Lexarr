@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import type { NextRequest } from "next/server";
 
 // Mock dependencies before importing route
@@ -14,7 +14,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: vi.fn().mockReturnValue({ allowed: true }),
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 4, resetAt: Date.now() }),
   getClientIp: vi.fn().mockReturnValue("127.0.0.1"),
   RATE_LIMITS: { auth: { windowMs: 60000, max: 5 } },
 }));
@@ -46,7 +46,7 @@ describe("Auth Registration", () => {
       autoApprove: true, createdAt: new Date(),
     } as never);
     const { checkRateLimit } = await import("@/lib/rate-limit");
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: true, remaining: 4, resetAt: Date.now() });
+    vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true, remaining: 4, resetAt: Date.now() });
   });
 
   afterAll(() => { process.env = originalEnv; });
@@ -83,7 +83,7 @@ describe("Auth Registration", () => {
 
   it("returns 429 when rate limited", async () => {
     const { checkRateLimit } = await import("@/lib/rate-limit");
-    vi.mocked(checkRateLimit).mockReturnValue({ allowed: false, remaining: 0, resetAt: Date.now() });
+    vi.mocked(checkRateLimit).mockResolvedValue({ allowed: false, remaining: 0, resetAt: Date.now() });
     const { POST } = await import("@/app/api/auth/register/route");
     const res = await POST(makeReq({ name: "Alice", password: "longpassword" }));
     expect(res.status).toBe(429);
@@ -119,6 +119,37 @@ describe("Auth Registration", () => {
     expect(vi.mocked(prisma.user.create)).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ role: "admin" }) }),
     );
+  });
+
+  it("returns 409 when username already exists (P-01)", async () => {
+    process.env.REGISTRATION_OPEN = "true";
+    const { prisma } = await import("@/lib/db");
+    // First findUnique (by name) → returns existing user
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: "u1", name: "Alice", role: "user",
+    } as never);
+    const { POST } = await import("@/app/api/auth/register/route");
+    const res = await POST(makeReq({ name: "Alice", password: "longpassword" }));
+    expect(res.status).toBe(409);
+    const body = await (res as Response).json();
+    expect(body.error).toMatch(/username/i);
+  });
+
+  it("returns 409 when create() throws P2002 (race past findUnique)", async () => {
+    process.env.REGISTRATION_OPEN = "true";
+    const { prisma } = await import("@/lib/db");
+    const { Prisma } = await import("@prisma/client");
+    // findUnique says no collision, but create races and hits the unique index
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError(
+        "Unique constraint failed on the fields: (`name`)",
+        { code: "P2002", clientVersion: "x", meta: { target: ["name"] } },
+      ),
+    );
+    const { POST } = await import("@/app/api/auth/register/route");
+    const res = await POST(makeReq({ name: "Alice", password: "longpassword" }));
+    expect(res.status).toBe(409);
   });
 
   it("subsequent users get user role", async () => {

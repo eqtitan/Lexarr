@@ -4,6 +4,7 @@
  * when request pipeline events occur.
  */
 import { prisma } from "./db";
+import { log } from "@/lib/log";
 import type { MediaType, PipelineEventType } from "@/types";
 
 interface NotificationPayload {
@@ -151,7 +152,7 @@ async function sendWebhook(
     clearTimeout(timeout);
     return res.ok || res.status === 204;
   } catch (err) {
-    console.error(`Notification webhook failed (${type}):`, err);
+    log.error("notifications.webhook failed", { channelType: type, err });
     return false;
   }
 }

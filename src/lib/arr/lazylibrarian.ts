@@ -1,4 +1,5 @@
 import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
+import { log } from "@/lib/log";
 
 const PORT = process.env.LAZYLIBRARIAN_PORT || "5299";
 const BASE = `${process.env.ARR_HOST}:${PORT}`;
@@ -207,8 +208,7 @@ export async function addBook(
   try {
     await api("searchBook", { id: bookId, type: bookType });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[lazylibrarian] searchBook(${bookId}, ${bookType}) failed: ${msg} — book is Wanted, LL will retry on RSS sweep`);
+    log.warn("lazylibrarian.searchBook failed; book is Wanted, LL will retry on RSS sweep", { bookId, bookType, err });
   }
   return { id: bookId, alreadyExists: false };
 }
@@ -264,8 +264,7 @@ export async function resumeAuthor(authorId: string): Promise<void> {
   try {
     await api("resumeAuthor", { id: authorId });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[lazylibrarian] resumeAuthor(${authorId}) failed: ${msg}`);
+    log.warn("lazylibrarian.resumeAuthor failed", { authorId, err });
   }
 }
 
@@ -278,8 +277,7 @@ export async function searchForBook(
   try {
     await api("searchForBook", { id: bookId, type: bookType });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[lazylibrarian] searchForBook(${bookId}, ${bookType}) failed: ${msg}`);
+    log.warn("lazylibrarian.searchForBook failed", { bookId, bookType, err });
   }
 }
 

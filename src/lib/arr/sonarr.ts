@@ -135,3 +135,16 @@ export async function deleteQueueItem(queueId: number, blocklist = true) {
 export async function getLibrary() {
   return api("/api/v3/series");
 }
+
+export interface SonarrParseResult {
+  series?: { id: number; title: string } | null;
+  episodes?: Array<{ hasFile: boolean }> | null;
+}
+
+/** Parse a raw filename/folder name and return the matched series + episode.
+ *  Used by orphan cleanup to determine whether content is already imported. */
+export async function parse(title: string): Promise<SonarrParseResult> {
+  return api<SonarrParseResult>(
+    `/api/v3/parse?title=${encodeURIComponent(title)}`,
+  );
+}

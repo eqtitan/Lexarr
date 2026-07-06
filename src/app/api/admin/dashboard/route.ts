@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { prisma } from "@/lib/db";
+import { log } from "@/lib/log";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
@@ -114,7 +115,12 @@ export async function GET() {
   const services: ServiceHealthDTO[] = SERVICE_REGISTRY.map((svc, i) => {
     const result = healthSettled[i];
     if (result.status === "fulfilled") {
-      return { ...result.value, url: svc.url, category: svc.category };
+      return {
+        ...result.value,
+        url: svc.url,
+        category: svc.category,
+        unraidContainerName: svc.unraidContainerName,
+      };
     }
     return {
       name: svc.name,
@@ -123,6 +129,7 @@ export async function GET() {
       error: "Health check failed",
       url: svc.url,
       category: svc.category,
+      unraidContainerName: svc.unraidContainerName,
     };
   });
 
@@ -222,8 +229,7 @@ export async function GET() {
   import("@/lib/status-checker")
     .then((m) => m.checkAndUpdateStatuses())
     .catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[dashboard] piggybacked status-check failed: ${msg}`);
+      log.warn("dashboard: piggybacked status-check failed", { err });
     });
 
   // ── Response ──────────��────────────────────────────────────────────

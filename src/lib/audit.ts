@@ -16,7 +16,12 @@ type AuditAction =
   | "add_notification"
   | "remove_notification"
   | "update_settings"
-  | "login";
+  | "login"
+  // (M2-03) Telemetry: fired when an admin opens the Diagnose modal for a
+  // down service. The detail captures the errorClass taxonomy so we can
+  // decide post-beta whether a Phase-2 Restart action is worth building.
+  | "service_diagnose_opened"
+  | "remove_orphan";
 
 export async function logAudit(
   userId: string | null | undefined,

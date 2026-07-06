@@ -3,6 +3,7 @@
  * Extracted from src/app/api/admin/requests/route.ts.
  */
 import { prisma } from "@/lib/db";
+import { log } from "@/lib/log";
 import { notify } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
 import { sendToArrAndUpdateStatus } from "./request";
@@ -193,8 +194,7 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
       }
     } catch (err: unknown) {
       // Best-effort — arr removal failure should not block cancellation
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      console.warn(`[cancelRequest] Failed to remove from arr queue: ${msg}`);
+      log.warn("admin.cancelRequest: arr queue removal failed", { err });
     }
   }
 

@@ -122,7 +122,9 @@ if (dryRun) {
   console.log("Dry run — no changes written.");
   console.log(`\nNext steps (not executed):`);
   console.log(`  npm run release -- ${bumpArg}`);
-  console.log(`  docker build -t lexarr:${next} -t lexarr:latest .`);
+  console.log(
+    `  docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t lexarr:${next} -t lexarr:latest .`,
+  );
   process.exit(0);
 }
 
@@ -153,5 +155,7 @@ execSync(`git tag -a v${next} -m "Release v${next}"`, {
 console.log(`\n✓ Tagged v${next}`);
 console.log(`\nNext steps:`);
 console.log(`  1. Review the commit:   git show HEAD`);
-console.log(`  2. Build Docker image:  docker build -t lexarr:${next} -t lexarr:latest .`);
+console.log(
+  `  2. Build Docker image:  docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t lexarr:${next} -t lexarr:latest .`,
+);
 console.log(`  3. Push when ready:     git push origin master && git push origin v${next}`);

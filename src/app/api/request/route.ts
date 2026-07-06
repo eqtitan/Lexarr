@@ -17,7 +17,7 @@ const VALID_BOOK_FORMATS: BookFormat[] = ["ebook", "audiobook"];
  */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers);
-  const rateCheck = checkRateLimit(`request:${ip}`, RATE_LIMITS.request);
+  const rateCheck = await checkRateLimit(`request:${ip}`, RATE_LIMITS.request);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Try again shortly." },

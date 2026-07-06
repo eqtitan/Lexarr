@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ServiceHealthDTO } from "@/types/dashboard";
+import { useCallback, useEffect, useState } from "react";
+import type { ServiceHealthDTO, ContainerStatusDTO } from "@/types/dashboard";
+import { classifyError } from "@/lib/dashboard/error-class";
 
 /** Matches the shape from src/lib/arr/circuit-breaker.ts snapshotAllBreakers(). */
 interface BreakerSnapshot {
@@ -57,23 +58,94 @@ export default function DiagnoseModal({ service, onClose }: DiagnoseModalProps) 
   const [breakers, setBreakers] = useState<BreakerSnapshot[] | null | undefined>(
     undefined,
   );
+  // M2-01: container status (logs + uptime). undefined = loading, null = error,
+  // populated = data (which may itself indicate "no data" via source: null).
+  const [container, setContainer] = useState<
+    ContainerStatusDTO | null | undefined
+  >(undefined);
+  const [refreshing, setRefreshing] = useState(false);
+  // (M2-02) Base URL for Unraid container deep links. Fetched from
+  // /api/config so the value isn't baked into the client bundle.
+  const [unraidBaseUrl, setUnraidBaseUrl] = useState<string | null>(null);
+
+  const fetchContainer = useCallback(
+    async (name: string, refresh: boolean) => {
+      const url = `/api/admin/services/${encodeURIComponent(name)}/logs${refresh ? "?refresh=1" : ""}`;
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${r.status}`);
+        return (await r.json()) as ContainerStatusDTO;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!service) return;
     setBreakers(undefined);
+    setContainer(undefined);
     let cancelled = false;
-    fetch("/api/admin/arr-breakers")
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then((d) => {
-        if (!cancelled) setBreakers(d.breakers ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setBreakers(null);
-      });
+    Promise.all([
+      fetch("/api/admin/arr-breakers")
+        .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+        .then((d) => {
+          if (cancelled) return;
+          const list = d.breakers ?? [];
+          setBreakers(list);
+          // (M2-03) Fire-and-forget telemetry once we know the breaker
+          // state — that's required for the breaker_open classification.
+          // Errors are swallowed; telemetry never breaks the UI.
+          const errorClass = classifyError(service, list);
+          fetch(
+            `/api/admin/services/${encodeURIComponent(service.name)}/diagnose-opened`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ errorClass }),
+            },
+          ).catch(() => undefined);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setBreakers(null);
+          // Even if the breaker fetch failed, still record the open — fall
+          // back to classifying without breaker info.
+          const errorClass = classifyError(service, []);
+          fetch(
+            `/api/admin/services/${encodeURIComponent(service.name)}/diagnose-opened`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ errorClass }),
+            },
+          ).catch(() => undefined);
+        }),
+      fetchContainer(service.name, false).then(
+        (s) => cancelled || setContainer(s),
+      ),
+      // (M2-02) Pull the Unraid base URL once per modal-open. Fire-and-forget
+      // — failure just hides the deep link, never blocks the modal.
+      fetch("/api/config")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((c) => {
+          if (!cancelled && c?.unraidBaseUrl) setUnraidBaseUrl(c.unraidBaseUrl);
+        })
+        .catch(() => undefined),
+    ]);
     return () => {
       cancelled = true;
     };
-  }, [service]);
+  }, [service, fetchContainer]);
+
+  const onRefresh = useCallback(async () => {
+    if (!service || refreshing) return;
+    setRefreshing(true);
+    const fresh = await fetchContainer(service.name, true);
+    setContainer(fresh);
+    setRefreshing(false);
+  }, [service, refreshing, fetchContainer]);
 
   useEffect(() => {
     if (!service) return;
@@ -234,21 +306,104 @@ export default function DiagnoseModal({ service, onClose }: DiagnoseModalProps) 
             )}
           </div>
 
-          {/* Open service in new tab */}
+          {/* M2-01: Container status + uptime + log tail */}
+          <div>
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                Container
+              </h3>
+              {container && container.refreshAvailable && (
+                <button
+                  onClick={onRefresh}
+                  disabled={refreshing}
+                  className="rounded px-2 py-0.5 text-[10px] font-medium text-[var(--accent)] hover:bg-[var(--card-hover)] disabled:opacity-50"
+                >
+                  {refreshing ? "Refreshing…" : "Refresh now"}
+                </button>
+              )}
+            </div>
+            {container === undefined ? (
+              <p className="mt-1.5 text-xs text-[var(--muted)]">Loading…</p>
+            ) : container === null ? (
+              <p className="mt-1.5 text-xs text-[var(--danger)]">
+                Couldn&apos;t load container status.
+              </p>
+            ) : container.source === null ? (
+              <p className="mt-1.5 text-xs text-[var(--muted)]">
+                No data — host stack-healthcheck cron hasn&apos;t written a snapshot yet.
+                {!container.refreshAvailable &&
+                  " Configure STACK_HEALTH_SSH_* to enable live refresh."}
+              </p>
+            ) : (
+              <div className="mt-1.5 space-y-2 rounded-lg bg-[var(--background)] p-3 text-xs">
+                <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-[11px] text-[var(--muted)]">
+                  <span>Status:</span>
+                  <span className="text-[var(--foreground)]">
+                    {container.status ?? "unknown"}
+                  </span>
+                  {container.uptime && (
+                    <>
+                      <span>Uptime:</span>
+                      <span className="text-[var(--foreground)]">
+                        {container.uptime}
+                      </span>
+                    </>
+                  )}
+                  {container.asOf && (
+                    <>
+                      <span>As of:</span>
+                      <span
+                        className="text-[var(--foreground)]"
+                        title={new Date(container.asOf).toLocaleString()}
+                      >
+                        {formatWhen(container.asOf)}
+                        {container.source === "cron" ? " (cron)" : " (live)"}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {container.logs.length > 0 && (
+                  <details className="text-[11px]">
+                    <summary className="cursor-pointer text-[var(--muted)] hover:text-[var(--foreground)]">
+                      Last {container.logs.length} log lines
+                    </summary>
+                    <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)]">
+                      {container.logs.join("\n")}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Open service in new tab + Unraid deep link (M2-02) */}
           {service.url && (
             <div className="flex items-center justify-between gap-3 rounded-lg bg-[var(--background)] p-3">
               <code className="truncate text-xs text-[var(--muted)]">
                 {service.url}
               </code>
-              <a
-                href={service.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
-                style={{ background: "var(--accent)" }}
-              >
-                Open ↗
-              </a>
+              <div className="flex shrink-0 items-center gap-2">
+                {service.unraidContainerName && unraidBaseUrl && (
+                  <a
+                    href={`${unraidBaseUrl}/Docker`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open Unraid Docker page (look for ${service.unraidContainerName})`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--card-hover)]"
+                  >
+                    Unraid ↗
+                  </a>
+                )}
+                <a
+                  href={service.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                  style={{ background: "var(--accent)" }}
+                >
+                  Open ↗
+                </a>
+              </div>
             </div>
           )}
 

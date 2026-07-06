@@ -10,5 +10,8 @@ export async function GET() {
     // Feature flags — control optional login methods without a rebuild
     plexEnabled: process.env.AUTH_PLEX_ENABLED === "true",
     jellyfinEnabled: process.env.AUTH_JELLYFIN_ENABLED !== "false", // default on
+    // (M2-02) Base URL the Diagnose modal uses for Unraid container deep links.
+    // No IP-shaped fallback — falls back to null like jellyfinUrl above when unset.
+    unraidBaseUrl: process.env.UNRAID_BASE_URL || null,
   });
 }

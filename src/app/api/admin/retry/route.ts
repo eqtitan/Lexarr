@@ -43,10 +43,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
-  // Allow retry for failed/stalled, or approved requests stuck without an arrId (routing failed silently)
+  // Allow retry for failed/stalled, or any approved request (covers both
+  // "routing failed silently" and "routed but never entered download queue")
   const canRetry =
-    ["failed", "stalled"].includes(request.status) ||
-    (request.status === "approved" && !request.arrId);
+    ["failed", "stalled", "approved"].includes(request.status);
   if (!canRetry) {
     return NextResponse.json(
       { error: `Cannot retry request with status: ${request.status}` },
@@ -101,15 +101,13 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const alreadyAvailable = result.alreadyExists;
-      const newStatus = alreadyAvailable ? "available" : "downloading";
+      // Always reset to "downloading" — let the 60s status-checker verify
+      // actual file presence before promoting to "available".
+      // `alreadyExists` from the *arr router just means the title is in
+      // the library, not that any files exist on disk.
       await prisma.request.update({
         where: { id: requestId },
-        data: {
-          arrId: result.arrId || null,
-          status: newStatus,
-          availableAt: alreadyAvailable ? new Date() : undefined,
-        },
+        data: { arrId: result.arrId || null, status: "downloading" },
       });
 
       await prisma.pipelineEvent.create({
@@ -123,16 +121,6 @@ export async function POST(req: NextRequest) {
           }),
         },
       });
-
-      if (alreadyAvailable) {
-        await prisma.pipelineEvent.create({
-          data: {
-            requestId,
-            event: "available",
-            detail: JSON.stringify({ alreadyExists: true }),
-          },
-        });
-      }
     }
 
     notify({

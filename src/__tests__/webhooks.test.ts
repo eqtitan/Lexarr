@@ -6,6 +6,23 @@ vi.mock("@/lib/status-checker", () => ({
   checkSingleRequest: vi.fn().mockResolvedValue(true),
 }));
 
+// P-09: webhook routes now read the secret from the validated env module,
+// which Zod-validates at module load. Mock the env so tests don't need the
+// full required env-var set.
+vi.mock("@/lib/env", () => ({
+  get env() {
+    return {
+      LEXARR_WEBHOOK_SECRET: process.env.LEXARR_WEBHOOK_SECRET,
+      NEXTAUTH_SECRET: "test",
+      ARR_HOST: "http://localhost",
+      RADARR_API_KEY: "test",
+      SONARR_API_KEY: "test",
+      LIDARR_API_KEY: "test",
+      TMDB_API_KEY: "test",
+    };
+  },
+}));
+
 describe("Webhook Token Validation", () => {
   const originalEnv = process.env;
 

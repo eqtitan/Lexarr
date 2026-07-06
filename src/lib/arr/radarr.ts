@@ -132,3 +132,15 @@ export async function deleteQueueItem(queueId: number, blocklist = true) {
 export async function getLibrary() {
   return api("/api/v3/movie");
 }
+
+export interface RadarrParseResult {
+  movie?: { id: number; title: string; hasFile: boolean } | null;
+}
+
+/** Parse a raw filename/folder name and return the matched movie.
+ *  Used by orphan cleanup to determine whether content is already imported. */
+export async function parse(title: string): Promise<RadarrParseResult> {
+  return api<RadarrParseResult>(
+    `/api/v3/parse?title=${encodeURIComponent(title)}`,
+  );
+}

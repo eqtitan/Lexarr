@@ -1,7 +1,7 @@
 # Lexarr — Claude Code Context
 
 ## Project Overview
-Lexarr is a unified media request portal (Next.js 16 / React 19 / TypeScript / Prisma SQLite) that lets users search and request movies, TV shows, music, and books. Requests route to Radarr, Sonarr, Lidarr, and LazyLibrarian on an Unraid media server at 192.168.1.100.
+Lexarr is a unified media request portal (Next.js 16 / React 19 / TypeScript / Prisma SQLite) that lets users search and request movies, TV shows, music, and books. Requests route to Radarr, Sonarr, Lidarr, and LazyLibrarian on an Unraid media server at your-server-ip.
 
 ## Architecture
 ```
@@ -77,13 +77,18 @@ npm run lint         # Run ESLint
 npx tsc --noEmit     # Type check
 ```
 
-## Quality Metrics (as of 2026-04-12)
+## Quality Metrics (as of 2026-04-21, P-07 commit)
 - **Score: 100/100** (up from 56 baseline → 93 → 100)
 - Type errors: 0
 - Lint errors: 0
 - Lint warnings: 0 (all 105 `any` usages eliminated)
-- Tests: 78 passing (9 test files)
-- Coverage: @vitest/coverage-v8 installed
+- Tests: 240 passing (25 test files) — was 78/9 in 2026-04-12 metrics, has grown
+  during pre-1.0 hardening (P-01 auth race tests, P-04 logger, P-05 rate-limit
+  durability, P-06 crypto round-trip + plaintext-leak scan, P-07 /api/request
+  route-level tests)
+- Coverage: ~5% lines on src/app/api/ (low — known gap, slated for post-1.0
+  systematic test push). lib/services 0%. Crypto + rate-limit covered via
+  real-DB throwaway-sqlite pattern.
 - Pre-commit hooks: husky + lint-staged (auto lint + related tests)
 - Tracked in `quality-metrics.json`
 
@@ -108,10 +113,32 @@ npx tsc --noEmit     # Type check
 - Zod-based startup env validation fails fast on missing/malformed vars
 
 ## Deployment
-- **Container:** `lexarr:v5` on Unraid (port 5056)
+- **Container:** `lexarr:<package.json version>` on Unraid (port 5056), e.g.
+  `lexarr:0.18.0` — **tag images with the actual `package.json` version, not
+  an arbitrary incrementing counter.** `deploy.ps1` and `scripts/release.js`
+  already do this correctly (they read the version out of `package.json`);
+  when building by hand, match that convention instead of inventing a new
+  counter.
 - **Volume:** `lexarr-data:/app/data` (SQLite DB)
 - **DB migrations:** `prisma migrate deploy` (runs on container start)
-- **Build:** `docker build -t lexarr:v5 .` from `/mnt/user/appdata/lexarr/`
+- **Build:** must pass `GIT_SHA` and `BUILD_TIME` build args so
+  `/api/version` reports real provenance instead of `"unknown"`:
+  ```bash
+  docker build \
+    --build-arg GIT_SHA=$(git rev-parse --short HEAD) \
+    --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+    -t lexarr:$(node -p "require('./package.json').version") .
+  ```
+  from `/mnt/user/appdata/lexarr/`. If these args are omitted the build
+  still succeeds — `src/lib/build-info.ts` falls back to `"unknown"` for
+  both fields rather than failing.
+- **Version metadata:** `GET /api/version` returns `{ version, gitSha,
+  buildTime }` for the running container — use it to confirm what's
+  actually deployed without SSHing in and reading image tags.
+- **Deploy log:** append a row to `docs/deployments.md` (`Date | Version |
+  Git SHA | Notes`) on every production deploy, using the same
+  version/SHA baked into the image. Applies whether the deploy is run by a
+  human or an agent.
 - **GitHub:** github.com/eqtitan/Lexarr (private)
 
 ## Service Layer Pattern

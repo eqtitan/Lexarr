@@ -1,6 +1,6 @@
 import { arrFetch } from "./_fetch";
 
-const BASE = process.env.BAZARR_URL || "http://192.168.1.100:6767";
+const BASE = process.env.BAZARR_URL || "http://your-server-ip:6767";
 const KEY = process.env.BAZARR_API_KEY!;
 
 // Unused helper kept for future Bazarr endpoints; underscore prefix keeps

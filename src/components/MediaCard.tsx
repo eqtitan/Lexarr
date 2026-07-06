@@ -285,6 +285,14 @@ export default function MediaCard({
               {result.artist}
             </p>
           )}
+          {result.releaseDate && (
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              {new Date(result.releaseDate + "T00:00:00").toLocaleDateString(
+                "en-US",
+                { month: "short", day: "numeric", year: "numeric" },
+              )}
+            </p>
+          )}
           {result.overview && (
             <p className="mt-1 line-clamp-2 text-xs text-[var(--muted)]">
               {result.overview}

@@ -1,4 +1,4 @@
-const BASE = process.env.JELLYFIN_URL || "http://192.168.1.100:8096";
+const BASE = process.env.JELLYFIN_URL || "http://your-server-ip:8096";
 
 export async function health() {
   const res = await fetch(`${BASE}/health`);

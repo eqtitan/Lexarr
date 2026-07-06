@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { DashboardWarning, WarningSeverity } from "@/types/dashboard";
+import type { DashboardWarning, OrphanItem, WarningSeverity } from "@/types/dashboard";
+import OrphansPanel from "./OrphansPanel";
 
 /**
  * Warning actions — every warning type has an admin action that uses
@@ -85,18 +86,30 @@ interface WarningsPanelProps {
   warnings: DashboardWarning[];
   /** Triggered after any action completes, so the parent can refresh. */
   onActionComplete?: () => void;
+  /** undefined = loading, null = unavailable, [] = clean */
+  orphans?: OrphanItem[] | null;
+  onOrphanRemove?: (
+    hash: string,
+    deleteFiles: boolean,
+    folderName: string,
+  ) => Promise<void>;
 }
 
 export default function WarningsPanel({
   warnings,
   onActionComplete,
+  orphans,
+  onOrphanRemove,
 }: WarningsPanelProps) {
   // Per-warning action state: keyed by the warning's stable "key"
   // (requestId for request-based warnings, index fallback for the rest).
   const [inflight, setInflight] = useState<Record<string, string>>({}); // key → action name
   const [rowError, setRowError] = useState<Record<string, string>>({});
 
-  if (warnings.length === 0) return null;
+  // Show orphan panel whenever the parent wired up the remove handler,
+  // regardless of orphan load state (undefined = loading skeleton).
+  const showOrphans = onOrphanRemove !== undefined;
+  if (warnings.length === 0 && !showOrphans) return null;
 
   function keyFor(w: DashboardWarning, i: number): string {
     if (w.requestId) return `req:${w.requestId}`;
@@ -217,6 +230,9 @@ export default function WarningsPanel({
 
   return (
     <div className="space-y-3">
+      {showOrphans && onOrphanRemove && (
+        <OrphansPanel orphans={orphans} onRemove={onOrphanRemove} />
+      )}
       {(["critical", "warning", "info"] as WarningSeverity[]).map(
         (severity) => {
           const items = grouped[severity];

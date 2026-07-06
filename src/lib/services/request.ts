@@ -3,9 +3,26 @@
  * Extracted from src/app/api/request/route.ts.
  */
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { routeToArr } from "@/lib/arr/router";
 import { notify } from "@/lib/notifications";
+import { log } from "@/lib/log";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
+
+// P-03: narrow client type so checkDuplicate can be called inside a
+// $transaction without losing the Request model's type. The transaction
+// client from prisma.$transaction(async (tx) => ...) structurally matches.
+type RequestClient = Pick<typeof prisma, "request">;
+
+// P-03: sentinel thrown inside the dedupe transaction to signal a duplicate
+// and trigger rollback. Caught outside the transaction and converted back
+// to a DuplicateError response.
+class DuplicateRequestError extends Error {
+  constructor(public readonly dupError: DuplicateError) {
+    super("duplicate request");
+    this.name = "DuplicateRequestError";
+  }
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -98,12 +115,18 @@ export async function checkDuplicate(
   externalId: string,
   mediaType: string,
   bookFormat?: BookFormat,
+  client: RequestClient = prisma,
 ): Promise<DuplicateError | null> {
   // Books are unique on (externalId, mediaType, bookFormat) because the
   // same OpenLibrary work can be legitimately requested as both an ebook
   // and an audiobook — they're separate fulfillments in LazyLibrarian.
   // A null bookFormat in the DB (legacy pre-0.17 rows) is treated as
   // "ebook" for duplicate-detection purposes.
+  //
+  // P-03: `client` defaults to the global prisma singleton but accepts a
+  // $transaction client so the check + subsequent create can happen
+  // atomically. @@index([externalId, mediaType]) on Request makes this
+  // cheap.
   const where =
     mediaType === "book"
       ? {
@@ -118,7 +141,7 @@ export async function checkDuplicate(
         }
       : { externalId, mediaType };
 
-  const existing = await prisma.request.findFirst({ where });
+  const existing = await client.request.findFirst({ where });
   if (existing) {
     return {
       ok: false,
@@ -168,18 +191,19 @@ export async function sendToArrAndUpdateStatus(
         });
       }
 
-      const alreadyAvailable = result.alreadyExists;
-      const newStatus = alreadyAvailable ? "available" : "downloading";
+      // Always start in "downloading" — the 60s status-checker verifies
+      // actual file presence (Radarr hasFile, Sonarr percentOfEpisodes,
+      // Lidarr percentOfTracks) before promoting to "available".
+      // `alreadyExists` from the *arr router only means the title is in
+      // the library, not that any files exist on disk — relying on it
+      // here previously caused false-Available rows for series/movies/
+      // albums that had been added but never downloaded.
       await prisma.request.update({
         where: { id: request.id },
-        data: {
-          arrId: result.arrId || null,
-          status: newStatus,
-          availableAt: alreadyAvailable ? new Date() : undefined,
-        },
+        data: { arrId: result.arrId || null, status: "downloading" },
       });
       request.arrId = result.arrId;
-      request.status = newStatus;
+      request.status = "downloading";
 
       await prisma.pipelineEvent.create({
         data: {
@@ -191,29 +215,14 @@ export async function sendToArrAndUpdateStatus(
           }),
         },
       });
-
-      if (alreadyAvailable) {
-        await prisma.pipelineEvent.create({
-          data: {
-            requestId: request.id,
-            event: "available",
-            detail: JSON.stringify({ alreadyExists: true }),
-          },
-        });
-        notify({
-          event: "available",
-          title: opts.title,
-          mediaType: opts.mediaType,
-          status: "available",
-          user: opts.userName,
-          posterUrl: opts.posterUrl,
-          detail: "Already in library",
-        });
-      }
     }
   } catch (err: unknown) {
     arrError = err instanceof Error ? err.message : String(err);
-    console.error(`Failed to add to *arr: ${arrError}`);
+    log.error("request.sendToArr failed", {
+      requestId: request.id,
+      mediaType: opts.mediaType,
+      err,
+    });
 
     await prisma.request.update({
       where: { id: request.id },
@@ -269,11 +278,8 @@ export async function createRequest(
   });
   if (validationError) return validationError;
 
-  // Duplicate check — books dedupe per-format (ebook vs audiobook)
-  const dupError = await checkDuplicate(externalId, mediaType, bookFormat);
-  if (dupError) return dupError;
-
-  // Quota check
+  // Quota check (before the dedupe tx — a concurrent burst can still
+  // slip one over the cap, but quota is a soft guard, not security).
   const dbUser =
     userId !== "system"
       ? await prisma.user.findUnique({ where: { id: userId } })
@@ -298,23 +304,70 @@ export async function createRequest(
   const autoApprove =
     dbUser?.autoApprove || dbUser?.role === "admin" || userId === "system";
 
-  // Create the request in our DB
-  const request = await prisma.request.create({
-    data: {
-      userId,
-      mediaType,
-      externalId,
-      title,
-      year,
-      externalId2: artistId || undefined,
-      posterPath: posterUrl,
-      status: autoApprove ? "approved" : "pending",
-      approvedAt: autoApprove ? new Date() : undefined,
-      source: "lexarr",
-      releaseType: releaseType || undefined,
-      bookFormat: bookFormat || undefined,
-    },
-  });
+  // P-03 + partial-unique: dedupe + create atomically. The transaction is
+  // belt; the partial unique index `Request_active_dedupe_idx` (added in
+  // 20260421203000) is suspenders — even if two concurrent transactions
+  // both pass the in-tx checkDuplicate read, only one INSERT can succeed
+  // because the unique index covers active rows. The other gets P2002,
+  // which we map back to the same 409 dup-error shape.
+  //
+  // SQLite's default isolation in WAL mode is effectively Serializable for
+  // writes, and Prisma doesn't accept isolationLevel on SQLite. When/if we
+  // move to Postgres (post-1.0.0), add:
+  //   { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  // as the second arg to $transaction to preserve this guarantee.
+  let request: Awaited<ReturnType<typeof prisma.request.create>>;
+  try {
+    request = await prisma.$transaction(async (tx) => {
+      // Re-check inside the tx using the tx client so the read sees the
+      // serialized snapshot, not a stale read from before.
+      const dupError = await checkDuplicate(
+        externalId,
+        mediaType,
+        bookFormat,
+        tx,
+      );
+      if (dupError) throw new DuplicateRequestError(dupError);
+
+      return tx.request.create({
+        data: {
+          userId,
+          mediaType,
+          externalId,
+          title,
+          year,
+          externalId2: artistId || undefined,
+          posterPath: posterUrl,
+          status: autoApprove ? "approved" : "pending",
+          approvedAt: autoApprove ? new Date() : undefined,
+          source: "lexarr",
+          releaseType: releaseType || undefined,
+          bookFormat: bookFormat || undefined,
+        },
+      });
+    });
+  } catch (err) {
+    if (err instanceof DuplicateRequestError) return err.dupError;
+    // Partial-unique index race: two concurrent txs both passed the read,
+    // only one INSERT won. Re-fetch the winning row so we can return the
+    // same { 409, request } shape as the in-tx checkDuplicate path.
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing = await checkDuplicate(externalId, mediaType, bookFormat);
+      if (existing) return existing;
+      // Defensive: if checkDuplicate now returns null (race window closed
+      // between P2002 and our re-read), surface a generic 409.
+      return {
+        ok: false as const,
+        error: "Already requested",
+        status: 409 as const,
+        request: null,
+      };
+    }
+    throw err;
+  }
 
   // Log pipeline events
   await prisma.pipelineEvent.create({

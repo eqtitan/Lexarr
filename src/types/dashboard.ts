@@ -57,7 +57,14 @@ export interface ServiceHealthDTO {
   error?: string;
   url?: string;
   category?: "arr" | "download" | "media" | "utility";
+  /**
+   * (M2-02) Docker container name on the Unraid host. When present, the
+   * Diagnose modal renders a deep link to the Unraid Docker page so the
+   * operator can jump straight to logs / restart controls.
+   */
+  unraidContainerName?: string;
 }
+
 
 // ── Warnings ────────────────────────────────────────────────────────────
 
@@ -123,6 +130,59 @@ export interface AnalyticsDTO {
   fulfillment: FulfillmentStats;
   indexers: IndexerPerformance;
   topRequesters: TopRequester[];
+}
+
+// ── Container status (M2-01) ────────────────────────────────────────────
+
+/**
+ * Per-service container status surfaced by the Diagnose modal.
+ * Sourced primarily from `/stack-health/services/<name>.json` written by
+ * the host cron; optionally refreshed live via SSH when configured.
+ */
+export interface ContainerStatusDTO {
+  /** Operator-facing service name (matches the SERVICE_REGISTRY entry). */
+  name: string;
+  /** docker container status: "running" | "exited" | "restarting" | "dead" | "paused" | null when unknown. */
+  status: string | null;
+  /** ISO timestamp the container was last started, or null if not running / unknown. */
+  startedAt: string | null;
+  /** Human-readable uptime ("2d 3h", "47m"); null when not running / unknown. */
+  uptime: string | null;
+  /** Last 50-ish log lines, oldest first. Empty array when unavailable. */
+  logs: string[];
+  /** ISO timestamp of when this snapshot was captured (file mtime, or now if refreshed via SSH). */
+  asOf: string | null;
+  /** "cron" (file-backed snapshot, possibly stale) | "ssh" (live refresh) | null when no data. */
+  source: "cron" | "ssh" | null;
+  /**
+   * Whether the server has SSH credentials configured. Drives the visibility
+   * of the "Refresh now" button — the env values themselves are never sent.
+   */
+  refreshAvailable: boolean;
+}
+// ── Orphan cleanup ──────────────────────────────────────────────────────
+
+/**
+ * A completed-but-unimported torrent folder identified by the stack
+ * healthcheck cron. Surfaced in the admin Warnings tab for one-click removal.
+ */
+export interface OrphanItem {
+  /** Raw folder name from orphan-state.txt */
+  folderName: string;
+  category: "tv" | "movies" | "music" | "books";
+  /** Days the folder has been sitting in the completed download directory */
+  daysStuck: number;
+  /** How many times the healthcheck has attempted (and failed) to import it */
+  scanCount: number;
+  /** qBittorrent info hash — null when no matching torrent found in qBit */
+  qbHash: string | null;
+  /** qBittorrent torrent state ("stalledUP", "uploading", etc.) */
+  qbState: string | null;
+  /** Whether the *arr service reports the content as already having a file.
+   *  null when the arr service couldn't be reached or parse failed. */
+  arrHasFile: boolean | null;
+  /** true iff arrHasFile === true — safe to delete torrent + files */
+  safeToRemove: boolean;
 }
 
 // ── Stack healthcheck (host cron) ───────────────────────────────────────

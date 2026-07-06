@@ -164,3 +164,38 @@ export async function health(): Promise<boolean> {
     return false;
   }
 }
+
+/** Get every torrent regardless of category (used for orphan name matching) */
+export async function getAllTorrents(): Promise<QbTorrent[]> {
+  try {
+    const sid = await login();
+    return qbGet(`/api/v2/torrents/info`, sid);
+  } catch {
+    return [];
+  }
+}
+
+/** Remove a torrent from qBittorrent. When deleteFiles=true the downloaded
+ *  files are also removed from disk. Throws on non-2xx response. */
+export async function deleteTorrent(
+  hash: string,
+  deleteFiles: boolean,
+): Promise<void> {
+  const sid = await login();
+  const body = new URLSearchParams({
+    hashes: hash,
+    deleteFiles: String(deleteFiles),
+  });
+  const res = await qbFetch(`/api/v2/torrents/delete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: `SID=${sid}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`qBittorrent delete failed (${res.status}): ${text}`);
+  }
+}

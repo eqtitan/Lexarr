@@ -69,6 +69,15 @@ export const healthCache = new TTLCache(30 * 1000, 20);
 // Library status cache: 60 second TTL (arr libraries change infrequently)
 export const libraryCache = new TTLCache(60 * 1000, 50);
 
+// New-releases feed cache: 24h TTL (rolling 6-month window only needs to
+// shift once a day; avoids hammering TMDB discover on every page load).
+export const releasesCache = new TTLCache(24 * 60 * 60 * 1000, 5);
+
+// New-releases feed, post library-status filtering: 60s TTL. Deliberately
+// much shorter than releasesCache — a request made mid-day should stop
+// appearing in the feed within a minute, not up to a day later.
+export const releasesFilteredCache = new TTLCache(60 * 1000, 5);
+
 // Artist listener count cache: 24h TTL (Last.fm popularity moves slowly
 // enough that day-old data is fine; we cache nulls as well to avoid
 // re-fetching for artists Last.fm doesn't know about).

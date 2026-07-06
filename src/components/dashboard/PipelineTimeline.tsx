@@ -46,17 +46,21 @@ export default function PipelineTimeline({
   events,
   currentStatus,
 }: PipelineTimelineProps) {
+  // Keep the LATEST occurrence of each event type. Events like
+  // `sent_to_arr` can fire twice (initial send + retry); the retry's
+  // timestamp is what reflects the current pipeline state, not the
+  // original failed attempt.
   const eventMap = new Map<string, PipelineEventDTO>();
   for (const e of events) {
-    // Keep first occurrence of each event type
-    if (!eventMap.has(e.event)) {
-      eventMap.set(e.event, e);
-    }
+    eventMap.set(e.event, e);
   }
 
-  // Determine which pipeline to show
-  const isDenied = currentStatus === "denied" || eventMap.has("denied");
-  const isFailed = eventMap.has("failed");
+  // Truncate to a failure path only when the request is *currently*
+  // in a terminal-failed state. A historical `failed` event followed
+  // by a successful retry → available should render the recovery
+  // path, not the original failure.
+  const isDenied = currentStatus === "denied";
+  const isFailed = currentStatus === "failed" || currentStatus === "stalled";
   const steps = isDenied
     ? ["submitted", "denied"]
     : isFailed
@@ -76,7 +80,14 @@ export default function PipelineTimeline({
     <div className="flex items-center gap-0 overflow-x-auto py-2">
       {steps.map((step, i) => {
         const event = eventMap.get(step);
-        const isCompleted = event != null;
+        // For the terminal "available" step specifically, also require
+        // that the request is *currently* available. A stale `available`
+        // PipelineEvent from a prior false-positive (the alreadyExists
+        // shortcut bug, since fixed) should not light up the final
+        // checkmark if the row is back in `downloading`.
+        const isCompleted =
+          event != null &&
+          (step !== "available" || currentStatus === "available");
         const isActive =
           i === activeIndex &&
           !["available", "denied", "failed"].includes(step);

@@ -1,6 +1,31 @@
 # Lexarr
 
-Unified media request portal for movies, TV shows, music, and books covering all media types your *arr stack supports.
+> **One Docker container. One search bar. Every request type your \*arr stack handles.**
+
+![Status](https://img.shields.io/badge/status-private%20beta-orange) ![Version](https://img.shields.io/badge/version-v0.17.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+
+Lexarr is a unified media request portal that gives your entire \*arr stack a single front door. Search movies, TV, music, and books in one place — Lexarr routes each request to the right app automatically.
+
+---
+
+## Why Lexarr?
+
+If you run a full \*arr stack, you already know the problem: **Overseerr and Jellyseerr only cover movies and TV.** Music requests mean going directly into Lidarr. Books have no good request UI at all unless you set one up yourself. The result is that your family or roommates need to know which tool handles what — or you handle all requests manually.
+
+Lexarr fixes that with one portal that covers all four media types.
+
+| | Overseerr / Jellyseerr | Ombi | **Lexarr** |
+|---|---|---|---|
+| Movies + TV | ✅ | ✅ | ✅ |
+| Music (Lidarr) | ❌ | ✅ | ✅ |
+| Books (LazyLibrarian) | ❌ | ❌ | ✅ |
+| Music singles/EPs (narrow monitoring) | ❌ | ❌ | ✅ |
+| Single Docker container | ✅ | ✅ | ✅ |
+| Active development | Maintained | Slowing | ✅ |
+
+**Where Lexarr is currently weaker:** Smaller community, newer codebase, fewer edge cases handled than tools with years of history. Plex support exists but is secondary — Jellyfin is the primary focus. No mobile app; browser only.
+
+---
 
 ## What It Does
 
@@ -23,6 +48,28 @@ Lexarr provides a single search bar that searches across all your media sources,
 - **Deep-drill service pages** for each *arr app (library stats, queue, wanted, history, system info)
 - **Pipeline events** tracking every step from request to availability
 - **Docker-ready** with SQLite (zero external dependencies)
+
+## Screenshots
+
+| Search | Request flow | Admin dashboard |
+|--------|-------------|-----------------|
+| ![Search](docs/screenshots/search.png) | ![Request](docs/screenshots/request.png) | ![Admin](docs/screenshots/admin.png) |
+
+*Screenshots from v0.17.1 beta running on Unraid.*
+
+---
+
+## Project Status
+
+**Lexarr is in private beta.** The code is not yet public — it will be opened at the 1.0.0 release milestone, which requires 7 consecutive days of stable production running with no critical incidents.
+
+Current version: **v0.17.1**. Active known issue: music singles/EP routing is being refined.
+
+To follow development: [r/Lexarr](https://reddit.com/r/Lexarr) · [Watch this repo](https://github.com/eqtitan/Lexarr/subscription)
+
+To request beta access: DM u/eqtitan on Reddit with your GitHub username.
+
+---
 
 ## Quick Start (Docker — ≤ 10 min)
 
@@ -285,6 +332,16 @@ npm run release -- minor    # new feature:  0.10.0 → 0.11.0
 npm run release -- major    # breaking:     0.10.0 → 1.0.0 (only when 1.0 criteria met)
 npm run release -- --dry    # preview without writing
 ```
+
+## Contributing
+
+The repo is currently private while in beta. Once public at 1.0.0:
+
+- **Bug reports:** GitHub Issues. Include your \*arr versions, Docker logs, and steps to reproduce.
+- **Feature requests:** GitHub Issues with the `enhancement` label, or post in [r/Lexarr](https://reddit.com/r/Lexarr).
+- **PRs:** Welcome. The codebase is TypeScript throughout with 0 lint errors and 78 passing tests. Read `CLAUDE.md` for architecture orientation before starting.
+
+During private beta, report bugs by opening a GitHub Issue if you have repo access, or DMing u/eqtitan on Reddit.
 
 ## License
 

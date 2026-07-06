@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import type { DashboardData } from "@/types/dashboard";
+import type { DashboardData, OrphanItem } from "@/types/dashboard";
 import PendingApprovalsCard from "@/components/dashboard/PendingApprovalsCard";
 import PipelineTable from "@/components/dashboard/PipelineTable";
 import AnalyticsGrid from "@/components/dashboard/AnalyticsGrid";
@@ -38,6 +38,13 @@ export default function DashboardPage() {
   const [tabHidden, setTabHidden] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Orphan state — lazy-loaded the first time the Warnings tab is opened.
+  // undefined = not fetched yet, null = fetch failed, [] = clean.
+  const [orphans, setOrphans] = useState<OrphanItem[] | null | undefined>(
+    undefined,
+  );
+  const orphansFetchedRef = useRef(false);
 
   const isLive = !userPaused && !tabHidden;
   const pausedReason = userPaused
@@ -97,6 +104,37 @@ export default function DashboardPage() {
     return () =>
       document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [role, fetchDashboard]);
+
+  const fetchOrphans = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/orphans");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setOrphans(json.orphans ?? []);
+    } catch {
+      setOrphans(null);
+    }
+  }, []);
+
+  async function handleOrphanRemove(
+    hash: string,
+    deleteFiles: boolean,
+    folderName: string,
+  ) {
+    const res = await fetch("/api/admin/orphans", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hash, deleteFiles, folderName }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    // Optimistically remove from local state — orphan-state.txt is cron-managed
+    // (read-only mount), so re-fetching would still show the entry until the next
+    // healthcheck run clears it.
+    setOrphans((prev) => prev?.filter((o) => o.folderName !== folderName) ?? prev);
+  }
 
   async function handleApprove(id: string, note?: string) {
     await fetch("/api/admin/requests", {
@@ -233,6 +271,11 @@ export default function DashboardPage() {
                 aria-selected={isActive}
                 onClick={(e) => {
                   setActiveTab(t.id);
+                  // Lazy-load orphans the first time the Warnings tab opens.
+                  if (t.id === "warnings" && !orphansFetchedRef.current) {
+                    orphansFetchedRef.current = true;
+                    fetchOrphans();
+                  }
                   // Scroll the newly-active tab into view on mobile where
                   // the row can overflow. `nearest` keeps desktop stable.
                   (e.currentTarget as HTMLButtonElement).scrollIntoView({
@@ -312,23 +355,12 @@ export default function DashboardPage() {
         )}
 
         {activeTab === "warnings" && (
-          <>
-            {data.warnings.length > 0 ? (
-              <WarningsPanel
-                warnings={data.warnings}
-                onActionComplete={fetchDashboard}
-              />
-            ) : (
-              <div
-                className="rounded-xl px-4 py-10 text-center ring-1 ring-[var(--border)]"
-                style={{ background: "var(--card)" }}
-              >
-                <p className="text-sm text-[var(--muted)]">
-                  No warnings — all systems nominal.
-                </p>
-              </div>
-            )}
-          </>
+          <WarningsPanel
+            warnings={data.warnings}
+            onActionComplete={fetchDashboard}
+            orphans={orphans}
+            onOrphanRemove={handleOrphanRemove}
+          />
         )}
       </div>
     </div>

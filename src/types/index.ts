@@ -45,6 +45,8 @@ export interface SearchResult {
    * releaseType: a "Live Album" is releaseType=album with secondaryTypes=["Live"].
    */
   secondaryTypes?: string[];
+  /** ISO date (YYYY-MM-DD) — only set by the New Releases feed. */
+  releaseDate?: string;
 }
 
 export interface RequestStatus {

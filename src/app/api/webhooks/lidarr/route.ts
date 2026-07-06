@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkSingleRequest } from "@/lib/status-checker";
-
-const SECRET = process.env.LEXARR_WEBHOOK_SECRET;
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 
 /**
  * Lidarr webhook receiver.
  * Configure in Lidarr: Settings → Connect → Webhook
- * URL: http://192.168.1.100:5056/api/webhooks/lidarr?token=YOUR_SECRET
+ * URL: http://your-server-ip:5056/api/webhooks/lidarr?token=YOUR_SECRET
  * Events: On Import, On Upgrade
  *
  * Idempotency: idempotent — delegates to `checkSingleRequest()`, a
@@ -14,8 +14,9 @@ const SECRET = process.env.LEXARR_WEBHOOK_SECRET;
  * converge on the same row state.
  */
 export async function POST(req: NextRequest) {
+  const secret = env.LEXARR_WEBHOOK_SECRET;
   const token = req.nextUrl.searchParams.get("token");
-  if (!SECRET || token !== SECRET) {
+  if (!secret || token !== secret) {
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, updated });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("Lidarr webhook error:", errMsg);
+    log.error("webhook.lidarr failed", { err });
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

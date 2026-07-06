@@ -1,6 +1,7 @@
 import type { SearchResult, MusicReleaseType } from "@/types";
 import { getArtistListeners, isLastfmEnabled } from "./lastfm";
 import { lastfmCache } from "@/lib/cache";
+import { log } from "@/lib/log";
 
 const BASE = "https://musicbrainz.org/ws/2";
 const UA = "Lexarr/1.0 (media-request-portal)";
@@ -115,15 +116,16 @@ async function mbGet<T>(path: string): Promise<T | null> {
       // 503 when exceeded. Surface the status so ops can tell
       // "rate-limited" from "API down" from "query malformed" — without it,
       // every upstream failure degrades silently to an empty result set.
-      console.warn(
-        `[musicbrainz] ${path} → HTTP ${res.status} ${res.statusText}`,
-      );
+      log.warn("musicbrainz HTTP error", {
+        path,
+        status: res.status,
+        statusText: res.statusText,
+      });
       return null;
     }
     return (await res.json()) as T;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[musicbrainz] ${path} → network error: ${msg}`);
+    log.warn("musicbrainz network error", { path, err });
     return null;
   }
 }

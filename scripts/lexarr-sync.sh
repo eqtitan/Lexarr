@@ -26,7 +26,7 @@ SONARR_KEY=$(grep -E '^SONARR_API_KEY=' "$ENV" | cut -d= -f2- | tr -d '\r')
 LIDARR_KEY=$(grep -E '^LIDARR_API_KEY=' "$ENV" | cut -d= -f2- | tr -d '\r')
 LL_KEY=$(grep -E '^LAZYLIBRARIAN_API_KEY=' "$ENV" | cut -d= -f2- | tr -d '\r')
 
-HOST="http://192.168.1.100"
+HOST=$(grep -E '^ARR_HOST=' "$ENV" | cut -d= -f2- | tr -d '\r')
 RADARR="${HOST}:7878"
 SONARR="${HOST}:8989"
 LIDARR="${HOST}:8686"

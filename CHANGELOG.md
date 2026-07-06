@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.18.0] — 2026-07-06
+
+### Added
+- New Releases feed: rolling 6-month US Movies + TV discovery (#4, c83b14b)
+- Stack Health hover-action (M2): Diagnose modal now shows live container
+  status + log tail (451727c), an Unraid deep link straight to the
+  container (0283541), and a `service_diagnose_opened` telemetry hook
+  (d7f59ed)
+- Orphan cleanup panel in the admin Warnings tab, with wiring for
+  retry/pipeline actions (447be1b, e391447)
+- DB-backed rate-limit buckets, replacing the in-memory limiter, so limits
+  survive restarts and scale across instances (c2225cb)
+- Structured JSON logger, migrated across 19 call sites for consistent,
+  greppable log output (60568e8)
+- `ServiceConnection` model + AES-256-GCM crypto scaffolding for
+  encrypting secrets at rest ahead of BYO-service support (d5e9bf3)
+- Docker image-level `HEALTHCHECK` (`/api/healthz`), so `docker run` users
+  get liveness/readiness checks without relying on compose (e3d0fac)
+
+### Changed
+- `/api/request` gained route-level tests covering the full POST flow
+  (2bcbd23)
+- Removed `typescript.ignoreBuildErrors` from the Next.js build config —
+  type errors now fail the build instead of being silently ignored
+  (6ab5224)
+
+### Fixed
+- Login now uses `findUnique` against a unique `User.name` constraint,
+  closing a race where duplicate usernames could be created concurrently
+  (a2e87a1)
+- Request creation race: dedupe now happens inside a transaction with a
+  supporting index on `(externalId, mediaType)`, closing a residual
+  concurrent-duplicate window (dc8ada6, faa4e95 — partial unique index)
+
+### Security
+- Replaced hardcoded LAN IP references with a `your-server-ip` placeholder
+  throughout docs and config examples (bc60b79, fb4eeb1, 7b57dc3)
+
 ## [0.17.1] — 2026-04-18
 
 ### Fixed

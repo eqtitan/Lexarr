@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
@@ -16,7 +17,7 @@ import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
  */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers);
-  const rateCheck = checkRateLimit(`auth:${ip}`, RATE_LIMITS.auth);
+  const rateCheck = await checkRateLimit(`auth:${ip}`, RATE_LIMITS.auth);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "Too many attempts. Try again shortly." },
@@ -54,6 +55,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // P-01: name is @unique — check before create to return a friendly 409
+  // rather than a raw P2002. The create() below still relies on the unique
+  // constraint for race safety between the check and the insert.
+  const nameExists = await prisma.user.findUnique({ where: { name } });
+  if (nameExists) {
+    return NextResponse.json(
+      { error: "Username already taken" },
+      { status: 409 },
+    );
+  }
+
   if (email) {
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
@@ -80,17 +92,35 @@ export async function POST(req: NextRequest) {
     where: { id: { not: "system" } },
   });
 
-  const user = await prisma.user.create({
-    data: {
-      name,
-      email: email || undefined,
-      password: hashed,
-      role: userCount === 0 ? "admin" : "user",
-      autoApprove: userCount === 0, // admin auto-approves by default
-    },
-  });
+  // P-01: handle P2002 from concurrent registrations that raced past the
+  // findUnique checks above. The unique constraint on name/email is the
+  // final arbiter — the checks are just for friendlier error messages.
+  try {
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email || undefined,
+        password: hashed,
+        role: userCount === 0 ? "admin" : "user",
+        autoApprove: userCount === 0, // admin auto-approves by default
+      },
+    });
 
-  return NextResponse.json({
-    user: { id: user.id, name: user.name, role: user.role },
-  });
+    return NextResponse.json({
+      user: { id: user.id, name: user.name, role: user.role },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const target = (err.meta?.target as string[] | undefined)?.join(",") ?? "";
+      const field = target.includes("email") ? "Email" : "Username";
+      return NextResponse.json(
+        { error: `${field} already taken` },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
 }

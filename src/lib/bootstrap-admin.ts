@@ -16,6 +16,7 @@
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { log } from "@/lib/log";
 
 export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> {
   const username = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim();
@@ -41,9 +42,7 @@ export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> 
             where: { id: existing.id },
             data: { password: hash },
           });
-          console.log(
-            `[bootstrap-admin] Refreshed password for existing admin "${username}" from BOOTSTRAP_ADMIN_PASSWORD`,
-          );
+          log.info("bootstrap-admin: refreshed password for existing admin", { username });
         }
       }
     }
@@ -52,10 +51,8 @@ export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> 
 
   // No admin. We need bootstrap creds to create one.
   if (!username || !password) {
-    console.warn(
-      "[bootstrap-admin] No admin exists and BOOTSTRAP_ADMIN_USERNAME / " +
-        "BOOTSTRAP_ADMIN_PASSWORD are not set. Set both in your env to " +
-        "auto-create a failover admin on startup.",
+    log.warn(
+      "bootstrap-admin: no admin exists and BOOTSTRAP_ADMIN_USERNAME/BOOTSTRAP_ADMIN_PASSWORD are not set; set both to auto-create a failover admin on startup",
     );
     return;
   }
@@ -69,7 +66,5 @@ export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> 
       autoApprove: true,
     },
   });
-  console.log(
-    `[bootstrap-admin] Created failover admin "${username}" (no admin previously existed)`,
-  );
+  log.info("bootstrap-admin: created failover admin (no admin previously existed)", { username });
 }

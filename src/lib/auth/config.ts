@@ -58,14 +58,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
-        const user = await prisma.user.findFirst({
-          where: {
-            OR: [
-              { name: credentials.username as string },
-              { email: credentials.username as string },
-            ],
-          },
-        });
+        // P-01: User.name is now @unique, so use findUnique for a deterministic
+        // lookup. Credential input can be either username or email — try name
+        // first, then email. Can't OR with findUnique, so two queries.
+        const username = credentials.username as string;
+        const user =
+          (await prisma.user.findUnique({ where: { name: username } })) ??
+          (await prisma.user.findUnique({ where: { email: username } }));
         if (!user?.password) return null;
         const valid = await bcrypt.compare(
           credentials.password as string,

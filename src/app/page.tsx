@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import SearchBar from "@/components/SearchBar";
 import MediaCard from "@/components/MediaCard";
 import DetailPanel from "@/components/DetailPanel";
+import ReleasesFeed from "@/components/ReleasesFeed";
 import { useToast } from "@/components/Toast";
 import type {
   SearchResult,
@@ -195,15 +196,12 @@ export default function Home() {
       )}
 
       {!searched && (
-        <div className="py-16 text-center text-[var(--muted)]">
-          <div className="mx-auto mb-4 flex justify-center gap-4 text-3xl">
-            <span>🎬</span>
-            <span>📺</span>
-            <span>🎵</span>
-            <span>📚</span>
-          </div>
-          <p>Search for anything across your media stack</p>
-        </div>
+        <ReleasesFeed
+          libraryStatuses={libraryStatuses}
+          onSelect={setSelectedResult}
+          onRequested={markRequested}
+          onLoaded={fetchLibraryStatuses}
+        />
       )}
 
       {selectedResult && (
