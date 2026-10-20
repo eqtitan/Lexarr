@@ -1,9 +1,10 @@
 import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
+import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 
-const PORT = process.env.LAZYLIBRARIAN_PORT || "5299";
-const BASE = `${process.env.ARR_HOST}:${PORT}`;
-const KEY = process.env.LAZYLIBRARIAN_API_KEY || "";
+const port = () => env().LAZYLIBRARIAN_PORT || "5299";
+const base = () => `${env().ARR_HOST}:${port()}`;
+const apiKey = () => env().LAZYLIBRARIAN_API_KEY || "";
 
 // LazyLibrarian's /api endpoint is querystring-based, not REST path-based,
 // and its writes return plain-text "OK" rather than JSON. The shared
@@ -11,10 +12,10 @@ const KEY = process.env.LAZYLIBRARIAN_API_KEY || "";
 // text responses that happen to be JSON (read endpoints return JSON text
 // with Content-Type: text/html sometimes).
 async function api(cmd: string, params: Record<string, string> = {}) {
-  const qs = new URLSearchParams({ cmd, apikey: KEY, ...params });
+  const qs = new URLSearchParams({ cmd, apikey: apiKey(), ...params });
   const raw = await arrFetch<string | unknown>(
     "LazyLibrarian",
-    BASE,
+    base(),
     `/api?${qs}`,
     { timeoutMs: ARR_TIMEOUT_MS },
   );
@@ -31,7 +32,8 @@ export async function health(): Promise<boolean> {
     const data = await api("getVersion");
     // getVersion returns { Success: true, install_type, current_version, ... }
     return !!data?.current_version || !!data?.Success;
-  } catch {
+  } catch (err) {
+    log.debug("lazylibrarian: health check failed", { err });
     return false;
   }
 }
@@ -85,7 +87,8 @@ export async function getBook(bookId: string): Promise<LazyLibrarianBook | null>
       data.find((b: LazyLibrarianBook) => String(b.BookID || b.bookid) === String(bookId)) ??
       null
     );
-  } catch {
+  } catch (err) {
+    log.debug("lazylibrarian: book lookup failed", { err });
     return null;
   }
 }
@@ -196,7 +199,10 @@ export async function addBook(
   // book sits forever because no search ever runs for it. Best-effort:
   // re-fetch the book post-queue so we have the AuthorID reliably (it
   // may not have been on the initial lookup response in some LL builds).
-  const refreshed = await getBook(bookId).catch(() => null);
+  const refreshed = await getBook(bookId).catch((err: unknown) => {
+    log.debug("lazylibrarian: re-fetching book after queue failed", { err });
+    return null;
+  });
   const authorId = refreshed?.AuthorID || refreshed?.authorid;
   if (authorId) {
     await resumeAuthor(String(authorId));

@@ -138,7 +138,7 @@ export default function PipelineTable({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRetry(req.id);
+                      void handleRetry(req.id);
                     }}
                     disabled={retryingId === req.id}
                     className="flex-shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"

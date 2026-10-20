@@ -1,151 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
-import { routeToArr } from "@/lib/arr/router";
-import { notify } from "@/lib/notifications";
-import { logAudit } from "@/lib/audit";
-import type { MediaType } from "@/types";
-
-const MAX_RETRIES = 3;
+import { retryRequest, RetryError } from "@/lib/services/retry";
 
 /**
- * POST — Retry a failed or stalled request.
+ * POST — Retry a failed, stalled or stuck-approved request.
  *
- * Idempotency: state-guarded, NOT token-idempotent.
- *   - The `canRetry` check rejects POSTs where the request isn't in
- *     failed/stalled or approved-without-arrId, so a POST that ran to
- *     completion cannot be replayed (the request is now in
- *     downloading/available).
- *   - There is a small race window: two concurrent POSTs can both pass
- *     the canRetry check before the status update commits, resulting
- *     in retryCount being bumped twice. Acceptable today (admin-only,
- *     one human in the UI at a time); revisit if we ever add automated
- *     retry triggers.
+ * Idempotency: state-guarded, NOT token-idempotent. The reset to
+ * "approved" is a guarded write (409 if the request changed since it was
+ * read), and a request that went through is now downloading/available,
+ * so a replayed POST is refused. Not safe to retry a 500 client-side:
+ * retryCount and the pipeline event have already been written.
  *
- * Not safe to retry a 500 response client-side — partial side effects
- * (retryCount + pipelineEvent) have likely already been written.
+ * Rules live in src/lib/services/retry.ts.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  const role = session?.user?.role;
   const adminId = session?.user?.id;
-  if (!session || role !== "admin") {
+  if (!session || session.user?.role !== "admin" || !adminId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const { requestId } = await req.json();
+  const { requestId } = (await req.json().catch(() => ({}))) as { requestId?: string };
   if (!requestId) {
     return NextResponse.json({ error: "Missing requestId" }, { status: 400 });
   }
 
-  const request = await prisma.request.findUnique({ where: { id: requestId } });
-  if (!request) {
-    return NextResponse.json({ error: "Request not found" }, { status: 404 });
-  }
-
-  // Allow retry for failed/stalled, or any approved request (covers both
-  // "routing failed silently" and "routed but never entered download queue")
-  const canRetry =
-    ["failed", "stalled", "approved"].includes(request.status);
-  if (!canRetry) {
-    return NextResponse.json(
-      { error: `Cannot retry request with status: ${request.status}` },
-      { status: 400 },
-    );
-  }
-
-  if (request.retryCount >= MAX_RETRIES) {
-    return NextResponse.json(
-      { error: `Max retries (${MAX_RETRIES}) reached` },
-      { status: 400 },
-    );
-  }
-
-  // Reset to approved and bump retry count
-  await prisma.request.update({
-    where: { id: requestId },
-    data: { status: "approved", lastError: null, retryCount: { increment: 1 } },
-  });
-
-  await prisma.pipelineEvent.create({
-    data: {
-      requestId,
-      event: "retried",
-      detail: JSON.stringify({
-        retryCount: request.retryCount + 1,
-        previousStatus: request.status,
-      }),
-    },
-  });
-
-  logAudit(
-    adminId,
-    "retry_request",
-    { type: "request", id: requestId },
-    { retryCount: request.retryCount + 1 },
-  );
-
   try {
-    const result = await routeToArr({
-      mediaType: request.mediaType as MediaType,
-      externalId: request.externalId,
-      externalId2: request.externalId2,
-      title: request.title,
-    });
-
-    if (result.arrId !== undefined) {
-      if (request.mediaType === "book") {
-        await prisma.request.update({
-          where: { id: requestId },
-          data: { externalId2: String(result.arrId) },
-        });
-      }
-
-      // Always reset to "downloading" — let the 60s status-checker verify
-      // actual file presence before promoting to "available".
-      // `alreadyExists` from the *arr router just means the title is in
-      // the library, not that any files exist on disk.
-      await prisma.request.update({
-        where: { id: requestId },
-        data: { arrId: result.arrId || null, status: "downloading" },
-      });
-
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId,
-          event: "sent_to_arr",
-          detail: JSON.stringify({
-            arrId: result.arrId,
-            alreadyExists: result.alreadyExists,
-            retry: true,
-          }),
-        },
-      });
-    }
-
-    notify({
-      event: "retried",
-      title: request.title,
-      mediaType: request.mediaType as MediaType,
-      status: "approved",
-      user: session.user?.name || "Admin",
-      detail: `Retry #${request.retryCount + 1}`,
-    });
-
+    await retryRequest(requestId, { id: adminId, name: session.user?.name || "Admin" });
     return NextResponse.json({ success: true });
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    await prisma.request.update({
-      where: { id: requestId },
-      data: { status: "failed", lastError: errMsg },
-    });
-    await prisma.pipelineEvent.create({
-      data: {
-        requestId,
-        event: "failed",
-        detail: JSON.stringify({ error: errMsg, retry: true }),
-      },
-    });
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+  } catch (err) {
+    if (err instanceof RetryError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
   }
 }

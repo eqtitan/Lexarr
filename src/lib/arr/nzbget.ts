@@ -1,9 +1,11 @@
 import { arrFetch, ArrApiError } from "./_fetch";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import { getBreaker } from "./circuit-breaker";
 
-const BASE = process.env.NZBGET_URL!;
-const USER = process.env.NZBGET_USER!;
-const PASS = process.env.NZBGET_PASS!;
+const base = () => env().NZBGET_URL!;
+const username = () => env().NZBGET_USER!;
+const password = () => env().NZBGET_PASS!;
 
 // NZBGet always returns HTTP 200, even for method errors -- arrFetch sees
 // only the transport status, so it calls recordSuccess() on every call
@@ -23,12 +25,12 @@ export function _resetAppErrorCount(): void {
 async function rpc(method: string, params: unknown[] = []) {
   const data = await arrFetch<{ result?: unknown; error?: { message: string } }>(
     "NZBGet",
-    BASE,
+    base(),
     "/jsonrpc",
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${USER}:${PASS}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${username()}:${password()}`).toString("base64")}`,
       },
       body: JSON.stringify({ version: "1.1", method, params }),
     },
@@ -75,7 +77,8 @@ export async function health(): Promise<boolean> {
   try {
     await rpc("version");
     return true;
-  } catch {
+  } catch (err) {
+    log.debug("nzbget: health check failed", { err });
     return false;
   }
 }

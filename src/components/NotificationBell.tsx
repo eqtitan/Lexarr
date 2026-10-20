@@ -44,8 +44,8 @@ export default function NotificationBell() {
       }
     };
 
-    poll();
-    const interval = setInterval(poll, 60_000);
+    void poll();
+    const interval = setInterval(() => void poll(), 60_000);
     return () => clearInterval(interval);
   }, [session]);
 

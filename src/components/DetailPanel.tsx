@@ -86,14 +86,14 @@ export default function DetailPanel({
   }, [result.id, result.mediaType, result.artistId]);
 
   useEffect(() => {
-    fetchDetail();
+    void fetchDetail();
   }, [fetchDetail]);
 
   // Fetch quality profiles for movie/tv
   useEffect(() => {
     if (result.mediaType !== "movie" && result.mediaType !== "tv") return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch(`/api/quality-profiles?type=${result.mediaType}`);
         if (res.ok && !cancelled) {

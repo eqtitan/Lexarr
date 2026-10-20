@@ -47,7 +47,7 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  logAudit(
+  void logAudit(
     adminId,
     "remove_orphan",
     { type: "torrent", id: hash },

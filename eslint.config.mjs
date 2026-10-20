@@ -13,11 +13,46 @@ export default tseslint.config(
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      // Allow empty catch blocks (used for fire-and-forget)
       "@typescript-eslint/no-empty-function": "off",
-      "no-empty": ["error", { allowEmptyCatch: true }],
+      // A catch block must at least say why it's empty.
+      "no-empty": ["error", { allowEmptyCatch: false }],
       // Prefer const
       "prefer-const": "warn",
+    },
+  },
+  {
+    // Promise misuse: a dropped promise hides its rejection, so fire-and-
+    // forget calls must be explicit (`void notify(...)`). Async React event
+    // handlers are fine (attributes: false); they handle their own errors.
+    files: ["src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": [
+        "error",
+        { checksVoidReturn: { attributes: false } },
+      ],
+      "@typescript-eslint/await-thenable": "error",
+    },
+  },
+  {
+    // All configuration goes through env() in src/lib/env.ts (validated,
+    // read at call time). NODE_ENV / NEXT_RUNTIME are framework-set, not
+    // Lexarr config, so they stay readable anywhere.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/env.ts", "src/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "MemberExpression[object.type='MemberExpression'][object.object.name='process'][object.property.name='env'][property.name!=/^(NODE_ENV|NEXT_RUNTIME)$/]",
+          message:
+            "Read configuration through env() from @/lib/env (add the variable to its schema) instead of process.env.",
+        },
+      ],
     },
   },
   {

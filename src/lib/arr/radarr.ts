@@ -1,17 +1,18 @@
 import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
+import { env } from "@/lib/env";
 import { pickDefaultProfile, RADARR_DEFAULT_PATTERNS } from "./quality-profile";
 import { libraryCache } from "@/lib/cache";
 
-const BASE = `${process.env.ARR_HOST}:7878`;
-const KEY = process.env.RADARR_API_KEY!;
+const base = () => `${env().ARR_HOST}:7878`;
+const apiKey = () => env().RADARR_API_KEY!;
 
 // Default T to `any` to match the historical signature. Individual call sites
 // can narrow with `api<Movie>(...)` when stricter typing is useful.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function api<T = any>(path: string, options: ArrFetchOptions = {}) {
-  return arrFetch<T>("Radarr", BASE, path, {
+  return arrFetch<T>("Radarr", base(), path, {
     ...options,
-    headers: { "X-Api-Key": KEY, ...options.headers },
+    headers: { "X-Api-Key": apiKey(), ...options.headers },
   });
 }
 

@@ -72,12 +72,6 @@ model PipelineEvent {
   @@index([createdAt])
 }
 
-model ServiceConfig {
-  id    String @id @default(cuid())
-  key   String @unique
-  value String
-}
-
 model NotificationChannel {
   id        String   @id @default(cuid())
   name      String                        // Display name: "Discord #requests", "Slack General"
@@ -125,37 +119,4 @@ model RateLimitBucket {
 
   @@id([key, windowStart])
   @@index([windowStart])  // for the sweep query
-}
-
-/// Operator-configurable connection to an external service (Radarr,
-/// Sonarr, qBittorrent, etc.). Lands in P-06 so the DB shape is stable
-/// before 1.0.0 GA. No consumers yet — the 0.17.2+ roadmap (parked
-/// post-1.0.0) flips concrete arr/download clients onto this model.
-///
-/// `category` mirrors ProviderCategory in src/lib/arr/providers/types.ts
-///   ("arr" | "download" | "media" | "utility" | "auth")
-/// `kind`     is the stable provider key: "radarr", "sonarr", "qbittorrent", ...
-/// `name`     is operator-facing; lets two rows of the same kind coexist
-///            (e.g. "primary radarr" vs "4k radarr")
-/// `encryptedSecret` is AES-256-GCM (iv||authTag||ciphertext, base64) —
-///            see src/lib/crypto.ts. Never store plaintext here.
-/// `config`   is a JSON-encoded blob for non-secret per-connection options
-///            (rootFolderPath, qualityProfileId, category, ...). Stored as
-///            String because the sqlite connector does not support Prisma's
-///            native `Json` type — callers JSON.parse on read / stringify on
-///            write (same pattern as AppSetting.value and PipelineEvent.detail).
-model ServiceConnection {
-  id              String   @id @default(cuid())
-  category        String   // ProviderCategory: arr|download|media|utility|auth
-  kind            String   // provider kind key: "radarr", "qbittorrent", ...
-  name            String   // operator label, unique within (category, kind)
-  baseUrl         String
-  encryptedSecret String   // base64( iv || authTag || ciphertext ), AES-256-GCM
-  config          String   @default("{}") // JSON-encoded; see comment above
-  enabled         Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([category, kind, name])
-  @@index([enabled])
 }

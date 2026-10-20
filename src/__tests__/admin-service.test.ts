@@ -171,7 +171,11 @@ describe("cancelRequest", () => {
     expect(radarrGetQueueDetails).toHaveBeenCalledTimes(1);
     expect(requestUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "r1", status: { notIn: ["cancelled", "denied", "available"] } },
+        // Every status the lifecycle (request-status.ts) allows cancelling from.
+        where: {
+          id: "r1",
+          status: { in: ["pending", "approved", "downloading", "stalled", "failed"] },
+        },
       }),
     );
     expect(notify).toHaveBeenCalledTimes(1);

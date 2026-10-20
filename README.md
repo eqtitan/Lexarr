@@ -145,10 +145,15 @@ set `REGISTRATION_OPEN=true`.
 In each *arr (Radarr / Sonarr / Lidarr), go to Settings → Connect →
 Webhook and add:
 
-- **URL** · `http://<lexarr-host>:5056/api/webhooks/<arr>?token=<LEXARR_WEBHOOK_SECRET>`
+- **URL** · `http://<lexarr-host>:5056/api/webhooks/<arr>`
   (replace `<arr>` with `radarr` / `sonarr` / `lidarr`)
+- **Password** · your `LEXARR_WEBHOOK_SECRET` (Username can be anything)
 - **Events** · On Import, On Upgrade
 - **Method** · POST
+
+The secret travels as HTTP Basic auth, so it stays out of URLs and access
+logs. The older form, `…/api/webhooks/<arr>?token=<LEXARR_WEBHOOK_SECRET>`,
+still works.
 
 Without webhooks, Lexarr polls every 60 s instead.
 
@@ -194,6 +199,33 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+### Tests
+
+```bash
+npm test                          # unit + integration (vitest)
+npx playwright install chromium   # once
+npm run build && npm run e2e      # end-to-end smoke (Playwright)
+```
+
+The end-to-end suite runs the production build against a throwaway SQLite
+DB and a stub TMDB/Radarr/Sonarr/Lidarr server (`e2e/stub-server.mjs`), so
+it needs no real services. It uses ports 5057, 7878, 8686, 8989 and 9100.
+
+Tests that touch the database should use a real one rather than mocking
+`@/lib/db`: import `src/__tests__/helpers/test-db.ts` first and call
+`useTestDb()`. Each test file gets its own copy of a template DB migrated
+once per run, emptied before every test, so real constraints, indexes and
+transactions are exercised (see `src/__tests__/db/` for examples).
+
+## Deployment model
+
+Lexarr runs as a **single instance**. It stores data in SQLite and keeps
+some state in process memory (search/library caches, *arr circuit
+breakers, the in-flight status check, Plex sign-in sessions), so don't run
+two containers against the same database. One container comfortably
+serves a household; the DB-backed rate limiter and the guarded status
+writes mean a restart loses nothing important.
 
 ## Tech Stack
 

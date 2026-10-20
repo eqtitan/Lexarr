@@ -4,12 +4,14 @@
     Sync Lexarr source to Unraid and rebuild the container.
 
 .DESCRIPTION
-    Rsyncs src/, prisma/, and root config files to Unraid, builds a new
-    Docker image tagged with the package.json version, and hot-swaps the
-    running container.  Run from the lexarr project root.
+    Ships the committed HEAD (git archive) to a fresh build directory on
+    Unraid, builds a Docker image tagged with the package.json version, and
+    hot-swaps the running container.  Run from the lexarr project root with
+    a clean working tree -- what gets deployed is exactly the commit, never
+    stray local edits or stale files left on the server.
 
 .PARAMETER NoSync
-    Skip the SCP step (useful when only re-deploying a previously synced build).
+    Skip shipping the source (re-build from the already-shipped commit).
 
 .PARAMETER NoBuild
     Skip the Docker build step and re-use the image already on Unraid.
@@ -28,7 +30,8 @@ $ErrorActionPreference = "Stop"
 
 # ── Config ────────────────────────────────────────────────────────────────
 $UNRAID  = "root@$UnraidHost"
-$REMOTE  = "/mnt/user/appdata/lexarr"
+$REMOTE  = "/mnt/user/appdata/lexarr"          # holds .env (never overwritten)
+$BUILDS  = "/mnt/user/appdata/lexarr-build"    # one clean dir per deployed commit
 $IMAGE   = "lexarr"
 
 # Container run params (mirrors the hand-crafted docker run we've been using)
@@ -53,37 +56,36 @@ Write-Host ""
 Write-Host "  Lexarr deploy  ->  $IMAGE`:$tag  ->  $UNRAID" -ForegroundColor Cyan
 Write-Host ""
 
-# ── 1. Sync source ────────────────────────────────────────────────────────
+# ── 0. Deploy only committed code ─────────────────────────────────────────
+# The image is built from `git archive HEAD`, so uncommitted edits would be
+# silently left out. Refuse instead of surprising anyone.
+$dirty = (git status --porcelain --untracked-files=no) -join "`n"
+if ($dirty) {
+    Write-Host "Working tree has uncommitted changes -- commit or stash them first:" -ForegroundColor Red
+    Write-Host $dirty
+    exit 1
+}
+$gitSha = (git rev-parse --short HEAD).Trim()
+$BUILD_DIR = "$BUILDS/$gitSha"
+
+# ── 1. Ship the commit ────────────────────────────────────────────────────
+# A fresh directory per commit: the old scp-over-the-top sync never deleted
+# anything, so removed files (and .bak copies) lingered on the server and
+# could end up in an image.
 if (-not $NoSync) {
-    Write-Host "[1/3] Syncing source files..."
-
-    # Directories — scp -r copies the directory itself into the target parent
-    $dirs = @("src", "prisma", "public")
-    foreach ($dir in $dirs) {
-        if (Test-Path $dir) {
-            Write-Host "      $dir/"
-            & scp -o StrictHostKeyChecking=no -r $dir "${UNRAID}:${REMOTE}/"
-            if ($LASTEXITCODE -ne 0) { Write-Error "SCP failed: $dir"; exit 1 }
-        }
-    }
-
-    # Individual root-level files
-    $files = @(
-        "package.json",
-        "package-lock.json",
-        "next.config.ts",
-        "tsconfig.json",
-        "postcss.config.mjs",
-        "eslint.config.mjs",
-        "Dockerfile"
-    )
-    foreach ($file in $files) {
-        if (Test-Path $file) {
-            Write-Host "      $file"
-            & scp -o StrictHostKeyChecking=no $file "${UNRAID}:${REMOTE}/$file"
-            if ($LASTEXITCODE -ne 0) { Write-Error "SCP failed: $file"; exit 1 }
-        }
-    }
+    Write-Host "[1/3] Shipping commit $gitSha..."
+    $archive = Join-Path ([System.IO.Path]::GetTempPath()) "lexarr-$gitSha.tar"
+    & git archive --format=tar -o $archive HEAD
+    if ($LASTEXITCODE -ne 0) { Write-Error "git archive failed"; exit 1 }
+    # Via a temp file, not a pipe: Windows PowerShell can mangle binary
+    # data piped between native commands.
+    & scp -o StrictHostKeyChecking=no $archive "${UNRAID}:/tmp/lexarr-$gitSha.tar"
+    if ($LASTEXITCODE -ne 0) { Remove-Item $archive; Write-Error "SCP failed"; exit 1 }
+    Remove-Item $archive
+    & ssh -o StrictHostKeyChecking=no $UNRAID "rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && tar -xf /tmp/lexarr-$gitSha.tar -C $BUILD_DIR && rm -f /tmp/lexarr-$gitSha.tar"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Extracting on Unraid failed"; exit 1 }
+    # Keep the three most recent build directories.
+    & ssh -o StrictHostKeyChecking=no $UNRAID "ls -dt $BUILDS/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf"
 
     Write-Host "      Done." -ForegroundColor Green
     Write-Host ""
@@ -97,7 +99,6 @@ if (-not $NoBuild) {
     # real provenance instead of falling back to "unknown". Computed locally
     # (not on the remote) so GIT_SHA reflects the commit actually being
     # deployed from this machine.
-    $gitSha = (git rev-parse --short HEAD).Trim()
     $buildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
     # `set -o pipefail` is required here: without it, $LASTEXITCODE reflects
@@ -107,12 +108,12 @@ if (-not $NoBuild) {
     # container before the replacement was ready. Single-line command (no
     # backslash-continuations) to avoid CRLF-vs-LF line-ending issues when a
     # PowerShell here-string crosses SSH to a Linux remote shell.
-    $buildRemoteCmd = "set -o pipefail; cd $REMOTE && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'"
+    $buildRemoteCmd = "set -o pipefail; cd $BUILD_DIR && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'"
     & ssh -o StrictHostKeyChecking=no $UNRAID $buildRemoteCmd
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "Build failed. Run with full output:" -ForegroundColor Red
-        Write-Host "  ssh $UNRAID `"cd $REMOTE && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} .`"" -ForegroundColor Yellow
+        Write-Host "  ssh $UNRAID `"cd $BUILD_DIR && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} .`"" -ForegroundColor Yellow
         exit 1
     }
 

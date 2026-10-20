@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import { randomBytes } from "node:crypto";
 import { createPlexPin, checkPlexPin, isPlexEnabled } from "@/lib/auth/plex";
 import { plexPinSessionCache } from "@/lib/cache";
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
     const sessionToken = randomBytes(32).toString("hex");
     plexPinSessionCache.set(sessionToken, pin.id, PIN_SESSION_TTL_MS);
 
-    const plexAuthUrl = `https://app.plex.tv/auth#?clientID=${process.env.PLEX_CLIENT_ID || "lexarr"}&code=${pin.code}&context%5Bdevice%5D%5Bproduct%5D=Lexarr`;
+    const plexAuthUrl = `https://app.plex.tv/auth#?clientID=${env().PLEX_CLIENT_ID || "lexarr"}&code=${pin.code}&context%5Bdevice%5D%5Bproduct%5D=Lexarr`;
     const res = NextResponse.json({
       code: pin.code,
       authUrl: plexAuthUrl,
@@ -63,13 +65,14 @@ export async function POST(req: NextRequest) {
       // flow would never complete.
       secure:
         req.nextUrl.protocol === "https:" ||
-        process.env.NEXTAUTH_URL?.startsWith("https://") === true,
+        env().NEXTAUTH_URL?.startsWith("https://") === true,
       sameSite: "lax",
       maxAge: PIN_SESSION_TTL_MS / 1000,
       path: "/api/auth/plex",
     });
     return res;
-  } catch {
+  } catch (err) {
+    log.warn("plex: creating sign-in pin failed", { err });
     return NextResponse.json(
       { error: "Failed to create Plex pin" },
       { status: 500 },

@@ -74,7 +74,7 @@ export default function ReleasesFeed({
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch("/api/releases");
         const json = await res.json();

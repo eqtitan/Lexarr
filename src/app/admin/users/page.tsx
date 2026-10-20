@@ -56,7 +56,7 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => {
-    fetchUsers();
+    void fetchUsers();
   }, [fetchUsers]);
 
   // Clear action errors after a few seconds so they don't linger
@@ -466,7 +466,7 @@ export default function AdminUsersPage() {
                           resetPromptValue.length >= 8 &&
                           resettingId !== user.id
                         ) {
-                          handleResetPassword(user.id);
+                          void handleResetPassword(user.id);
                         } else if (e.key === "Escape") {
                           setResetPromptId(null);
                           setResetPromptValue("");

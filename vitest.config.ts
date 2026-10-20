@@ -6,6 +6,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/__tests__/setup.ts"],
+    // Migrates one template DB per run for real-DB tests (helpers/test-db.ts).
+    globalSetup: ["./src/__tests__/helpers/db-template.global.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       // istanbul, not v8: source-level instrumentation at transform time,

@@ -1,7 +1,16 @@
 /**
- * Startup environment variable validation using Zod.
- * Imported by instrumentation.ts — runs once at server startup.
- * Fails fast with a clear error if required vars are missing or malformed.
+ * The one place Lexarr reads its configuration.
+ *
+ * - `env()` returns the validated config, read from process.env at call
+ *   time (not at import), so clients pick up the current values and tests
+ *   can change variables between cases without import-order tricks. It
+ *   never throws: if validation fails it returns the raw values, exactly as
+ *   reading process.env directly used to.
+ * - `validateEnvOrThrow()` is the fail-fast check. instrumentation.ts calls
+ *   it once at server startup.
+ *
+ * Reading `process.env` anywhere else in src/ is a lint error (see
+ * eslint.config.mjs) -- add the variable to the schema below instead.
  */
 import { z } from "zod";
 
@@ -15,6 +24,7 @@ const envSchema = z.object({
   TMDB_API_KEY: z.string().min(1),
 
   // Optional
+  NEXTAUTH_URL: z.string().optional(),
   LEXARR_WEBHOOK_SECRET: z.string().optional(),
   PROWLARR_API_KEY: z.string().optional(),
   LAZYLIBRARIAN_API_KEY: z.string().optional(),
@@ -27,12 +37,18 @@ const envSchema = z.object({
   NZBGET_PASS: z.string().optional(),
   BAZARR_URL: z.string().optional(),
   BAZARR_API_KEY: z.string().optional(),
+  LASTFM_API_KEY: z.string().optional(),
   PLEX_CLIENT_ID: z.string().optional(),
   AUTH_PLEX_ENABLED: z.string().optional(), // "true" to show the Plex login button
   AUTH_JELLYFIN_ENABLED: z.string().optional(), // default on; "false" to hide
   JELLYFIN_URL: z.string().optional(),
   REGISTRATION_OPEN: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+  // Build provenance baked in by the Dockerfile (see /api/version).
+  GIT_SHA: z.string().optional(),
+  BUILD_TIME: z.string().optional(),
+  // Test-only: points TMDB calls at the e2e stub server (e2e/stub-server.mjs).
+  TMDB_API_BASE: z.string().url().optional(),
 
   // Number of reverse-proxy hops to trust for rate-limiting's
   // X-Forwarded-For lookup. See src/lib/rate-limit.ts and .env.example.
@@ -44,6 +60,10 @@ const envSchema = z.object({
   // Failover admin — ensures an admin always exists on fresh installs / DB wipes
   BOOTSTRAP_ADMIN_USERNAME: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(6).optional(),
+
+  // Where the host-side stack-healthcheck cron's JSON snapshots are mounted
+  // (docker run -v .../stack-healthcheck:/stack-health:ro).
+  STACK_HEALTH_DIR: z.string().optional(),
 
   // (M2-01) Optional SSH-to-Unraid path for fresh container logs / inspect.
   // When ALL THREE are set, the Diagnose modal exposes a "Refresh now" button
@@ -58,54 +78,40 @@ const envSchema = z.object({
   // (M2-02) Base URL for Unraid container deep links. Defaults to the LAN IP
   // documented in CLAUDE.md; operators on a different host override it.
   UNRAID_BASE_URL: z.string().optional(),
-
-  // (P-06) AES-256 key for ServiceConnection secrets at rest.
-  // Hex-encoded, exactly 32 bytes / 64 hex chars. When unset, the data key
-  // is HKDF-derived from NEXTAUTH_SECRET — see src/lib/crypto.ts.
-  // Generate one with: `openssl rand -hex 32`
-  LEXARR_DATA_KEY: z
-    .string()
-    .optional()
-    .refine(
-      (v) => v === undefined || /^[0-9a-fA-F]{64}$/.test(v.trim()),
-      {
-        message:
-          "LEXARR_DATA_KEY must be 64 hex chars (32 bytes). Generate one with: openssl rand -hex 32",
-      },
-    ),
 });
 
 export type Env = z.infer<typeof envSchema>;
 
-const result = envSchema.safeParse(process.env);
-
-// Next.js's build step statically analyzes route modules ("collecting page
-// data"), which imports this module without real runtime env vars present —
-// those only arrive via `docker run --env-file`, not `docker build`. Skip the
-// throw during that build phase; real validation still happens at actual
-// server startup via instrumentation.ts's dynamic `import("./lib/env")`,
-// which runs with NEXT_PHASE unset.
-const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-
-if (!result.success && !isBuildPhase) {
-  const issues = result.error.issues
-    .map((i) => `  ${i.path.join(".")}: ${i.message}`)
-    .join("\n");
-  throw new Error(
-    `Environment validation failed:\n${issues}\n\nCopy .env.example to .env and fill in the values.`,
-  );
+/** The validated config, read now. Never throws (see file comment). */
+export function env(): Env {
+  const raw = process.env;
+  const result = envSchema.safeParse(raw);
+  return result.success ? result.data : (raw as unknown as Env);
 }
 
-export const env = result.success ? result.data : (process.env as unknown as Env);
+/**
+ * Fail fast on missing or malformed configuration. Called once at server
+ * startup from instrumentation.ts -- not at import, because Next.js's build
+ * step imports route modules without the runtime env present (that only
+ * arrives via `docker run --env-file`).
+ */
+export function validateEnvOrThrow(): void {
+  const result = envSchema.safeParse(process.env);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    throw new Error(
+      `Environment validation failed:\n${issues}\n\nCopy .env.example to .env and fill in the values.`,
+    );
+  }
 
-// Warn about recommended optional vars
-if (!env.LEXARR_WEBHOOK_SECRET) {
-  // Structured logger not imported here — env.ts is a module-load dependency
-  // of @/lib/log indirectly, and pulling log.ts in here risks circulars in
-  // the instrumentation hook. A plain console.warn at startup is fine for
-  // this one specific warning. (Mojibake at this site also fixed — was `��`)
-  console.warn(
-    "[env] LEXARR_WEBHOOK_SECRET is not set -- webhook endpoints will reject all requests. " +
-      "Set it in .env and configure matching tokens in Radarr/Sonarr/Lidarr.",
-  );
+  if (!result.data.LEXARR_WEBHOOK_SECRET) {
+    // Plain console.warn: this runs before the structured logger is
+    // imported in instrumentation.ts.
+    console.warn(
+      "[env] LEXARR_WEBHOOK_SECRET is not set -- webhook endpoints will reject all requests. " +
+        "Set it in .env and configure matching tokens in Radarr/Sonarr/Lidarr.",
+    );
+  }
 }

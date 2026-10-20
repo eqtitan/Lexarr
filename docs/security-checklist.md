@@ -51,11 +51,12 @@ Applied automatically by `next.config.ts` on every response:
   deployments are LAN-only over plain HTTP, where HSTS would break
   direct-IP access. If you front Lexarr with a reverse proxy that
   terminates TLS, configure HSTS there, not in Lexarr.
-- **Content-Security-Policy (CSP)** — deliberate for now. Next.js emits
-  inline styles + NextAuth's OAuth flows use redirects that need careful
-  CSP tuning. A too-strict policy breaks the login page. Post-1.0 work
-  item: ship a validated CSP with `script-src 'self' 'nonce-…'` and the
-  TMDB/OpenLibrary/coverartarchive hosts whitelisted for `img-src`.
+- **Content-Security-Policy (CSP)** — shipped **report-only** (0.20.0):
+  `Content-Security-Policy-Report-Only` in `next.config.ts`. Browsers log
+  violations without blocking anything, and the e2e smoke test fails on
+  any violation. Switch it to the enforcing header once real use stays
+  clean. Still allows `'unsafe-inline'` scripts (Next.js bootstrap); a
+  nonce-based `script-src` is the later tightening.
 
 ## CORS
 

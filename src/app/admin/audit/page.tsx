@@ -143,7 +143,7 @@ export default function AuditPage() {
   }, [filter]);
 
   useEffect(() => {
-    if (role === "admin") fetchLogs();
+    if (role === "admin") void fetchLogs();
   }, [role, fetchLogs]);
 
   if (sessionStatus === "loading" || loading) {

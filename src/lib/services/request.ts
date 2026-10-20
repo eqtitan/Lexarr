@@ -73,6 +73,32 @@ export type CreateRequestResult =
 
 // ── Validation ───────────────────────────────────────────────────────
 
+/**
+ * Hosts the search modules take poster/cover art from (tmdb.ts,
+ * musicbrainz.ts, openlib.ts incl. its Google Books fallback). The client
+ * sends posterUrl back with a request and admins' browsers later load it,
+ * so anything else -- a tracking pixel, an internal URL -- is refused.
+ */
+const POSTER_HOSTS = [
+  "image.tmdb.org",
+  "coverartarchive.org",
+  "covers.openlibrary.org",
+  "books.google.com",
+  "books.googleusercontent.com",
+];
+
+export function isKnownPosterUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false; // not a URL at all
+  }
+  // Google Books still hands out http:// thumbnails.
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  return POSTER_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
+}
+
 const VALID_MEDIA_TYPES: MediaType[] = ["movie", "tv", "music", "book"];
 
 export function validateRequestInput(input: {
@@ -103,7 +129,7 @@ export function validateRequestInput(input: {
   if (year && (typeof year !== "string" || !/^\d{4}$/.test(year))) {
     return { ok: false, error: "Year must be 4 digits", status: 400 };
   }
-  if (posterUrl && (typeof posterUrl !== "string" || posterUrl.length > 500)) {
+  if (posterUrl && (typeof posterUrl !== "string" || posterUrl.length > 500 || !isKnownPosterUrl(posterUrl))) {
     return { ok: false, error: "Invalid poster URL", status: 400 };
   }
 
@@ -177,6 +203,12 @@ export async function sendToArrAndUpdateStatus(
     qualityProfileId?: number;
     releaseType?: MusicReleaseType;
     bookFormat?: BookFormat;
+    /**
+     * On a send error, mark the request failed (default). The background
+     * auto-retry passes false: the request stays "approved" and the caller
+     * decides when it has run out of attempts.
+     */
+    failOnError?: boolean;
   },
 ): Promise<string | undefined> {
   let arrError: string | undefined;
@@ -242,6 +274,7 @@ export async function sendToArrAndUpdateStatus(
       mediaType: opts.mediaType,
       err,
     });
+    if (opts.failOnError === false) return arrError;
 
     const moved = await updateRequestIfStatus(request.id, "approved", {
       status: "failed",
@@ -257,7 +290,7 @@ export async function sendToArrAndUpdateStatus(
         },
       });
 
-      notify({
+      void notify({
         event: "failed",
         title: opts.title,
         mediaType: opts.mediaType,
@@ -396,7 +429,7 @@ export async function createRequest(
   });
 
   // Fire notification
-  notify({
+  void notify({
     event: "submitted",
     title,
     mediaType,

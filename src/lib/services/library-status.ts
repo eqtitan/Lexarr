@@ -8,6 +8,7 @@
  * Radarr/Sonarr/Lidarr/DB-fallback merge logic.
  */
 import { prisma } from "@/lib/db";
+import { log } from "@/lib/log";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
@@ -88,7 +89,8 @@ async function checkMovies(
         results[`movie:${item.id}`] = match.hasFile ? "available" : "monitored";
       }
     }
-  } catch {
+  } catch (err) {
+    log.debug("library-status: Radarr unavailable", { err });
     // Radarr unavailable — skip
   }
   return results;
@@ -108,7 +110,8 @@ async function checkTv(
         results[`tv:${item.id}`] = "monitored";
       }
     }
-  } catch {
+  } catch (err) {
+    log.debug("library-status: Sonarr unavailable", { err });
     // Sonarr unavailable — skip
   }
   return results;
@@ -142,7 +145,10 @@ async function checkMusic(
     const uniqueArtistIds = [...new Set(artistIdByItem.values())];
     const albumLists = await Promise.all(
       uniqueArtistIds.map((id) =>
-        lidarr.getAlbumsForArtist(id).catch(() => []),
+        lidarr.getAlbumsForArtist(id).catch((err: unknown) => {
+          log.debug("library-status: Lidarr album lookup failed", { err });
+          return [];
+        }),
       ),
     );
     const albumsByArtist = new Map<
@@ -160,7 +166,8 @@ async function checkMusic(
         results[`music:${item.id}`] = album.monitored ? "monitored" : null;
       }
     }
-  } catch {
+  } catch (err) {
+    log.debug("library-status: Lidarr unavailable", { err });
     // Lidarr unavailable — skip
   }
   return results;

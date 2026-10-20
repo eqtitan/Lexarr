@@ -1,6 +1,7 @@
+import { env } from "@/lib/env";
 const PLEX_AUTH_URL = "https://app.plex.tv/auth#";
 const PLEX_API = "https://plex.tv";
-const CLIENT_ID = process.env.PLEX_CLIENT_ID || "lexarr";
+const clientId = () => env().PLEX_CLIENT_ID || "lexarr";
 const PRODUCT = "Lexarr";
 
 /**
@@ -12,12 +13,12 @@ const PRODUCT = "Lexarr";
  * when the operator hasn't opted in.
  */
 export function isPlexEnabled(): boolean {
-  return process.env.AUTH_PLEX_ENABLED === "true";
+  return env().AUTH_PLEX_ENABLED === "true";
 }
 
 export function getPlexAuthUrl(forwardUrl: string) {
   const params = new URLSearchParams({
-    clientID: CLIENT_ID,
+    clientID: clientId(),
     "context[device][product]": PRODUCT,
     forwardUrl,
     code: "", // will be replaced with pin
@@ -30,7 +31,7 @@ export async function createPlexPin() {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "X-Plex-Client-Identifier": CLIENT_ID,
+      "X-Plex-Client-Identifier": clientId(),
       "X-Plex-Product": PRODUCT,
     },
     body: new URLSearchParams({ strong: "true" }),
@@ -43,7 +44,7 @@ export async function checkPlexPin(pinId: number) {
   const res = await fetch(`${PLEX_API}/api/v2/pins/${pinId}`, {
     headers: {
       Accept: "application/json",
-      "X-Plex-Client-Identifier": CLIENT_ID,
+      "X-Plex-Client-Identifier": clientId(),
     },
   });
   if (!res.ok) return null;

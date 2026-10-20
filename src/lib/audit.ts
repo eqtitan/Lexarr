@@ -3,6 +3,7 @@
  * Records admin actions for accountability and debugging.
  */
 import { prisma } from "./db";
+import { log } from "@/lib/log";
 
 type AuditAction =
   | "approve_request"
@@ -39,7 +40,8 @@ export async function logAudit(
         detail: detail ? JSON.stringify(detail) : undefined,
       },
     });
-  } catch {
+  } catch (err) {
+    log.error("audit: failed to write audit log entry", { err, action, target });
     // Audit logging should never break the calling operation
   }
 }

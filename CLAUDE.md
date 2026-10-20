@@ -70,7 +70,8 @@ src/
 ```bash
 npm run dev          # Start dev server with Turbopack
 npm run build        # Build for production (prisma generate + next build)
-npm run test         # Run vitest test suite (78 tests)
+npm run test         # Run vitest test suite
+npm run build && npm run e2e  # Playwright end-to-end smoke (see README "Tests")
 npm run test:watch   # Run tests in watch mode
 npm run test:coverage # Run tests with coverage (@vitest/coverage-v8)
 npm run lint         # Run ESLint

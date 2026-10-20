@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkSingleRequest } from "@/lib/status-checker";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
-import { verifyWebhookToken } from "@/lib/webhook-auth";
+import { verifyWebhookToken, webhookTokenFrom } from "@/lib/webhook-auth";
 
 /**
  * Radarr webhook receiver.
  * Configure in Radarr: Settings → Connect → Webhook
- * URL: http://your-server-ip:5056/api/webhooks/radarr?token=YOUR_SECRET
+ * URL: http://your-server-ip:5056/api/webhooks/radarr -- put LEXARR_WEBHOOK_SECRET in
+ * the connection's Password field (HTTP Basic auth; Username is ignored).
+ * The older ?token=YOUR_SECRET form still works but leaks into URLs/logs.
  * Events: On Import, On Upgrade
  *
  * Idempotency: idempotent. Delegates to `checkSingleRequest()`, which
@@ -16,8 +18,8 @@ import { verifyWebhookToken } from "@/lib/webhook-auth";
  * webhook on its own — duplicate POSTs converge on the same row state.
  */
 export async function POST(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get("token");
-  if (!verifyWebhookToken(env.LEXARR_WEBHOOK_SECRET, token)) {
+  const token = webhookTokenFrom(req);
+  if (!verifyWebhookToken(env().LEXARR_WEBHOOK_SECRET, token)) {
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 

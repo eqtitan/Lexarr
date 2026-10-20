@@ -221,20 +221,18 @@ export async function GET() {
     indexers: analytics.indexers.indexers,
   });
 
-  // ── Piggyback: sync request statuses while admin is watching ────────
-  // Fire-and-forget — we don't want to block the dashboard response waiting
-  // for a (potentially minute-long) sweep. But log failures so operators
-  // can see repeated breakage; the background checker's circuit breaker
-  // handles sustained outages separately.
-  import("@/lib/status-checker")
-    .then((m) => m.checkAndUpdateStatuses())
-    .catch((err: unknown) => {
-      log.warn("dashboard: piggybacked status-check failed", { err });
-    });
+  // Read-only: this GET used to kick off a full status sweep on every
+  // poll (every 10s while downloads were active), driving *arr traffic
+  // from a read endpoint. The 60s background poller and *arr webhooks keep
+  // statuses fresh; the dashboard's force-refresh calls POST /api/status
+  // for an immediate check.
 
   // ── Response ──────────��────────────────────────────────────────────
   // ── Stack health (from host cron via mounted file) ─────────────────
-  const healthReport = await readStackHealth().catch(() => null);
+  const healthReport = await readStackHealth().catch((err: unknown) => {
+    log.debug("dashboard: stack-health report unavailable", { err });
+    return null;
+  });
   const stackHealth = healthReport
     ? {
         lastRunAt: healthReport.lastRunAt,

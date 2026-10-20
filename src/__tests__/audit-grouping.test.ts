@@ -4,7 +4,7 @@
  * These live in the audit page component (client component), so we import
  * them directly and validate the collapse window + bucketing behaviour.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // The grouping logic is defined inline in the page component; duplicate just
 // enough logic here to cover it with a unit test. Keep these in sync with
@@ -87,6 +87,17 @@ function mk(
 }
 
 describe("audit grouping", () => {
+  // Entries are built "N minutes ago" and grouped by calendar day, so just
+  // after local midnight they straddle two days and split (a real flake).
+  // Pin "now" to local noon; only Date is faked.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("collapses consecutive same-user same-action entries within 10 minutes", () => {
     // Input comes in reverse-chronological (newest first) — that's how the
     // API orders it. Three logins by user A within 10 minutes.

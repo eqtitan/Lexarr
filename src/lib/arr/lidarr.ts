@@ -1,4 +1,5 @@
 import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
+import { env } from "@/lib/env";
 import { pickDefaultProfile, LIDARR_DEFAULT_PATTERNS } from "./quality-profile";
 
 /**
@@ -34,14 +35,14 @@ export function pickDefaultMetadataProfile(
   );
 }
 
-const BASE = `${process.env.ARR_HOST}:8686`;
-const KEY = process.env.LIDARR_API_KEY!;
+const base = () => `${env().ARR_HOST}:8686`;
+const apiKey = () => env().LIDARR_API_KEY!;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function api<T = any>(path: string, options: ArrFetchOptions = {}) {
-  return arrFetch<T>("Lidarr", BASE, path, {
+  return arrFetch<T>("Lidarr", base(), path, {
     ...options,
-    headers: { "X-Api-Key": KEY, ...options.headers },
+    headers: { "X-Api-Key": apiKey(), ...options.headers },
   });
 }
 

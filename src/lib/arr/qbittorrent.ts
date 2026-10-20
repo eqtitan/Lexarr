@@ -1,4 +1,6 @@
 import { ARR_TIMEOUT_MS, ArrApiError } from "./_fetch";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import { getBreaker } from "./circuit-breaker";
 
 const SERVICE = "qBittorrent";
@@ -12,9 +14,9 @@ interface QbTorrent {
   size: number;
 }
 
-const BASE = process.env.QBITTORRENT_URL!;
-const USER = process.env.QBITTORRENT_USER!;
-const PASS = process.env.QBITTORRENT_PASS!;
+const base = () => env().QBITTORRENT_URL!;
+const username = () => env().QBITTORRENT_USER!;
+const password = () => env().QBITTORRENT_PASS!;
 
 /** qBittorrent uses cookie-based sessions, so it doesn't fit arrFetch's
  *  pattern cleanly. We wrap each raw fetch in an AbortController with the
@@ -29,7 +31,7 @@ async function qbFetch(path: string, init: RequestInit = {}): Promise<Response> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ARR_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${base()}${path}`, {
       ...init,
       signal: controller.signal,
     });
@@ -56,7 +58,7 @@ async function login(): Promise<string> {
   const res = await qbFetch(`/api/v2/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ username: USER, password: PASS }),
+    body: new URLSearchParams({ username: username(), password: password() }),
   });
   const text = await res.text();
   if (text !== "Ok.") throw new Error(`qBittorrent login failed: ${text}`);
@@ -104,7 +106,10 @@ export async function addTorrentFromUrl(
   const torrents: QbTorrent[] = await qbGet(
     `/api/v2/torrents/info?category=${encodeURIComponent(category)}&sort=added_on&reverse=true&limit=5`,
     sid,
-  ).catch(() => []);
+  ).catch((err: unknown) => {
+    log.warn("qbittorrent: listing torrents after add failed", { err });
+    return [];
+  });
 
   const newest = torrents[0];
   return newest?.hash ?? "";
@@ -119,7 +124,8 @@ export async function getTorrentByHash(hash: string): Promise<QbTorrent | null> 
       sid,
     );
     return list[0] ?? null;
-  } catch {
+  } catch (err) {
+    log.debug("qbittorrent: torrent lookup failed", { err });
     return null;
   }
 }
@@ -150,7 +156,8 @@ export async function getTorrentsByCategory(category: string): Promise<QbTorrent
       `/api/v2/torrents/info?category=${encodeURIComponent(category)}`,
       sid,
     );
-  } catch {
+  } catch (err) {
+    log.warn("qbittorrent: listing torrents failed", { err });
     return [];
   }
 }
@@ -183,7 +190,8 @@ export async function health(): Promise<boolean> {
       headers: { Cookie: `SID=${sid}` },
     });
     return res.ok;
-  } catch {
+  } catch (err) {
+    log.debug("qbittorrent: health check failed", { err });
     return false;
   }
 }
@@ -193,7 +201,8 @@ export async function getAllTorrents(): Promise<QbTorrent[]> {
   try {
     const sid = await login();
     return qbGet(`/api/v2/torrents/info`, sid);
-  } catch {
+  } catch (err) {
+    log.warn("qbittorrent: listing all torrents failed", { err });
     return [];
   }
 }

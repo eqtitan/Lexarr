@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import { discoverRecentMovies, discoverRecentTv } from "@/lib/search/tmdb";
 import { getLibraryStatuses } from "@/lib/services/library-status";
 import { releasesCache, releasesFilteredCache } from "@/lib/cache";
@@ -21,8 +22,14 @@ async function getRawPool(): Promise<ReleasesResponse> {
   if (cached) return cached;
 
   const [movies, tv] = await Promise.all([
-    discoverRecentMovies(RAW_POOL_LIMIT).catch(() => []),
-    discoverRecentTv(RAW_POOL_LIMIT).catch(() => []),
+    discoverRecentMovies(RAW_POOL_LIMIT).catch((err: unknown) => {
+      log.warn("releases: TMDB recent movies failed", { err });
+      return [];
+    }),
+    discoverRecentTv(RAW_POOL_LIMIT).catch((err: unknown) => {
+      log.warn("releases: TMDB recent TV failed", { err });
+      return [];
+    }),
   ]);
   const payload: ReleasesResponse = { movies, tv };
 
@@ -57,7 +64,10 @@ export async function GET(req: NextRequest) {
   const statuses = await getLibraryStatuses([
     ...pool.movies.map((r) => ({ id: r.id, mediaType: r.mediaType })),
     ...pool.tv.map((r) => ({ id: r.id, mediaType: r.mediaType })),
-  ]).catch(() => ({}) as Record<string, LibraryStatusValue>);
+  ]).catch((err: unknown) => {
+    log.debug("releases: library status lookup failed", { err });
+    return ({}) as Record<string, LibraryStatusValue>;
+  });
 
   // Only show releases the household doesn't already have — already
   // available, already monitored, or already requested by anyone.

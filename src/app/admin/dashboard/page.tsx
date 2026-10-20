@@ -76,7 +76,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (role === "admin") {
-      fetchDashboard();
+      void fetchDashboard();
     }
   }, [role, fetchDashboard]);
 
@@ -86,7 +86,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLive || role !== "admin") return;
     const interval = activeDownloads > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
-    intervalRef.current = setInterval(fetchDashboard, interval);
+    intervalRef.current = setInterval(() => void fetchDashboard(), interval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -98,12 +98,19 @@ export default function DashboardPage() {
       const hidden = document.visibilityState === "hidden";
       setTabHidden(hidden);
       // Fire immediately on re-focus so the UI feels fresh
-      if (!hidden && role === "admin") fetchDashboard();
+      if (!hidden && role === "admin") void fetchDashboard();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [role, fetchDashboard]);
+
+  // Force refresh: run a status check against the *arr apps now (the GET
+  // above is read-only), then reload. A failed check still reloads.
+  const refreshNow = useCallback(async () => {
+    await fetch("/api/status", { method: "POST" }).catch(() => undefined);
+    await fetchDashboard();
+  }, [fetchDashboard]);
 
   const fetchOrphans = useCallback(async () => {
     try {
@@ -142,7 +149,7 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId: id, action: "approve", note }),
     });
-    fetchDashboard();
+    void fetchDashboard();
   }
 
   async function handleDeny(id: string, note?: string) {
@@ -151,7 +158,7 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId: id, action: "deny", note }),
     });
-    fetchDashboard();
+    void fetchDashboard();
   }
 
   async function handleRetry(id: string) {
@@ -160,7 +167,7 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId: id }),
     });
-    fetchDashboard();
+    void fetchDashboard();
   }
 
   if (
@@ -230,7 +237,7 @@ export default function DashboardPage() {
           isLive={isLive}
           pausedReason={pausedReason}
           onTogglePause={() => setUserPaused((p) => !p)}
-          onForceRefresh={fetchDashboard}
+          onForceRefresh={() => void refreshNow()}
         />
       </div>
 
@@ -274,7 +281,7 @@ export default function DashboardPage() {
                   // Lazy-load orphans the first time the Warnings tab opens.
                   if (t.id === "warnings" && !orphansFetchedRef.current) {
                     orphansFetchedRef.current = true;
-                    fetchOrphans();
+                    void fetchOrphans();
                   }
                   // Scroll the newly-active tab into view on mobile where
                   // the row can overflow. `nearest` keeps desktop stable.

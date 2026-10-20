@@ -28,8 +28,8 @@ import type { ContainerStatusDTO } from "@/types/dashboard";
 
 const execFileP = promisify(execFile);
 
-const HEALTH_DIR = process.env.STACK_HEALTH_DIR || "/stack-health";
-const SERVICES_DIR = path.join(HEALTH_DIR, "services");
+const healthDir = () => env().STACK_HEALTH_DIR || "/stack-health";
+const SERVICES_DIR = path.join(healthDir(), "services");
 
 const SSH_TIMEOUT_MS = 5_000;
 const LOG_LINE_LIMIT = 50;
@@ -95,9 +95,9 @@ async function readSnapshot(name: string): Promise<ContainerStatusDTO | null> {
  */
 export function isSshRefreshConfigured(): boolean {
   return Boolean(
-    env.STACK_HEALTH_SSH_HOST &&
-      env.STACK_HEALTH_SSH_USER &&
-      env.STACK_HEALTH_SSH_KEY_PATH,
+    env().STACK_HEALTH_SSH_HOST &&
+      env().STACK_HEALTH_SSH_USER &&
+      env().STACK_HEALTH_SSH_KEY_PATH,
   );
 }
 
@@ -113,8 +113,8 @@ async function refreshViaSsh(name: string): Promise<ContainerStatusDTO | null> {
     log.warn("container-status: refusing ssh exec for unsafe name", { name });
     return null;
   }
-  const sshTarget = `${env.STACK_HEALTH_SSH_USER}@${env.STACK_HEALTH_SSH_HOST}`;
-  const sshKey = env.STACK_HEALTH_SSH_KEY_PATH!;
+  const sshTarget = `${env().STACK_HEALTH_SSH_USER}@${env().STACK_HEALTH_SSH_HOST}`;
+  const sshKey = env().STACK_HEALTH_SSH_KEY_PATH!;
 
   // Single SSH call that prints both inspect and logs, separated by a
   // sentinel line so we can parse them out without two round-trips.

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import { search as tmdbSearch } from "@/lib/search/tmdb";
 import {
   search as musicSearch,
@@ -56,13 +57,22 @@ export async function GET(req: NextRequest) {
   const searches: Promise<SearchResult[]>[] = [];
 
   if (!filter || filter === "movie" || filter === "tv") {
-    searches.push(tmdbSearch(query).catch(() => []));
+    searches.push(tmdbSearch(query).catch((err: unknown) => {
+      log.warn("search: TMDB source failed", { err });
+      return [];
+    }));
   }
   if (!filter || filter === "music") {
-    searches.push(musicSearch(query, musicOptions).catch(() => []));
+    searches.push(musicSearch(query, musicOptions).catch((err: unknown) => {
+      log.warn("search: MusicBrainz source failed", { err });
+      return [];
+    }));
   }
   if (!filter || filter === "book") {
-    searches.push(bookSearch(query).catch(() => []));
+    searches.push(bookSearch(query).catch((err: unknown) => {
+      log.warn("search: Open Library source failed", { err });
+      return [];
+    }));
   }
 
   const resultArrays = await Promise.all(searches);

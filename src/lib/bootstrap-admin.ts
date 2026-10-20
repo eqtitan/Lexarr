@@ -15,12 +15,13 @@
  * path if they forget credentials.
  */
 import { PrismaClient } from "@prisma/client";
+import { env } from "@/lib/env";
 import bcrypt from "bcryptjs";
 import { log } from "@/lib/log";
 
 export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> {
-  const username = process.env.BOOTSTRAP_ADMIN_USERNAME?.trim();
-  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  const username = env().BOOTSTRAP_ADMIN_USERNAME?.trim();
+  const password = env().BOOTSTRAP_ADMIN_PASSWORD;
 
   // Is there already an admin? If so, nothing to do.
   const adminCount = await prisma.user.count({ where: { role: "admin" } });

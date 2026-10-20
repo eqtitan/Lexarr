@@ -68,7 +68,7 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  logAudit(
+  void logAudit(
     adminId,
     "blocklist_queue",
     { type: "queue", id: String(body.id) },

@@ -1,4 +1,5 @@
 import { APP_VERSION } from "@/lib/version";
+import { env } from "@/lib/env";
 
 /**
  * Build-time metadata for the running Lexarr process.
@@ -24,7 +25,7 @@ export interface BuildInfo {
 export function getBuildInfo(): BuildInfo {
   return {
     version: APP_VERSION,
-    gitSha: process.env.GIT_SHA ?? "unknown",
-    buildTime: process.env.BUILD_TIME ?? "unknown",
+    gitSha: env().GIT_SHA ?? "unknown",
+    buildTime: env().BUILD_TIME ?? "unknown",
   };
 }

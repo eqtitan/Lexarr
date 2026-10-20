@@ -52,3 +52,45 @@ jobs:
       # `prisma migrate dev` to generate a matching migration.
       - name: Migration smoke test
         run: bash scripts/migration-smoke-test.sh
+
+  e2e:
+    name: End-to-end smoke (Playwright)
+    runs-on: ubuntu-latest
+    # Runs the production build against a seeded SQLite DB and a stub
+    # TMDB/*arr server (e2e/stub-server.mjs) -- no external services.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        env:
+          HUSKY: 0
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Run end-to-end tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

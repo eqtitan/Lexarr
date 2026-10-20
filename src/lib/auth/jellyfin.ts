@@ -1,7 +1,8 @@
-const JELLYFIN_URL = process.env.JELLYFIN_URL || "http://localhost:8096";
+import { env } from "@/lib/env";
+const jellyfinUrl = () => env().JELLYFIN_URL || "http://localhost:8096";
 
 export async function authenticateJellyfin(username: string, password: string) {
-  const res = await fetch(`${JELLYFIN_URL}/Users/AuthenticateByName`, {
+  const res = await fetch(`${jellyfinUrl()}/Users/AuthenticateByName`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -18,7 +19,7 @@ export async function authenticateJellyfin(username: string, password: string) {
     name: data.User?.Name,
     accessToken: data.AccessToken,
     avatar: data.User?.PrimaryImageTag
-      ? `${JELLYFIN_URL}/Users/${data.User.Id}/Images/Primary`
+      ? `${jellyfinUrl()}/Users/${data.User.Id}/Images/Primary`
       : undefined,
   };
 }

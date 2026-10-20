@@ -1,4 +1,6 @@
 import type { SearchResult } from "@/types";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 
 interface TmdbMultiResult {
   id: number;
@@ -23,13 +25,15 @@ interface TmdbDiscoverResult {
   vote_average?: number;
 }
 
-const BASE = "https://api.themoviedb.org/3";
-const KEY = process.env.TMDB_API_KEY || "";
+// TMDB_API_BASE is only overridden by the end-to-end tests (e2e/), which
+// point it at a local stub server.
+const base = () => env().TMDB_API_BASE || "https://api.themoviedb.org/3";
+const apiKey = () => env().TMDB_API_KEY || "";
 
 export async function search(query: string): Promise<SearchResult[]> {
-  if (!KEY) return [];
+  if (!apiKey()) return [];
   const res = await fetch(
-    `${BASE}/search/multi?query=${encodeURIComponent(query)}&api_key=${KEY}&page=1&with_original_language=en`,
+    `${base()}/search/multi?query=${encodeURIComponent(query)}&api_key=${apiKey()}&page=1&with_original_language=en`,
   );
   if (!res.ok) return [];
   const data = await res.json();
@@ -106,9 +110,12 @@ async function fetchDiscoverPages(
   const pages = await Promise.all(
     Array.from({ length: DISCOVER_PAGES }, (_, i) => {
       const params = new URLSearchParams({ ...baseParams, page: String(i + 1) });
-      return fetch(`${BASE}/discover/${endpoint}?${params}`)
+      return fetch(`${base()}/discover/${endpoint}?${params}`)
         .then((res) => (res.ok ? res.json() : { results: [] }))
-        .catch(() => ({ results: [] }));
+        .catch((err: unknown) => {
+          log.debug("tmdb: discover request failed", { err });
+          return { results: [] };
+        });
     }),
   );
   const all = pages.flatMap((p) => (p.results || []) as TmdbDiscoverResult[]);
@@ -149,10 +156,10 @@ async function fetchDiscoverPages(
  * that filtering. Defaults to 24 — the feed's display count.
  */
 export async function discoverRecentMovies(limit = 24): Promise<SearchResult[]> {
-  if (!KEY) return [];
+  if (!apiKey()) return [];
   const { gte, lte } = sixMonthWindow();
   const results = await fetchDiscoverPages("movie", {
-    api_key: KEY,
+    api_key: apiKey(),
     with_original_language: "en",
     sort_by: "popularity.desc",
     "primary_release_date.gte": gte,
@@ -170,10 +177,10 @@ export async function discoverRecentMovies(limit = 24): Promise<SearchResult[]> 
  *  first. Same popularity-sort-then-redate approach as discoverRecentMovies
  *  — see its doc comment for why. See discoverRecentMovies for `limit`. */
 export async function discoverRecentTv(limit = 24): Promise<SearchResult[]> {
-  if (!KEY) return [];
+  if (!apiKey()) return [];
   const { gte, lte } = sixMonthWindow();
   const results = await fetchDiscoverPages("tv", {
-    api_key: KEY,
+    api_key: apiKey(),
     with_original_language: "en",
     sort_by: "popularity.desc",
     "first_air_date.gte": gte,

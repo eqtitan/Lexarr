@@ -116,24 +116,29 @@ export default function LoginPage() {
 
       // Poll for completion. The pin id is tracked server-side via the
       // httpOnly cookie the POST above set — nothing to pass here.
-      const interval = setInterval(async () => {
-        const check = await fetch("/api/auth/plex");
-        const checkData = await check.json();
-        if (checkData.authenticated && checkData.plexToken) {
-          clearInterval(interval);
-          authWindow?.close();
-          // Create a real NextAuth session with the Plex token
-          const result = await signIn("plex", {
-            plexToken: checkData.plexToken,
-            redirect: false,
-          });
-          if (result?.error) {
-            setError("Plex authentication failed");
-          } else {
-            router.push("/");
+      const pollPin = async () => {
+        try {
+          const check = await fetch("/api/auth/plex");
+          const checkData = await check.json();
+          if (checkData.authenticated && checkData.plexToken) {
+            clearInterval(interval);
+            authWindow?.close();
+            // Create a real NextAuth session with the Plex token
+            const result = await signIn("plex", {
+              plexToken: checkData.plexToken,
+              redirect: false,
+            });
+            if (result?.error) {
+              setError("Plex authentication failed");
+            } else {
+              router.push("/");
+            }
           }
+        } catch {
+          // Transient network error: keep polling until the 5-minute cap.
         }
-      }, 2000);
+      };
+      const interval = setInterval(() => void pollPin(), 2000);
 
       // Stop polling after 5 minutes
       setTimeout(() => clearInterval(interval), 300000);

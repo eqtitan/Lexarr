@@ -1,11 +1,12 @@
 import { arrFetch } from "./_fetch";
+import { env } from "@/lib/env";
 
-const BASE = `${process.env.ARR_HOST}:9696`;
-const KEY = process.env.PROWLARR_API_KEY!;
+const base = () => `${env().ARR_HOST}:9696`;
+const apiKey = () => env().PROWLARR_API_KEY!;
 
 function api<T = unknown>(path: string) {
-  return arrFetch<T>("Prowlarr", BASE, path, {
-    headers: { "X-Api-Key": KEY },
+  return arrFetch<T>("Prowlarr", base(), path, {
+    headers: { "X-Api-Key": apiKey() },
   });
 }
 

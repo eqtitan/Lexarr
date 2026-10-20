@@ -56,7 +56,7 @@ export default function Home() {
 
         // Fetch library statuses asynchronously (don't block search rendering)
         if (searchResults.length > 0) {
-          fetchLibraryStatuses(searchResults);
+          void fetchLibraryStatuses(searchResults);
         }
       } catch {
         setResults([]);

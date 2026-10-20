@@ -180,7 +180,8 @@ export async function notify(payload: NotificationPayload): Promise<void> {
       .map((ch) => sendWebhook(ch.webhookUrl, ch.type, payload));
 
     await Promise.allSettled(promises);
-  } catch {
+  } catch (err) {
+    log.error("notifications: dispatch failed", { err });
     // Notifications must never break the main pipeline
   }
 }

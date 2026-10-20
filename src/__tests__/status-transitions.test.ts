@@ -1,7 +1,7 @@
 /**
  * Concurrency tests for request status transitions, against a real
- * throwaway SQLite DB (migrated with `prisma migrate deploy`, so the
- * Request_active_dedupe_idx partial unique index is present too).
+ * migrated SQLite DB (helpers/test-db.ts), so the Request_active_dedupe_idx
+ * partial unique index and real transactions are in play.
  *
  * Covers the races fixed alongside src/lib/request-transition.ts:
  *   - the poller and a webhook both seeing the same import must notify once
@@ -10,16 +10,11 @@
  *   - a send-to-*arr that finishes after a cancel keeps the cancel
  * and the duplicate check no longer counting denied/cancelled requests.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { PrismaClient } from "@prisma/client";
-import { execSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { useTestDb, testPrisma } from "./helpers/test-db";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import type { PrismaClient } from "@prisma/client";
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lexarr-transitions-test-"));
-const dbPath = path.join(tmpDir, "t.db").replace(/\\/g, "/");
-process.env.DATABASE_URL = `file:${dbPath}`;
+useTestDb();
 
 const getMovie = vi.fn();
 vi.mock("@/lib/arr/radarr", () => ({
@@ -44,33 +39,13 @@ let requestService: typeof import("@/lib/services/request");
 let userId: string;
 
 beforeAll(async () => {
-  execSync("npx prisma migrate deploy", {
-    env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
-    cwd: path.resolve(__dirname, "../.."),
-    stdio: "pipe",
-  });
-  prisma = new PrismaClient({ datasources: { db: { url: `file:${dbPath}` } } });
-  await prisma.$connect();
+  prisma = await testPrisma();
   checker = await import("@/lib/status-checker");
   requestService = await import("@/lib/services/request");
-}, 60_000);
-
-afterAll(async () => {
-  await prisma?.$disconnect();
-  const { prisma: appPrisma } = await import("@/lib/db");
-  await appPrisma.$disconnect();
-  try {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  } catch {
-    /* best-effort cleanup */
-  }
 });
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  await prisma.pipelineEvent.deleteMany({});
-  await prisma.request.deleteMany({});
-  await prisma.user.deleteMany({});
   userId = (await prisma.user.create({ data: { name: "alice" } })).id;
 });
 
@@ -176,6 +151,88 @@ describe("status transitions under concurrency", () => {
 
     expect((await prisma.request.findUnique({ where: { id: req.id } }))?.status).toBe("cancelled");
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("lifecycle enforcement", () => {
+  it("refuses a move the lifecycle doesn't allow, leaving the row untouched", async () => {
+    const { updateRequestIfStatus } = await import("@/lib/request-transition");
+    const req = await makeRequest({ status: "denied" });
+    expect(await updateRequestIfStatus(req.id, "denied", { status: "approved" })).toBe(false);
+    expect((await prisma.request.findUnique({ where: { id: req.id } }))?.status).toBe("denied");
+  });
+});
+
+describe("escalations run even when nothing is downloading", () => {
+  it("fails a request stalled for 48h+ on a quiet server", async () => {
+    // Regression: runStatusCheck returned early when no request was
+    // approved/downloading with an arrId, skipping every escalation tier.
+    const req = await makeRequest({ status: "stalled" });
+    const old = new Date(Date.now() - 49 * 60 * 60 * 1000);
+    await prisma.request.update({ where: { id: req.id }, data: { updatedAt: old } });
+
+    const result = await checker.checkAndUpdateStatuses();
+
+    expect(result.autoFailed).toBe(1);
+    expect((await prisma.request.findUnique({ where: { id: req.id } }))?.status).toBe("failed");
+  });
+});
+
+describe("auto-retry of approved requests that never reached an *arr", () => {
+  // Backdate so the request is past the 1h grace period and not retried
+  // within the last hour.
+  async function makeStuckApproved() {
+    const req = await makeRequest({ status: "approved" });
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // An explicit updatedAt overrides Prisma's automatic @updatedAt.
+    await prisma.request.update({ where: { id: req.id }, data: { approvedAt: old, updatedAt: old } });
+    return req;
+  }
+  async function backdateUpdatedAt(id: string) {
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await prisma.request.update({ where: { id }, data: { updatedAt: old } });
+  }
+
+  it("retries three times, staying approved between attempts, then fails and notifies once", async () => {
+    // Regression: the first failed attempt used to mark the request failed,
+    // so attempts 2 and 3 never happened.
+    routeToArr.mockRejectedValue(new Error("Radarr down"));
+    const req = await makeStuckApproved();
+
+    for (const attempt of [1, 2]) {
+      await checker.checkAndUpdateStatuses();
+      const row = await prisma.request.findUnique({ where: { id: req.id } });
+      expect(row).toMatchObject({ status: "approved", retryCount: attempt, lastError: "Radarr down" });
+      expect(notify).not.toHaveBeenCalled();
+      await backdateUpdatedAt(req.id);
+    }
+
+    await checker.checkAndUpdateStatuses();
+    expect(await prisma.request.findUnique({ where: { id: req.id } })).toMatchObject({
+      status: "failed",
+      retryCount: 3,
+    });
+    expect(routeToArr).toHaveBeenCalledTimes(3);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ event: "failed" }));
+  });
+
+  it("waits an hour between attempts", async () => {
+    routeToArr.mockRejectedValue(new Error("Radarr down"));
+    await makeStuckApproved();
+    await checker.checkAndUpdateStatuses();
+    await checker.checkAndUpdateStatuses(); // updatedAt is now fresh
+    expect(routeToArr).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves on to downloading when a retry succeeds", async () => {
+    routeToArr.mockResolvedValue({ arrId: 42, alreadyExists: false });
+    const req = await makeStuckApproved();
+    await checker.checkAndUpdateStatuses();
+    expect(await prisma.request.findUnique({ where: { id: req.id } })).toMatchObject({
+      status: "downloading",
+      arrId: 42,
+    });
   });
 });
 

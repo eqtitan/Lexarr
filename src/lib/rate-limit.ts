@@ -14,6 +14,7 @@
  * NODE_ENV=test so vitest doesn't hold open handles.
  */
 import { createHash } from "node:crypto";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/log";
 
@@ -56,9 +57,9 @@ export async function checkRateLimit(
   // the total across all clients per route ("auth", "search", ...) so that
   // rotation can't exceed a fixed ceiling. Trade-off: a flood can exhaust
   // the shared ceiling for everyone until the window resets.
-  if (TRUSTED_PROXY_HOPS === 0) {
+  if (trustedProxyHops() === 0) {
     const route = key.split(":", 1)[0];
-    const ceiling = config.limit * CEILING_MULTIPLIER;
+    const ceiling = config.limit * ceilingMultiplier();
     const total = await incrementBucket(`${route}:__all__`, windowStart);
     if (total > ceiling) {
       return { allowed: false, remaining: 0, resetAt };
@@ -111,18 +112,18 @@ export const RATE_LIMITS = {
  * proxies between the client and Lexarr (almost always 1) so the
  * trusted hop — appended by your proxy, not the client — is used.
  */
-const TRUSTED_PROXY_HOPS = Number(process.env.TRUSTED_PROXY_HOPS) || 0;
+const trustedProxyHops = () => Number(env().TRUSTED_PROXY_HOPS) || 0;
 
 /**
  * Per-route ceiling across ALL clients, as a multiple of the per-client
  * limit (default 4: e.g. auth 20/min, search 120/min in total). Only
  * applies when TRUSTED_PROXY_HOPS is 0 — see checkRateLimit.
  */
-const CEILING_MULTIPLIER = Number(process.env.RATE_LIMIT_CEILING_MULTIPLIER) || 4;
+const ceilingMultiplier = () => Number(env().RATE_LIMIT_CEILING_MULTIPLIER) || 4;
 
 /**
  * Extract a client key from request headers (works behind a *trusted*
- * proxy — see TRUSTED_PROXY_HOPS above).
+ * proxy — see trustedProxyHops() / TRUSTED_PROXY_HOPS above).
  *
  * Fallback (no trusted proxy configured): bucket by a hash of
  * User-Agent + Accept-Language instead of a single shared "unknown"
@@ -135,14 +136,14 @@ const CEILING_MULTIPLIER = Number(process.env.RATE_LIMIT_CEILING_MULTIPLIER) || 
  * HTTP clients let you set directly per request).
  */
 export function getClientIp(headers: Headers): string {
-  if (TRUSTED_PROXY_HOPS > 0) {
+  if (trustedProxyHops() > 0) {
     const xff = headers.get("x-forwarded-for");
     if (xff) {
       // The client-supplied end of this list is attacker-controlled;
       // only the rightmost N entries were appended by our own trusted
       // proxy/proxies, so read from that end.
       const ips = xff.split(",").map((s) => s.trim());
-      const ip = ips[Math.max(0, ips.length - TRUSTED_PROXY_HOPS)];
+      const ip = ips[Math.max(0, ips.length - trustedProxyHops())];
       if (ip) return ip;
     }
     const realIp = headers.get("x-real-ip");
@@ -166,7 +167,7 @@ if (process.env.NODE_ENV !== "test") {
   const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
   const STALE_CUTOFF_S = 60 * 60; // 1 hour
 
-  setInterval(async () => {
+  const sweep = async () => {
     try {
       const cutoff = Math.floor(Date.now() / 1000) - STALE_CUTOFF_S;
       const { count } = await prisma.rateLimitBucket.deleteMany({
@@ -178,5 +179,6 @@ if (process.env.NODE_ENV !== "test") {
     } catch (err) {
       log.warn("rate-limit sweep failed", { err });
     }
-  }, SWEEP_INTERVAL_MS);
+  };
+  setInterval(() => void sweep(), SWEEP_INTERVAL_MS);
 }

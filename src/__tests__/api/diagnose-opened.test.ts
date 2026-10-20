@@ -9,14 +9,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 
 vi.mock("@/lib/env", () => ({
-  env: {
+  env: () => ({
     NEXTAUTH_SECRET: "test",
     ARR_HOST: "http://localhost",
     RADARR_API_KEY: "test",
     SONARR_API_KEY: "test",
     LIDARR_API_KEY: "test",
     TMDB_API_KEY: "test",
-  },
+  }),
 }));
 
 vi.mock("@/lib/auth/config", () => ({

@@ -52,7 +52,7 @@ export async function PUT(req: NextRequest) {
   await setAllowedRegions(body.regions as RegionCode[]);
   const saved = await getAllowedRegions();
 
-  logAudit(
+  void logAudit(
     adminId,
     "update_settings",
     { type: "settings", id: "music.allowedRegions" },

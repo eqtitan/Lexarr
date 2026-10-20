@@ -6,22 +6,9 @@ vi.mock("@/lib/status-checker", () => ({
   checkSingleRequest: vi.fn().mockResolvedValue(true),
 }));
 
-// P-09: webhook routes now read the secret from the validated env module,
-// which Zod-validates at module load. Mock the env so tests don't need the
-// full required env-var set.
-vi.mock("@/lib/env", () => ({
-  get env() {
-    return {
-      LEXARR_WEBHOOK_SECRET: process.env.LEXARR_WEBHOOK_SECRET,
-      NEXTAUTH_SECRET: "test",
-      ARR_HOST: "http://localhost",
-      RADARR_API_KEY: "test",
-      SONARR_API_KEY: "test",
-      LIDARR_API_KEY: "test",
-      TMDB_API_KEY: "test",
-    };
-  },
-}));
+// Webhook routes read LEXARR_WEBHOOK_SECRET through env(), which reads
+// process.env at call time -- so each test just sets the variable.
+
 
 describe("Webhook Token Validation", () => {
   const originalEnv = process.env;
@@ -52,6 +39,7 @@ describe("Webhook Token Validation", () => {
       const url = new URL("http://localhost/api/webhooks/radarr");
       const nextReq = {
         nextUrl: url,
+        headers: req.headers,
         json: () => req.json(),
       };
 
@@ -70,6 +58,7 @@ describe("Webhook Token Validation", () => {
       );
       const nextReq = {
         nextUrl: url,
+        headers: new Headers(),
         json: () =>
           Promise.resolve({
             eventType: "Download",
@@ -92,6 +81,7 @@ describe("Webhook Token Validation", () => {
       );
       const nextReq = {
         nextUrl: url,
+        headers: new Headers(),
         json: () =>
           Promise.resolve({
             eventType: "Download",
@@ -114,6 +104,7 @@ describe("Webhook Token Validation", () => {
       const url = new URL("http://localhost/api/webhooks/radarr");
       const nextReq = {
         nextUrl: url,
+        headers: new Headers(),
         json: () =>
           Promise.resolve({
             eventType: "Download",
@@ -133,13 +124,59 @@ describe("Webhook Token Validation", () => {
  * are near-identical (see route source) so the test shape mirrors across
  * media types intentionally.
  */
-function makeWebhookReq(url: string, body: unknown): NextRequest {
+function makeWebhookReq(url: string, body: unknown, headers: Record<string, string> = {}): NextRequest {
   const u = new URL(url);
   return {
     nextUrl: u,
+    headers: new Headers(headers),
     json: () => Promise.resolve(body),
   } as unknown as NextRequest;
 }
+
+const basic = (user: string, pass: string) => ({
+  authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`,
+});
+
+describe("Webhook secret via HTTP Basic auth", () => {
+  const originalEnv = process.env;
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    process.env = { ...originalEnv, LEXARR_WEBHOOK_SECRET: "test-secret-123" };
+  });
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  const importEvent = { eventType: "Download", movie: { id: 7 } };
+
+  it("accepts the secret as the Basic auth password (no token in the URL)", async () => {
+    const { POST } = await import("@/app/api/webhooks/radarr/route");
+    const res = await POST(
+      makeWebhookReq("http://localhost/api/webhooks/radarr", importEvent, basic("radarr", "test-secret-123")),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a wrong Basic auth password", async () => {
+    const { POST } = await import("@/app/api/webhooks/radarr/route");
+    const res = await POST(
+      makeWebhookReq("http://localhost/api/webhooks/radarr", importEvent, basic("radarr", "wrong")),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("still accepts the legacy ?token= form", async () => {
+    const { POST } = await import("@/app/api/webhooks/sonarr/route");
+    const res = await POST(
+      makeWebhookReq("http://localhost/api/webhooks/sonarr?token=test-secret-123", {
+        eventType: "Download",
+        series: { id: 3 },
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+});
 
 describe("Webhook routes — event handling (M3)", () => {
   const originalEnv = process.env;

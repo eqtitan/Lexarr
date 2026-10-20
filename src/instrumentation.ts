@@ -6,8 +6,9 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    // Validate required env vars at startup
-    await import("./lib/env");
+    // Validate required env vars at startup (fails fast with a clear error)
+    const { validateEnvOrThrow } = await import("./lib/env");
+    validateEnvOrThrow();
 
     // Failover admin bootstrap — ensure at least one admin always exists
     try {
@@ -44,7 +45,7 @@ export async function register() {
           consecutiveFailures % 5 !== 0
         ) {
           consecutiveFailures++;
-          setTimeout(runCycle, 60_000);
+          setTimeout(() => void runCycle(), 60_000);
           return;
         }
 
@@ -91,10 +92,10 @@ export async function register() {
           }
         }
 
-        setTimeout(runCycle, 60_000);
+        setTimeout(() => void runCycle(), 60_000);
       };
 
-      runCycle();
+      void runCycle();
     }, 10_000);
   }
 }

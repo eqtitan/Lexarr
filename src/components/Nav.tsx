@@ -168,7 +168,7 @@ export default function Nav() {
                     <button
                       onClick={() => {
                         setMenuOpen(false);
-                        signOut({ callbackUrl: "/login" });
+                        void signOut({ callbackUrl: "/login" });
                       }}
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--card-hover)]"
                     >
@@ -193,7 +193,7 @@ export default function Nav() {
                     <button
                       onClick={() => {
                         setMenuOpen(false);
-                        signOut({ callbackUrl: "/" });
+                        void signOut({ callbackUrl: "/" });
                       }}
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--danger)] transition-colors hover:bg-[var(--card-hover)]"
                     >

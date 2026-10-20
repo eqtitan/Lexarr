@@ -7,14 +7,16 @@
  * Line format: category|folderName|unixTimestamp|scanCount
  */
 import { promises as fs } from "node:fs";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import { join } from "node:path";
 import type { OrphanItem } from "@/types/dashboard";
 import { getAllTorrents } from "./qbittorrent";
 import { parse as sonarrParse } from "./sonarr";
 import { parse as radarrParse } from "./radarr";
 
-const HEALTH_DIR = process.env.STACK_HEALTH_DIR || "/stack-health";
-const ORPHAN_STATE_FILE = join(HEALTH_DIR, "orphan-state.txt");
+const healthDir = () => env().STACK_HEALTH_DIR || "/stack-health";
+const ORPHAN_STATE_FILE = join(healthDir(), "orphan-state.txt");
 
 type OrphanCategory = "tv" | "movies" | "music" | "books";
 
@@ -46,7 +48,8 @@ async function readOrphanStateLines(): Promise<ParsedLine[]> {
       .split("\n")
       .map(parseOrphanStateLine)
       .filter((l): l is ParsedLine => l !== null);
-  } catch {
+  } catch (err) {
+    log.debug("orphans: state file unreadable", { err });
     return [];
   }
 }
@@ -74,7 +77,8 @@ async function checkArrHasFile(
       const result = await sonarrParse(folderName);
       if (!result?.episodes?.length) return null;
       return result.episodes[0].hasFile === true;
-    } catch {
+    } catch (err) {
+      log.debug("orphans: Sonarr episode lookup failed", { err });
       return null;
     }
   }
@@ -83,7 +87,8 @@ async function checkArrHasFile(
       const result = await radarrParse(folderName);
       if (!result?.movie) return null;
       return result.movie.hasFile === true;
-    } catch {
+    } catch (err) {
+      log.debug("orphans: Radarr movie lookup failed", { err });
       return null;
     }
   }

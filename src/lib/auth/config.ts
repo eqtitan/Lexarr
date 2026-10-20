@@ -1,4 +1,6 @@
 import NextAuth from "next-auth";
+import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db";
 import { authenticateJellyfin } from "@/lib/auth/jellyfin";
@@ -59,7 +61,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             image: user.avatar,
             sessionVersion: user.sessionVersion,
           };
-        } catch {
+        } catch (err) {
+          log.warn("auth: Plex sign-in failed", { err });
           return null;
         }
       },
@@ -183,5 +186,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   session: { strategy: "jwt" },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: env().NEXTAUTH_SECRET,
 });

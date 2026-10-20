@@ -8,6 +8,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.20.0] — 2026-10-20
+
+From the 2026-10-20 senior code review (#23–#29).
+
+### Breaking
+- **P-06 removed** (#24): the unused `ServiceConnection` encrypted-config
+  model, its provider registry and `LEXARR_DATA_KEY` are gone. Migration
+  `drop_unused_service_tables` drops `ServiceConnection` and the legacy
+  `ServiceConfig` table (both were never used). Config comes from the
+  environment only.
+
+### Added
+- End-to-end smoke tests (Playwright) against a stub TMDB/*arr server,
+  run in CI on every PR (#23)
+- Webhooks accept the secret as the HTTP Basic auth password, keeping it
+  out of URLs and logs; `?token=` still works (#29)
+- `Content-Security-Policy-Report-Only` header; the e2e run fails on any
+  violation (#29)
+
+### Changed
+- One validated config accessor (`env()`); reading `process.env`
+  elsewhere is a lint error (#24)
+- Request lifecycle has a single owner: an explicit status-transition
+  table enforced on every write, and one per-media `getMediaState()`
+  adapter (#25)
+- User, registration and retry rules moved into services (#27)
+- `GET /api/admin/dashboard` is read-only; force-refresh runs a status
+  check (#27)
+- Errors that used to be swallowed silently are logged; type-aware
+  promise lint (#26)
+- `deploy.ps1` ships the exact commit (`git archive`) to a fresh build
+  directory and refuses a dirty working tree (#29)
+
+### Fixed
+- Auto-retry of approved requests never actually retried (failed on the
+  first attempt); now up to 3 hourly attempts before failing (#25)
+- Stall detection, the 48h auto-fail and auto-retry were skipped entirely
+  when nothing was downloading (#25)
+- Admin retry re-sent a single as a full album and an audiobook as an
+  ebook (#27)
+- `/api/auth/register` returned 500 on a malformed JSON body (#27)
+- Request `posterUrl` must come from a known image host (#29)
+
+### Chore
+- Shared real-SQLite test fixture; six mocked-Prisma suites moved onto
+  it (#28). Two time-dependent test flakes fixed (#25, #28)
+
 ## [0.19.0] — 2026-10-20
 
 0.18.1 and 0.18.2 were hotfix builds deployed straight to the reference

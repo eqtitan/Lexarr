@@ -191,7 +191,7 @@ export default function PendingApprovalsCard({
                     className="flex-1 rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
                     autoFocus
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") startAction(req.id, noteAction);
+                      if (e.key === "Enter") void startAction(req.id, noteAction);
                       if (e.key === "Escape") cancelNote();
                     }}
                   />

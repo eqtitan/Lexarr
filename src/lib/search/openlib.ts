@@ -1,4 +1,5 @@
 import type { SearchResult } from "@/types";
+import { log } from "@/lib/log";
 
 const BASE = "https://openlibrary.org";
 
@@ -16,7 +17,8 @@ async function googleBooksCover(title: string, author?: string): Promise<string 
     const data = await res.json();
     const links = data.items?.[0]?.volumeInfo?.imageLinks;
     return links?.thumbnail || links?.smallThumbnail || undefined;
-  } catch {
+  } catch (err) {
+    log.debug("openlib: Google Books cover lookup failed", { err });
     return undefined;
   }
 }

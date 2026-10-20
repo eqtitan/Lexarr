@@ -15,7 +15,7 @@ import type { NextRequest } from "next/server";
 
 // Mock the env module so the route import doesn't trip Zod validation
 vi.mock("@/lib/env", () => ({
-  env: {
+  env: () => ({
     NEXTAUTH_SECRET: "test",
     ARR_HOST: "http://localhost",
     RADARR_API_KEY: "test",
@@ -23,7 +23,7 @@ vi.mock("@/lib/env", () => ({
     LIDARR_API_KEY: "test",
     TMDB_API_KEY: "test",
     LEXARR_WEBHOOK_SECRET: "test",
-  },
+  }),
 }));
 
 // Mock auth so each test can set the session shape

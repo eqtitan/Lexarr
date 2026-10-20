@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  logAudit(
+  void logAudit(
     adminId,
     "add_notification",
     { type: "notification", id: channel.id },
@@ -118,7 +118,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   await prisma.notificationChannel.delete({ where: { id } });
-  logAudit(adminId, "remove_notification", { type: "notification", id });
+  void logAudit(adminId, "remove_notification", { type: "notification", id });
 
   return NextResponse.json({ deleted: true });
 }

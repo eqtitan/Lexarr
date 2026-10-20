@@ -6,11 +6,12 @@
  *   -v /mnt/user/data/stack-healthcheck:/stack-health:ro
  */
 import { promises as fs } from "node:fs";
+import { env } from "@/lib/env";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
-const HEALTH_DIR = process.env.STACK_HEALTH_DIR || "/stack-health";
-const REPORT_FILE = join(HEALTH_DIR, "latest-report.txt");
+const healthDir = () => env().STACK_HEALTH_DIR || "/stack-health";
+const REPORT_FILE = join(healthDir(), "latest-report.txt");
 
 export interface StackHealthReport {
   /** File mtime — when the script last ran */

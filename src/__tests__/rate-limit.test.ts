@@ -5,7 +5,7 @@
  * pattern as crypto.test.ts). Durability across process restart is also
  * verified by instantiating a fresh PrismaClient after the first few calls.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -53,6 +53,16 @@ afterAll(async () => {
 beforeEach(async () => {
   // Clean slate per test
   await prisma.rateLimitBucket.deleteMany({});
+  // Windows are aligned to wall-clock minutes, so a test making several
+  // calls could straddle a boundary and see its counter reset (a real
+  // flake in CI). Pin "now" to the start of a window; only Date is faked,
+  // so Prisma's real async I/O is unaffected.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("checkRateLimit (DB-backed)", () => {

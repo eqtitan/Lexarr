@@ -302,18 +302,20 @@ describe("GET /api/admin/dashboard", () => {
     });
   });
 
-  it("still returns 200 when the piggybacked status-check import rejects", async () => {
+  it("is read-only: loading the dashboard does not trigger a status sweep", async () => {
+    // It used to fire checkAndUpdateStatuses() on every poll (every 10s
+    // while downloads were active).
     const { auth } = await import("@/lib/auth/config");
     vi.mocked(auth).mockResolvedValue(adminSession as never);
     await mockDefaults();
     await mockPipeline([], [], []);
 
-    const { checkAndUpdateStatuses } = await import("@/lib/status-checker");
-    vi.mocked(checkAndUpdateStatuses).mockRejectedValue(new Error("sweep failed"));
-
     const { GET } = await import("@/app/api/admin/dashboard/route");
     const res = await GET();
     expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0)); // let any fire-and-forget start
+    const { checkAndUpdateStatuses } = await import("@/lib/status-checker");
+    expect(checkAndUpdateStatuses).not.toHaveBeenCalled();
   });
 
   it("passes queue, pending, active, services, and indexer data through to warnings/analytics", async () => {

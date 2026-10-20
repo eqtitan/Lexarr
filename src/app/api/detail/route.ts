@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "@/lib/env";
 import { detailCache } from "@/lib/cache";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 import type {
@@ -10,14 +11,15 @@ import type {
   OpenLibraryWork,
 } from "@/types/external-apis";
 
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_KEY = process.env.TMDB_API_KEY;
+// Overridden only by the end-to-end tests (see src/lib/search/tmdb.ts).
+const tmdbBase = () => env().TMDB_API_BASE || "https://api.themoviedb.org/3";
+const tmdbKey = () => env().TMDB_API_KEY;
 const MB_BASE = "https://musicbrainz.org/ws/2";
 
 async function tmdb<T>(path: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
   const res = await fetch(
-    `${TMDB_BASE}${path}${sep}api_key=${TMDB_KEY}&language=en-US`,
+    `${tmdbBase()}${path}${sep}api_key=${tmdbKey()}&language=en-US`,
   );
   if (!res.ok) throw new Error(`TMDB ${path}: ${res.status}`);
   return res.json() as Promise<T>;

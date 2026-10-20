@@ -1,14 +1,15 @@
 import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
+import { env } from "@/lib/env";
 import { pickDefaultProfile, SONARR_DEFAULT_PATTERNS } from "./quality-profile";
 
-const BASE = `${process.env.ARR_HOST}:8989`;
-const KEY = process.env.SONARR_API_KEY!;
+const base = () => `${env().ARR_HOST}:8989`;
+const apiKey = () => env().SONARR_API_KEY!;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function api<T = any>(path: string, options: ArrFetchOptions = {}) {
-  return arrFetch<T>("Sonarr", BASE, path, {
+  return arrFetch<T>("Sonarr", base(), path, {
     ...options,
-    headers: { "X-Api-Key": KEY, ...options.headers },
+    headers: { "X-Api-Key": apiKey(), ...options.headers },
   });
 }
 

@@ -19,6 +19,7 @@
  * search, well under budget.
  */
 import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 
 const BASE = "https://ws.audioscrobbler.com/2.0/";
 const FETCH_TIMEOUT_MS = 3_000;
@@ -52,7 +53,7 @@ interface LastfmArtistInfo {
 export async function getArtistListeners(
   mbid: string,
 ): Promise<number | null> {
-  const apiKey = process.env.LASTFM_API_KEY;
+  const apiKey = env().LASTFM_API_KEY;
   if (!apiKey) return null;
 
   // MusicBrainz UUIDs are 36 chars with dashes. Reject anything else
@@ -72,7 +73,10 @@ export async function getArtistListeners(
       });
       return null;
     }
-    const data = (await res.json().catch(() => null)) as LastfmArtistInfo | null;
+    const data = (await res.json().catch((err: unknown) => {
+      log.debug("lastfm: lookup failed", { err });
+      return null;
+    })) as LastfmArtistInfo | null;
     if (!data || data.error) {
       if (data?.error) {
         // error code 6 = "no entity found" — expected for obscure artists
@@ -106,5 +110,5 @@ export async function getArtistListeners(
  *  logic entirely when the key is absent (avoids N parallel no-op
  *  fetches on every music search). */
 export function isLastfmEnabled(): boolean {
-  return !!process.env.LASTFM_API_KEY;
+  return !!env().LASTFM_API_KEY;
 }

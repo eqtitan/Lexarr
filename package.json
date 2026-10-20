@@ -1,6 +1,6 @@
 {
   "name": "lexarr",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Unified media request portal for movies, TV, music, and books",
   "engines": {
     "node": ">=22"
@@ -16,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/",
     "release": "node scripts/release.js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -42,6 +43,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^2.4.6",

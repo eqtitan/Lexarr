@@ -115,8 +115,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (role === "admin") {
-      fetchChannels();
-      fetchRegions();
+      void fetchChannels();
+      void fetchRegions();
     }
   }, [role, fetchChannels, fetchRegions]);
 

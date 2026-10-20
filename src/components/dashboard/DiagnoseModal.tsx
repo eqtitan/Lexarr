@@ -87,7 +87,7 @@ export default function DiagnoseModal({ service, onClose }: DiagnoseModalProps) 
     setBreakers(undefined);
     setContainer(undefined);
     let cancelled = false;
-    Promise.all([
+    void Promise.all([
       fetch("/api/admin/arr-breakers")
         .then((r) => (r.ok ? r.json() : Promise.reject(r)))
         .then((d) => {

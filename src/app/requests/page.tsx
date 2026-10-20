@@ -154,7 +154,7 @@ export default function RequestsPage() {
 
   // Initial load + config
   useEffect(() => {
-    Promise.all([
+    void Promise.all([
       fetchRequests(),
       fetch("/api/config")
         .then((r) => r.json())
@@ -170,7 +170,7 @@ export default function RequestsPage() {
     );
     if (!hasActive) return;
 
-    const interval = setInterval(fetchRequests, 30000);
+    const interval = setInterval(() => void fetchRequests(), 30000);
     return () => clearInterval(interval);
   }, [requests, fetchRequests]);
 

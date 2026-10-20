@@ -1,3 +1,4 @@
+import { log } from "@/lib/log";
 /**
  * Music preview lookup — given an artist + release-group title, find a
  * 30-second sample URL from a third-party catalog.
@@ -34,7 +35,8 @@ async function fetchWithTimeout(
   try {
     const res = await fetch(url, { signal: controller.signal });
     return res;
-  } catch {
+  } catch (err) {
+    log.debug("music-preview: lookup failed", { err });
     return null;
   } finally {
     clearTimeout(timer);
@@ -66,7 +68,10 @@ export async function fetchItunesPreview(
   )}&entity=song&limit=5&media=music`;
   const res = await fetchWithTimeout(url);
   if (!res || !res.ok) return null;
-  const data = (await res.json().catch(() => null)) as ItunesSearchResult | null;
+  const data = (await res.json().catch((err: unknown) => {
+    log.debug("music-preview: iTunes lookup failed", { err });
+    return null;
+  })) as ItunesSearchResult | null;
   const results = data?.results ?? [];
 
   // iTunes sometimes returns results without previewUrl (e.g. tracks
@@ -106,7 +111,10 @@ export async function fetchDeezerPreview(
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
   const res = await fetchWithTimeout(url);
   if (!res || !res.ok) return null;
-  const data = (await res.json().catch(() => null)) as DeezerSearchResult | null;
+  const data = (await res.json().catch((err: unknown) => {
+    log.debug("music-preview: Deezer lookup failed", { err });
+    return null;
+  })) as DeezerSearchResult | null;
   const results = data?.data ?? [];
   for (const r of results) {
     if (r.preview) {

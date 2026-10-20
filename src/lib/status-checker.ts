@@ -19,20 +19,16 @@
  *     a clear reason instead of silently tracking the wrong item.
  */
 import { prisma } from "./db";
+import { log } from "./log";
 import * as radarr from "./arr/radarr";
 import * as sonarr from "./arr/sonarr";
 import * as lidarr from "./arr/lidarr";
-import * as lazylibrarian from "./arr/lazylibrarian";
 import { notify } from "./notifications";
 import { sendToArrAndUpdateStatus } from "./services/request";
 import { updateRequestIfStatus } from "./request-transition";
+import { getMediaState } from "./arr/media-state";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
-
-interface LazyLibrarianRecord {
-  BookID?: string;
-  id?: string;
-}
 
 export interface StatusCheckResult {
   updated: number;
@@ -40,6 +36,9 @@ export interface StatusCheckResult {
   autoRetried: number;
   autoFailed: number;
 }
+
+/** Automatic send attempts for an approved request that never reached an *arr. */
+const MAX_AUTO_RETRIES = 3;
 
 // Hours before a monitored, never-found item is considered "no sources found".
 const NO_SOURCES_HOURS = 12;
@@ -79,7 +78,7 @@ async function markAvailable(
     where: { id: req.userId },
     select: { name: true },
   });
-  notify({
+  void notify({
     event: "available",
     title: req.title,
     mediaType: req.mediaType as MediaType,
@@ -122,179 +121,45 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     },
   });
 
-  if (activeRequests.length === 0) {
-    return { updated: 0, stuckFlagged: 0, autoRetried: 0, autoFailed: 0 };
-  }
-
   let updated = 0;
   const now = new Date();
 
   for (const req of activeRequests) {
     try {
-      let isAvailable = false;
-      let inQueue = false;
-      let identityMismatch: string | null = null;
+      const state = await getMediaState(req, {
+        checkQueue: req.status === "approved",
+        checkIdentity: true,
+        now,
+      });
+      const { available: isAvailable, inQueue, identityMismatch } = state;
 
-      if (req.mediaType === "book") {
-        const llBookId = req.externalId2 || String(req.arrId);
-        if (!llBookId) continue;
-        // Audiobook requests poll LL's AudioStatus field rather than Status.
-        // Legacy rows with null bookFormat are treated as ebook.
-        if (req.bookFormat === "audiobook") {
-          // For audiobooks, "Open" = file on disk but LL hasn't fully
-          // finalized post-processing. Jellyfin playback works as soon
-          // as the file is on disk, so we treat Open as available too.
-          // Without this check, Lexarr would sit in "downloading"
-          // forever because LL leaves many audiobooks at Open.
-          isAvailable = await lazylibrarian.isAudiobookOnDisk(llBookId);
-        } else {
-          const status = await lazylibrarian.getBookStatus(llBookId, "eBook");
-          isAvailable = status === "Have";
+      // Unreleased movie (release date still in the future, or announced
+      // with no date yet): not expected to download, so park it back at
+      // "approved" with the reason instead of leaving it "downloading".
+      if (!identityMismatch && req.status === "downloading" && state.unreleased) {
+        const { releaseDate } = state.unreleased;
+        const moved = await updateRequestIfStatus(req.id, req.status, {
+          status: "approved",
+          lastError: releaseDate
+            ? `Awaiting release: ${releaseDate}`
+            : "Not yet released (no release date announced)",
+          lastCheckedAt: now,
+        });
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "approved",
+              detail: JSON.stringify(
+                releaseDate
+                  ? { reason: "unreleased", releaseDate }
+                  : { reason: "announced_no_date" },
+              ),
+            },
+          });
+          updated++;
         }
-        if (!isAvailable && req.status === "approved") {
-          const wanted = await lazylibrarian
-            .getQueue()
-            .catch(() => ({ records: [] }));
-          inQueue = (wanted.records as LazyLibrarianRecord[]).some(
-            (r) =>
-              String(r.BookID) === llBookId || String(r.id) === llBookId,
-          );
-        }
-      } else if (req.mediaType === "movie" && req.arrId) {
-        const movie = await radarr.getMovie(req.arrId);
-
-        // arrId drift: Radarr's numeric ID has been reused for a different film.
-        if (movie.tmdbId && req.externalId && String(movie.tmdbId) !== String(req.externalId)) {
-          identityMismatch = `Radarr id ${req.arrId} now tracks tmdbId=${movie.tmdbId} but request expected tmdbId=${req.externalId}`;
-        }
-
-        // Unreleased content detection (broadened):
-        //   1. Known digital/physical release date still in the future
-        //   2. Radarr status === "announced" with no release date at all
-        if (!identityMismatch && req.status === "downloading") {
-          const digitalRelease = movie.digitalRelease
-            ? new Date(movie.digitalRelease)
-            : null;
-          const physicalRelease = movie.physicalRelease
-            ? new Date(movie.physicalRelease)
-            : null;
-          const earliestRelease = digitalRelease && physicalRelease
-            ? (digitalRelease < physicalRelease ? digitalRelease : physicalRelease)
-            : digitalRelease || physicalRelease;
-
-          if (earliestRelease && earliestRelease > now) {
-            const releaseDate = earliestRelease.toISOString().split("T")[0];
-            const moved = await updateRequestIfStatus(req.id, req.status, {
-              status: "approved",
-              lastError: `Awaiting release: ${releaseDate}`,
-              lastCheckedAt: now,
-            });
-            if (moved) {
-              await prisma.pipelineEvent.create({
-                data: {
-                  requestId: req.id,
-                  event: "approved",
-                  detail: JSON.stringify({
-                    reason: "unreleased",
-                    releaseDate,
-                  }),
-                },
-              });
-              updated++;
-            }
-            continue;
-          }
-
-          if (movie.status === "announced" && !earliestRelease) {
-            const moved = await updateRequestIfStatus(req.id, req.status, {
-              status: "approved",
-              lastError: "Not yet released (no release date announced)",
-              lastCheckedAt: now,
-            });
-            if (moved) {
-              await prisma.pipelineEvent.create({
-                data: {
-                  requestId: req.id,
-                  event: "approved",
-                  detail: JSON.stringify({ reason: "announced_no_date" }),
-                },
-              });
-              updated++;
-            }
-            continue;
-          }
-        }
-
-        isAvailable = movie.hasFile === true;
-        if (!isAvailable && req.status === "approved") {
-          const queues = await radarr.getQueue();
-          inQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.movieId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "tv" && req.arrId) {
-        const series = await sonarr.getSeries(req.arrId);
-
-        // arrId drift: Sonarr's id has been reused. Lexarr stores tmdbId in externalId
-        // (same as Radarr), so compare against series.tmdbId.
-        if (series.tmdbId && req.externalId && /^\d+$/.test(String(req.externalId)) &&
-            String(series.tmdbId) !== String(req.externalId)) {
-          identityMismatch = `Sonarr id ${req.arrId} now tracks tmdbId=${series.tmdbId} but request expected tmdbId=${req.externalId}`;
-        }
-
-        isAvailable = series.statistics?.percentOfEpisodes === 100;
-        if (!isAvailable && req.status === "approved") {
-          const queues = await sonarr.getQueue();
-          inQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.seriesId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "music" && req.arrId) {
-        // Two flavors of music requests:
-        //   - Full-artist (rare / fallback): req.releaseType is null,
-        //     arrId = Lidarr artist id → check at artist level.
-        //   - Release-group (default in 0.16.1+): req.releaseType is
-        //     "album" | "single" | "ep" | "other", arrId = Lidarr
-        //     album id → must use getAlbum, not getArtist.
-        // Earlier versions unconditionally called getArtist(arrId),
-        // which returned 404 when arrId was actually an album id,
-        // and the catch block falsely marked the request as
-        // "Deleted from *arr".
-        if (req.releaseType) {
-          const album = await lidarr.getAlbum(req.arrId);
-          // arrId drift on album — MB release-group id stored in
-          // externalId, not externalId2, for release-group requests.
-          if (album.foreignAlbumId && req.externalId &&
-              album.foreignAlbumId !== req.externalId) {
-            identityMismatch = `Lidarr album ${req.arrId} now tracks RG=${album.foreignAlbumId} but request expected ${req.externalId}`;
-          }
-          // An album is "available" when fully downloaded.
-          isAvailable =
-            album.statistics?.percentOfTracks === 100 &&
-            (album.statistics?.trackFileCount ?? 0) > 0;
-          if (!isAvailable && req.status === "approved") {
-            const queues = await lidarr.getQueue();
-            inQueue = (queues?.records || []).some(
-              (r: ArrQueueRecord) => r.albumId === req.arrId,
-            );
-          }
-        } else {
-          // Full-artist fallback path
-          const artist = await lidarr.getArtist(req.arrId);
-          if (artist.foreignArtistId && req.externalId2 &&
-              artist.foreignArtistId !== req.externalId2) {
-            identityMismatch = `Lidarr id ${req.arrId} now tracks MBID=${artist.foreignArtistId} but request expected ${req.externalId2}`;
-          }
-          isAvailable =
-            artist.statistics?.albumCount > 0 &&
-            artist.statistics?.percentOfTracks === 100;
-          if (!isAvailable && req.status === "approved") {
-            const queues = await lidarr.getQueue();
-            inQueue = (queues?.records || []).some(
-              (r: ArrQueueRecord) => r.artistId === req.arrId,
-            );
-          }
-        }
+        continue;
       }
 
       if (identityMismatch) {
@@ -361,7 +226,8 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
             lastError: `Check failed: ${msg.slice(0, 240)}`,
           });
         }
-      } catch {
+      } catch (err) {
+        log.error("status-checker: could not record a failed check", { err });
         // If even the DB write fails there's nothing meaningful we can do here.
       }
     }
@@ -387,68 +253,13 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
 
   for (const req of neverFoundCandidates) {
     try {
-      let inArrQueue = false;
-      let hasFile = false;
-      let percent = 0;
-
-      if (req.mediaType === "movie" && req.arrId) {
-        const movie = await radarr.getMovie(req.arrId);
-        hasFile = movie.hasFile === true;
-        percent = hasFile ? 100 : 0;
-        if (!hasFile) {
-          const queues = await radarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.movieId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "tv" && req.arrId) {
-        const series = await sonarr.getSeries(req.arrId);
-        percent = series.statistics?.percentOfEpisodes ?? 0;
-        hasFile = percent === 100;
-        if (!hasFile) {
-          const queues = await sonarr.getQueue();
-          inArrQueue = (queues?.records || []).some(
-            (r: ArrQueueRecord) => r.seriesId === req.arrId,
-          );
-        }
-      } else if (req.mediaType === "music" && req.arrId) {
-        // Same release-group-vs-artist split as the main loop above —
-        // see comment there. Tier B runs against the same records so
-        // it needs the same dispatch.
-        if (req.releaseType) {
-          const album = await lidarr.getAlbum(req.arrId);
-          percent = album.statistics?.percentOfTracks ?? 0;
-          hasFile = percent === 100 && (album.statistics?.trackFileCount ?? 0) > 0;
-          if (!hasFile) {
-            const queues = await lidarr.getQueue();
-            inArrQueue = (queues?.records || []).some(
-              (r: ArrQueueRecord) => r.albumId === req.arrId,
-            );
-          }
-        } else {
-          const artist = await lidarr.getArtist(req.arrId);
-          percent = artist.statistics?.percentOfTracks ?? 0;
-          hasFile = artist.statistics?.albumCount > 0 && percent === 100;
-          if (!hasFile) {
-            const queues = await lidarr.getQueue();
-            inArrQueue = (queues?.records || []).some(
-              (r: ArrQueueRecord) => r.artistId === req.arrId,
-            );
-          }
-        }
-      } else if (req.mediaType === "book") {
-        const llBookId = req.externalId2 || String(req.arrId);
-        if (req.bookFormat === "audiobook") {
-          hasFile = await lazylibrarian.isAudiobookOnDisk(llBookId);
-        } else {
-          const status = await lazylibrarian.getBookStatus(llBookId, "eBook");
-          hasFile = status === "Have";
-        }
-        // Note: LazyLibrarian's "Wanted" state is "still searching, nothing found"
-        // — NOT an active download like Radarr/Sonarr queues. So we do NOT treat
-        // Wanted-list membership as inArrQueue. Age-based stall applies.
-        inArrQueue = false;
-      }
+      // LazyLibrarian's Wanted list means "still searching", not an active
+      // download, so books never count as in-queue here: the age-based
+      // stall applies to them.
+      const state = await getMediaState(req, { checkQueue: req.mediaType !== "book" });
+      const hasFile = state.available;
+      const inArrQueue = state.inQueue;
+      const percent = state.percent;
 
       if (hasFile) {
         // Becomes available naturally on the next poll cycle.
@@ -490,7 +301,8 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           lastCheckedAt: now,
           lastError: `Stall check failed: ${msg.slice(0, 240)}`,
         });
-      } catch {
+      } catch (err) {
+        log.error("status-checker: could not record a failed stall check", { err });
         // Skip
       }
     }
@@ -525,14 +337,20 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     }
   }
 
-  // ── Auto-escalation Tier A: Approved + no arrId + >1 hour → auto-retry ──
+  // ── Auto-escalation Tier A: approved but never reached an *arr → retry ──
+  // Up to MAX_AUTO_RETRIES attempts, at most one per hour (each recorded
+  // attempt bumps updatedAt). The request stays "approved" between attempts
+  // and is only marked failed -- and its owner notified -- after the last
+  // one. (Before, the first failed attempt already marked it failed, so the
+  // later retries never happened.)
   let autoRetried = 0;
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   const orphanedApproved = await prisma.request.findMany({
     where: {
       status: "approved",
       arrId: null,
-      retryCount: { lt: 3 },
+      retryCount: { lt: MAX_AUTO_RETRIES },
+      updatedAt: { lt: oneHourAgo },
       OR: [
         { approvedAt: { lt: oneHourAgo } },
         { approvedAt: null, createdAt: { lt: oneHourAgo } },
@@ -542,8 +360,10 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   });
 
   for (const req of orphanedApproved) {
+    const attempt = req.retryCount + 1;
+    let arrError: string | undefined;
     try {
-      const arrError = await sendToArrAndUpdateStatus(req, {
+      arrError = await sendToArrAndUpdateStatus(req, {
         mediaType: req.mediaType as MediaType,
         externalId: req.externalId,
         artistId: req.externalId2 || undefined,
@@ -555,74 +375,59 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           undefined,
         bookFormat:
           (req.bookFormat as import("@/types").BookFormat | null) || undefined,
+        failOnError: false,
       });
+    } catch (err: unknown) {
+      arrError = err instanceof Error ? err.message : String(err);
+    }
 
-      if (!arrError) {
-        autoRetried++;
+    if (!arrError) {
+      autoRetried++;
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: req.id,
+          event: "sent_to_arr",
+          detail: JSON.stringify({ autoRetry: true, attempt }),
+        },
+      });
+      continue;
+    }
+
+    if (attempt >= MAX_AUTO_RETRIES) {
+      const moved = await updateRequestIfStatus(req.id, "approved", {
+        status: "failed",
+        retryCount: attempt,
+        lastError: arrError,
+      });
+      if (moved) {
         await prisma.pipelineEvent.create({
           data: {
             requestId: req.id,
-            event: "sent_to_arr",
-            detail: JSON.stringify({ autoRetry: true, attempt: req.retryCount + 1 }),
+            event: "failed",
+            detail: JSON.stringify({ reason: "max_retries", error: arrError }),
           },
         });
-      } else {
-        // sendToArrAndUpdateStatus already moved approved -> failed (if
-        // nothing else changed the row first); this records the attempt.
-        const newRetryCount = req.retryCount + 1;
-        if (newRetryCount >= 3) {
-          const moved = await updateRequestIfStatus(req.id, ["approved", "failed"], {
-            status: "failed",
-            retryCount: newRetryCount,
-            lastError: arrError,
-          });
-          if (moved) {
-            await prisma.pipelineEvent.create({
-              data: {
-                requestId: req.id,
-                event: "failed",
-                detail: JSON.stringify({ reason: "max_retries", error: arrError }),
-              },
-            });
-          }
-        } else {
-          const moved = await updateRequestIfStatus(req.id, ["approved", "failed"], {
-            retryCount: newRetryCount,
-            lastError: arrError,
-          });
-          if (moved) {
-            await prisma.pipelineEvent.create({
-              data: {
-                requestId: req.id,
-                event: "retry_failed",
-                detail: JSON.stringify({ attempt: newRetryCount, error: arrError }),
-              },
-            });
-          }
-        }
-      }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const newRetryCount = req.retryCount + 1;
-      if (newRetryCount >= 3) {
-        const moved = await updateRequestIfStatus(req.id, "approved", {
+        void notify({
+          event: "failed",
+          title: req.title,
+          mediaType: req.mediaType as MediaType,
           status: "failed",
-          retryCount: newRetryCount,
-          lastError: errMsg,
+          user: req.user?.name || "Unknown",
+          detail: arrError,
         });
-        if (moved) {
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "failed",
-              detail: JSON.stringify({ reason: "max_retries", error: errMsg }),
-            },
-          });
-        }
-      } else {
-        await updateRequestIfStatus(req.id, "approved", {
-          retryCount: newRetryCount,
-          lastError: errMsg,
+      }
+    } else {
+      const recorded = await updateRequestIfStatus(req.id, "approved", {
+        retryCount: attempt,
+        lastError: arrError,
+      });
+      if (recorded) {
+        await prisma.pipelineEvent.create({
+          data: {
+            requestId: req.id,
+            event: "retry_failed",
+            detail: JSON.stringify({ attempt, error: arrError }),
+          },
         });
       }
     }
@@ -678,33 +483,11 @@ export async function checkSingleRequest(
 
   if (!request) return false;
 
-  let isAvailable = false;
-
+  let isAvailable: boolean;
   try {
-    if (mediaType === "movie") {
-      const movie = await radarr.getMovie(arrId);
-      isAvailable = movie.hasFile === true;
-    } else if (mediaType === "tv") {
-      const series = await sonarr.getSeries(arrId);
-      isAvailable = series.statistics?.percentOfEpisodes === 100;
-    } else if (mediaType === "music") {
-      // Same split as above — release-group requests store album id
-      // as arrId, not artist id. Use request.releaseType as the
-      // dispatch key so the webhook-triggered check hits the right
-      // Lidarr endpoint.
-      if (request.releaseType) {
-        const album = await lidarr.getAlbum(arrId);
-        isAvailable =
-          album.statistics?.percentOfTracks === 100 &&
-          (album.statistics?.trackFileCount ?? 0) > 0;
-      } else {
-        const artist = await lidarr.getArtist(arrId);
-        isAvailable =
-          artist.statistics?.albumCount > 0 &&
-          artist.statistics?.percentOfTracks === 100;
-      }
-    }
-  } catch {
+    isAvailable = (await getMediaState(request)).available;
+  } catch (err) {
+    log.warn("status-checker: webhook-triggered check failed", { err });
     return false;
   }
 
@@ -738,9 +521,18 @@ export async function cleanDeadDownloads(): Promise<number> {
   let cleaned = 0;
 
   const queues = await Promise.all([
-    radarr.getQueue().catch(() => ({ records: [] as ArrQueueRecord[] })),
-    sonarr.getQueue().catch(() => ({ records: [] as ArrQueueRecord[] })),
-    lidarr.getQueue().catch(() => ({ records: [] as ArrQueueRecord[] })),
+    radarr.getQueue().catch((err: unknown) => {
+      log.warn("cleanDeadDownloads: Radarr queue fetch failed", { err });
+      return { records: [] as ArrQueueRecord[] };
+    }),
+    sonarr.getQueue().catch((err: unknown) => {
+      log.warn("cleanDeadDownloads: Sonarr queue fetch failed", { err });
+      return { records: [] as ArrQueueRecord[] };
+    }),
+    lidarr.getQueue().catch((err: unknown) => {
+      log.warn("cleanDeadDownloads: Lidarr queue fetch failed", { err });
+      return { records: [] as ArrQueueRecord[] };
+    }),
   ]);
 
   const services = [
@@ -759,7 +551,8 @@ export async function cleanDeadDownloads(): Promise<number> {
         try {
           await svc.del(item.id, true);
           cleaned++;
-        } catch {
+        } catch (err) {
+          log.warn("cleanDeadDownloads: removing a dead download failed", { err });
           // Skip items that fail to delete
         }
       }

@@ -51,3 +51,8 @@ next-env.d.ts
 *.tar.gz
 *-deploy*
 lexarr-v*.tar.gz
+
+# Playwright end-to-end run artifacts
+e2e/.tmp/
+playwright-report/
+test-results/

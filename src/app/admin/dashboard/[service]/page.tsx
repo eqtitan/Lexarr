@@ -70,7 +70,7 @@ export default function ServiceDashboardPage() {
   }, [service]);
 
   useEffect(() => {
-    if (role === "admin") fetchData();
+    if (role === "admin") void fetchData();
   }, [role, fetchData]);
 
   // Validate service name
