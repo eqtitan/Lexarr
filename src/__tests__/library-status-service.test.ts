@@ -12,9 +12,9 @@ vi.mock("@/lib/db", () => ({
   prisma: { request: { findMany: (...args: unknown[]) => findMany(...args) } },
 }));
 
-const getMovieByTmdbId = vi.fn();
+const getAllMoviesCached = vi.fn();
 vi.mock("@/lib/arr/radarr", () => ({
-  getMovieByTmdbId: (...args: unknown[]) => getMovieByTmdbId(...args),
+  getAllMoviesCached: (...args: unknown[]) => getAllMoviesCached(...args),
 }));
 
 const getAllSeriesCached = vi.fn();
@@ -32,6 +32,7 @@ vi.mock("@/lib/arr/lidarr", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([]);
+  getAllMoviesCached.mockResolvedValue([]);
   getAllSeriesCached.mockResolvedValue([]);
   getAllArtistsCached.mockResolvedValue([]);
 });
@@ -41,18 +42,32 @@ describe("getLibraryStatuses", () => {
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([]);
     expect(result).toEqual({});
-    expect(getMovieByTmdbId).not.toHaveBeenCalled();
+    expect(getAllMoviesCached).not.toHaveBeenCalled();
+  });
+
+  it("fetches the movie library once regardless of how many movie items are checked (no N+1)", async () => {
+    getAllMoviesCached.mockResolvedValue([
+      { id: 1, tmdbId: 603, hasFile: true },
+      { id: 2, tmdbId: 604, hasFile: false },
+    ]);
+    const { getLibraryStatuses } = await import("@/lib/services/library-status");
+    await getLibraryStatuses([
+      { id: "603", mediaType: "movie" },
+      { id: "604", mediaType: "movie" },
+      { id: "605", mediaType: "movie" },
+    ]);
+    expect(getAllMoviesCached).toHaveBeenCalledTimes(1);
   });
 
   it("marks a movie 'available' when Radarr reports hasFile", async () => {
-    getMovieByTmdbId.mockResolvedValue({ id: 1, hasFile: true });
+    getAllMoviesCached.mockResolvedValue([{ id: 1, tmdbId: 603, hasFile: true }]);
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([{ id: "603", mediaType: "movie" }]);
     expect(result["movie:603"]).toBe("available");
   });
 
   it("marks a movie 'monitored' when Radarr reports it exists without a file", async () => {
-    getMovieByTmdbId.mockResolvedValue({ id: 1, hasFile: false });
+    getAllMoviesCached.mockResolvedValue([{ id: 1, tmdbId: 603, hasFile: false }]);
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([{ id: "603", mediaType: "movie" }]);
     expect(result["movie:603"]).toBe("monitored");
@@ -66,7 +81,7 @@ describe("getLibraryStatuses", () => {
   });
 
   it("falls back to the Lexarr DB request status when *arr has no record", async () => {
-    getMovieByTmdbId.mockResolvedValue(null);
+    getAllMoviesCached.mockResolvedValue([]);
     findMany.mockResolvedValue([
       { externalId: "603", mediaType: "movie", status: "pending" },
     ]);
@@ -76,7 +91,7 @@ describe("getLibraryStatuses", () => {
   });
 
   it("prefers arr status over a conflicting DB status", async () => {
-    getMovieByTmdbId.mockResolvedValue({ id: 1, hasFile: true });
+    getAllMoviesCached.mockResolvedValue([{ id: 1, tmdbId: 603, hasFile: true }]);
     findMany.mockResolvedValue([
       { externalId: "603", mediaType: "movie", status: "denied" },
     ]);
@@ -86,14 +101,14 @@ describe("getLibraryStatuses", () => {
   });
 
   it("returns null for items absent from both *arr and the DB", async () => {
-    getMovieByTmdbId.mockResolvedValue(null);
+    getAllMoviesCached.mockResolvedValue([]);
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([{ id: "603", mediaType: "movie" }]);
     expect(result["movie:603"]).toBeNull();
   });
 
   it("swallows a Radarr/Sonarr failure and treats the item as not-in-library", async () => {
-    getMovieByTmdbId.mockRejectedValue(new Error("Radarr unreachable"));
+    getAllMoviesCached.mockRejectedValue(new Error("Radarr unreachable"));
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([{ id: "603", mediaType: "movie" }]);
     expect(result["movie:603"]).toBeNull();

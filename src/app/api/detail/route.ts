@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detailCache } from "@/lib/cache";
+import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 import type {
   TmdbMovie,
   TmdbTvShow,
@@ -23,6 +24,25 @@ async function tmdb<T>(path: string): Promise<T> {
 }
 
 export async function GET(req: NextRequest) {
+  // Same budget as /api/search — this is the other unauthenticated,
+  // publicly-reachable "browse" endpoint, and was previously missing a
+  // rate limit entirely (unbounded TMDB-key spend / MusicBrainz IP-ban risk).
+  const ip = getClientIp(req.headers);
+  const rateCheck = await checkRateLimit(`detail:${ip}`, RATE_LIMITS.search);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Try again shortly." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(
+            Math.ceil((rateCheck.resetAt - Date.now()) / 1000),
+          ),
+        },
+      },
+    );
+  }
+
   const type = req.nextUrl.searchParams.get("type");
   const id = req.nextUrl.searchParams.get("id");
 

@@ -8,6 +8,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.19.0] — 2026-10-20
+
+0.18.1 and 0.18.2 were hotfix builds deployed straight to the reference
+Unraid host and never tagged; their one code change (below, under Fixed)
+is now on master.
+
+### Added
+- `/api/livez` liveness endpoint (app + DB only), now used by the Docker
+  and docker-compose `HEALTHCHECK` (#21)
+- Session revocation: a password reset or role change signs that user out
+  of every existing session (`User.sessionVersion`, new migration) (#21)
+
+### Changed
+- Docker base image and CI moved to **Node 22 LTS** (Node 20 is
+  end-of-life); `engines.node` is `>=22` (#19)
+- `/api/healthz` is now readiness only (DB + at least one *arr), cached for
+  10s; `deploy.ps1` still gates on it (#21)
+
+### Fixed
+- Container no longer starts on a half-migrated schema when
+  `prisma migrate deploy` fails — it exits instead (#21)
+- Duplicate "available" notifications and admin cancels being overwritten
+  when the poller, webhooks and admin actions raced; status writes are now
+  guarded on the expected status (#18, #20)
+- Titles that were denied or cancelled can be requested again (#20)
+- Background status poller no longer overlaps itself on slow cycles
+  (self-rescheduling timer; the 0.18.1/0.18.2 hotfix) and concurrent
+  callers share one in-flight check (#20)
+- *arr integration hardening: secret redaction in logs, Jellyfin timeout,
+  qBittorrent/NZBGet circuit breaking, duplicate-add race, library-status
+  cache invalidation (#17)
+- Docker HEALTHCHECK binding and IPv6 localhost issues (#10, #11); build-time
+  env validation crash and a `deploy.ps1` outage risk (#9)
+
+### Security
+- Plex PIN token theft, first-user-becomes-admin race, login brute-force
+  and username-timing gaps closed; Plex pin creation rate-limited (#15)
+- Rate limiter no longer trusts spoofable `X-Forwarded-For`, adds a
+  per-route ceiling across clients, and covers `/api/detail` (#16)
+- Last admin can no longer be demoted (#21)
+- Dependency advisories patched: 3 critical, 4 high → 0 (`next` 16.4.2,
+  `next-auth` beta.32, `postcss`, `sharp`, …) (#19)
+
+### Chore
+- API route coverage raised to 73% and remaining zero-coverage admin
+  routes covered; coverage provider switched to istanbul (#8, #13, #14)
+
 ## [0.18.0] — 2026-07-06
 
 ### Added

@@ -13,6 +13,7 @@
  * Sweep: old buckets are deleted on a 5-minute interval. Skipped under
  * NODE_ENV=test so vitest doesn't hold open handles.
  */
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/log";
 
@@ -43,6 +44,33 @@ export async function checkRateLimit(
   const windowStart = Math.floor(nowSec / config.windowSeconds) * config.windowSeconds;
   const resetAt = (windowStart + config.windowSeconds) * 1000;
 
+  const count = await incrementBucket(key, windowStart);
+  if (count > config.limit) {
+    return { allowed: false, remaining: 0, resetAt };
+  }
+  let remaining = config.limit - count;
+
+  // Without a trusted proxy, the per-client key is only a hash of
+  // client-chosen headers (see getClientIp), so a script that varies its
+  // User-Agent per request gets a fresh per-client bucket every time. Cap
+  // the total across all clients per route ("auth", "search", ...) so that
+  // rotation can't exceed a fixed ceiling. Trade-off: a flood can exhaust
+  // the shared ceiling for everyone until the window resets.
+  if (TRUSTED_PROXY_HOPS === 0) {
+    const route = key.split(":", 1)[0];
+    const ceiling = config.limit * CEILING_MULTIPLIER;
+    const total = await incrementBucket(`${route}:__all__`, windowStart);
+    if (total > ceiling) {
+      return { allowed: false, remaining: 0, resetAt };
+    }
+    remaining = Math.min(remaining, ceiling - total);
+  }
+
+  return { allowed: true, remaining: Math.max(0, remaining), resetAt };
+}
+
+/** Atomically increment a bucket and return its new count. */
+async function incrementBucket(key: string, windowStart: number): Promise<number> {
   // Atomic INSERT … ON CONFLICT DO UPDATE so two concurrent requests can't
   // both race past the read.
   const rows = await prisma.$queryRaw<{ count: number }[]>`
@@ -51,17 +79,7 @@ export async function checkRateLimit(
     ON CONFLICT(key, windowStart) DO UPDATE SET count = count + 1
     RETURNING count
   `;
-
-  const count = rows[0]?.count ?? 1;
-
-  if (count > config.limit) {
-    return { allowed: false, remaining: 0, resetAt };
-  }
-  return {
-    allowed: true,
-    remaining: Math.max(0, config.limit - count),
-    resetAt,
-  };
+  return rows[0]?.count ?? 1;
 }
 
 /**
@@ -79,13 +97,64 @@ export const RATE_LIMITS = {
 } as const;
 
 /**
- * Extract client IP from request headers (works behind proxies).
+ * How many reverse-proxy hops to trust when reading X-Forwarded-For.
+ *
+ * Default 0: Lexarr is typically exposed directly (docker-compose maps
+ * the port straight through) with no reverse proxy in front, in which
+ * case X-Forwarded-For is attacker-controlled — a client can send a
+ * different value on every request to get a fresh rate-limit bucket
+ * each time, fully defeating the limiter. With 0 hops trusted, the
+ * header is ignored entirely and the fallback below is used instead.
+ *
+ * If you run Lexarr behind your own reverse proxy that sets/appends
+ * X-Forwarded-For with the real client IP, set this to the number of
+ * proxies between the client and Lexarr (almost always 1) so the
+ * trusted hop — appended by your proxy, not the client — is used.
+ */
+const TRUSTED_PROXY_HOPS = Number(process.env.TRUSTED_PROXY_HOPS) || 0;
+
+/**
+ * Per-route ceiling across ALL clients, as a multiple of the per-client
+ * limit (default 4: e.g. auth 20/min, search 120/min in total). Only
+ * applies when TRUSTED_PROXY_HOPS is 0 — see checkRateLimit.
+ */
+const CEILING_MULTIPLIER = Number(process.env.RATE_LIMIT_CEILING_MULTIPLIER) || 4;
+
+/**
+ * Extract a client key from request headers (works behind a *trusted*
+ * proxy — see TRUSTED_PROXY_HOPS above).
+ *
+ * Fallback (no trusted proxy configured): bucket by a hash of
+ * User-Agent + Accept-Language instead of a single shared "unknown"
+ * key. Neither header is a strong identity signal on its own and both
+ * are technically spoofable, but real browsers send a stable value for
+ * both on every request, so this still gives each device/browser on a
+ * LAN its own budget rather than one shared pool for the whole
+ * household -- while an attacker still has to go out of their way to
+ * vary them (unlike X-Forwarded-For, which is a single header most
+ * HTTP clients let you set directly per request).
  */
 export function getClientIp(headers: Headers): string {
+  if (TRUSTED_PROXY_HOPS > 0) {
+    const xff = headers.get("x-forwarded-for");
+    if (xff) {
+      // The client-supplied end of this list is attacker-controlled;
+      // only the rightmost N entries were appended by our own trusted
+      // proxy/proxies, so read from that end.
+      const ips = xff.split(",").map((s) => s.trim());
+      const ip = ips[Math.max(0, ips.length - TRUSTED_PROXY_HOPS)];
+      if (ip) return ip;
+    }
+    const realIp = headers.get("x-real-ip");
+    if (realIp) return realIp;
+  }
+
+  const ua = headers.get("user-agent") || "";
+  const lang = headers.get("accept-language") || "";
+  if (!ua && !lang) return "unknown";
   return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    headers.get("x-real-ip") ||
-    "unknown"
+    "ua:" +
+    createHash("sha256").update(`${ua}|${lang}`).digest("hex").slice(0, 16)
   );
 }
 

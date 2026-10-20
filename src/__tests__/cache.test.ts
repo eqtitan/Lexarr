@@ -36,4 +36,26 @@ describe("TTLCache", () => {
     vi.advanceTimersByTime(6 * 60 * 1000);
     expect(searchCache.get("expiring")).toBeUndefined();
   });
+
+  it("refreshing an existing key at capacity does not evict an unrelated entry", async () => {
+    // healthCache has maxEntries=20 -- small enough to fill deterministically.
+    const { healthCache } = await import("@/lib/cache");
+    healthCache.clear();
+    for (let i = 0; i < 20; i++) healthCache.set(`svc-${i}`, i);
+    expect(healthCache.size).toBe(20);
+
+    // Overwriting an already-present key shouldn't evict anything -- in
+    // particular not the oldest key ("svc-0"), which a size>=maxEntries
+    // check with no has()-guard would wrongly evict on every refresh.
+    healthCache.set("svc-10", "refreshed");
+    expect(healthCache.size).toBe(20);
+    expect(healthCache.get("svc-0")).toBe(0);
+    expect(healthCache.get("svc-10")).toBe("refreshed");
+
+    // A genuinely new key at capacity still evicts the oldest entry.
+    healthCache.set("svc-new", "new");
+    expect(healthCache.size).toBe(20);
+    expect(healthCache.get("svc-0")).toBeUndefined();
+    expect(healthCache.get("svc-new")).toBe("new");
+  });
 });

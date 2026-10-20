@@ -114,9 +114,10 @@ export default function LoginPage() {
         "width=600,height=700",
       );
 
-      // Poll for completion
+      // Poll for completion. The pin id is tracked server-side via the
+      // httpOnly cookie the POST above set — nothing to pass here.
       const interval = setInterval(async () => {
-        const check = await fetch(`/api/auth/plex?pinId=${data.pinId}`);
+        const check = await fetch("/api/auth/plex");
         const checkData = await check.json();
         if (checkData.authenticated && checkData.plexToken) {
           clearInterval(interval);

@@ -18,6 +18,9 @@ model User {
   role         String    @default("user") // "admin" | "user"
   autoApprove  Boolean   @default(false)
   maxRequests  Int       @default(0) // 0 = unlimited
+  // Bumped on password reset / role change; a session whose JWT carries an
+  // older value is signed out (see the jwt callback in src/lib/auth/config.ts).
+  sessionVersion Int     @default(0)
   createdAt    DateTime  @default(now())
   requests     Request[]
   auditLogs    AuditLog[]

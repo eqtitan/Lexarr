@@ -3,6 +3,18 @@ const PLEX_API = "https://plex.tv";
 const CLIENT_ID = process.env.PLEX_CLIENT_ID || "lexarr";
 const PRODUCT = "Lexarr";
 
+/**
+ * Whether Plex sign-in is turned on. The login page only shows the Plex
+ * button when this is true (see /api/config), but until now nothing
+ * server-side enforced it — the pin endpoints and the NextAuth "plex"
+ * provider worked on every install regardless of the flag. Call this at
+ * the top of each of those so Plex is fully inert, not just hidden,
+ * when the operator hasn't opted in.
+ */
+export function isPlexEnabled(): boolean {
+  return process.env.AUTH_PLEX_ENABLED === "true";
+}
+
 export function getPlexAuthUrl(forwardUrl: string) {
   const params = new URLSearchParams({
     clientID: CLIENT_ID,

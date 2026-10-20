@@ -14,7 +14,9 @@ import { logAudit } from "@/lib/audit";
  *          and nulls their AuditLog userId to satisfy FK constraints
  *
  * All endpoints audit-log. DELETE refuses to delete self so an admin
- * can't lock themselves out in one click.
+ * can't lock themselves out in one click, and PATCH refuses to demote
+ * the last admin. A password reset or role change through PATCH signs
+ * that user out of every existing session (User.sessionVersion).
  */
 
 // Shared user-list projection — keeps responses consistent across verbs.
@@ -185,11 +187,48 @@ export async function PATCH(req: NextRequest) {
     auditChanges.push("password");
   }
 
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data,
-    select: USER_PROJECTION,
+  // Read the target, check the last-admin rule and write in one
+  // transaction, so two admins demoting each other at the same moment
+  // can't both pass the count (SQLite serializes the writers).
+  const outcome = await prisma.$transaction(async (tx) => {
+    const target = await tx.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!target) return { error: "User not found", status: 404 } as const;
+
+    const roleChanging = newRole !== undefined && newRole !== target.role;
+    if (roleChanging && target.role === "admin") {
+      const admins = await tx.user.count({ where: { role: "admin" } });
+      if (admins <= 1) {
+        return {
+          error: "Can't remove the last admin — promote someone else first",
+          status: 409,
+        } as const;
+      }
+    }
+
+    // A new password or role signs the user out everywhere: the jwt
+    // callback in lib/auth/config.ts rejects tokens with an older version.
+    if (password !== undefined || roleChanging) {
+      data.sessionVersion = { increment: 1 };
+    }
+
+    const user = await tx.user.update({
+      where: { id: userId },
+      data,
+      select: USER_PROJECTION,
+    });
+    return { user } as const;
   });
+
+  if ("error" in outcome) {
+    return NextResponse.json(
+      { error: outcome.error },
+      { status: outcome.status },
+    );
+  }
+  const { user } = outcome;
 
   logAudit(
     adminId,

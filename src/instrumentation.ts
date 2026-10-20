@@ -25,13 +25,26 @@ export async function register() {
       const MAX_FAILURES = 10;
       let pollCycleCount = 0;
 
-      setInterval(async () => {
+      // Self-rescheduling setTimeout, not setInterval: setInterval fires on a
+      // fixed clock regardless of whether the previous async callback has
+      // finished, so a single slow cycle causes overlapping concurrent runs
+      // that race each other's writes to the same SQLite rows (observed
+      // 2026-07-12 as persistent "Operations timed out" Prisma errors on
+      // every poll for the same set of active requests, which a container
+      // restart did not clear — a structural bug, not stuck state).
+      // Scheduling the next run only after the current one resolves
+      // guarantees at most one cycle in flight at a time. (Ported from the
+      // 0.18.1/0.18.2 hotfix that was deployed to the server but never pushed;
+      // checkAndUpdateStatuses() also joins an in-flight cycle, for the
+      // other callers.)
+      const runCycle = async () => {
         // Back off if too many failures — only try every 5th interval (5 minutes)
         if (
           consecutiveFailures >= MAX_FAILURES &&
           consecutiveFailures % 5 !== 0
         ) {
           consecutiveFailures++;
+          setTimeout(runCycle, 60_000);
           return;
         }
 
@@ -77,7 +90,11 @@ export async function register() {
             log.error("status-checker too many failures, backing off to 5-minute interval");
           }
         }
-      }, 60_000);
+
+        setTimeout(runCycle, 60_000);
+      };
+
+      runCycle();
     }, 10_000);
   }
 }

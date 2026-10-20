@@ -1,7 +1,14 @@
+import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
+
 const BASE = process.env.JELLYFIN_URL || "http://your-server-ip:8096";
 
+// Previously a bare fetch with no timeout -- the one integration that
+// never got migrated onto the shared arrFetch helper (see its header
+// comment: Prowlarr/Bazarr had the same bug and would hang indefinitely
+// on a slow/hung Jellyfin, e.g. mid-library-scan). This also gives
+// Jellyfin circuit-breaker protection for free.
 export async function health() {
-  const res = await fetch(`${BASE}/health`);
-  if (!res.ok) throw new Error(`Jellyfin /health: ${res.status}`);
-  return res.text();
+  return arrFetch<string>("Jellyfin", BASE, "/health", {
+    timeoutMs: ARR_TIMEOUT_MS,
+  });
 }

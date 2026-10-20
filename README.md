@@ -201,7 +201,7 @@ Open `http://localhost:3000`.
 - **Database**: SQLite via Prisma
 - **Auth**: NextAuth.js v5 (Plex SSO, Jellyfin, credentials)
 - **UI**: Tailwind CSS v4, dark mode
-- **Deployment**: Docker (Node 20 Alpine)
+- **Deployment**: Docker (Node 22 Alpine)
 
 ## Architecture
 
@@ -277,7 +277,7 @@ box is checked, not when a feature list is complete.
       stack
 - [x] `.env.example` documents every variable with inline comments
 - [x] `docker-compose.yml` is a complete working example *(with
-      Docker-native healthcheck probing `/api/healthz`)*
+      Docker-native healthcheck probing `/api/livez`)*
 - [x] Migration path docs (upgrading from 0.x to 0.y) — see
       [`docs/upgrading.md`](docs/upgrading.md)
 - [x] Security checklist (secrets rotation, headers, CORS) — see
@@ -285,8 +285,9 @@ box is checked, not when a feature list is complete.
       baseline HTTP security headers now applied via `next.config.ts`
 - [x] `SECURITY.md` with private disclosure policy *(GitHub gates the
       Security Advisories feature on this)*
-- [x] `/api/healthz` endpoint validating DB reachability + at least one
-      *arr key — not just "Next.js is alive"
+- [x] `/api/healthz` readiness endpoint validating DB reachability + at least one
+      *arr key — not just "Next.js is alive" (cached 10s); `/api/livez`
+      liveness (app + DB only) backs the Docker HEALTHCHECK
 - [x] `npm audit` clean + Docker base-image CVE check documented —
       see [`docs/security-audit.md`](docs/security-audit.md)
 - [x] Migration smoke test — upgrade from an empty 0.1.0 DB passes

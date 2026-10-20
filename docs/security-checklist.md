@@ -116,7 +116,7 @@ dashboard), you'll need to add explicit CORS headers — don't just enable
 - [ ] `npm audit` run before every minor release (see
       [`docs/security-audit.md`](security-audit.md) for the log).
 - [ ] High or critical CVEs are release-blockers.
-- [ ] Docker base image (`node:20-alpine`) rebuilds pick up upstream
+- [ ] Docker base image (`node:22-alpine`) rebuilds pick up upstream
       Alpine patches automatically on each Lexarr build.
 
 ## Incident response

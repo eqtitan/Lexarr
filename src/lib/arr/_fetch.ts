@@ -15,19 +15,44 @@
 /** Default timeout per *arr request. Long enough for large library scans. */
 export const ARR_TIMEOUT_MS = 15_000;
 
+/**
+ * Strip query-param secrets (apikey/api_key/token=...) out of a path or
+ * response body before it lands anywhere that gets logged or surfaced to
+ * the admin UI (ArrApiError.message/.path/.detail, which flow into
+ * log.ts's serializeError and circuit-breaker.ts's lastError).
+ *
+ * Most integrations send their key as a header, so this is a no-op for
+ * them — but LazyLibrarian's API is querystring-based (its key has to be
+ * in the URL to make the real request), and any future integration that
+ * does the same gets covered here instead of needing its own fix.
+ */
+function redactSecrets(text: string): string {
+  return text.replace(
+    /((?:api_?key|token)=)[^&\s]+/gi,
+    "$1***",
+  );
+}
+
 export class ArrApiError extends Error {
+  /** Relative path that failed, e.g. "/api/v3/movie" (secrets redacted) */
+  public readonly path: string;
+  /** Response body or error.message; may be empty (secrets redacted) */
+  public readonly detail: string;
+
   constructor(
     /** Display name: "Radarr", "Prowlarr", etc. */
     public readonly service: string,
-    /** Relative path that failed, e.g. "/api/v3/movie" */
-    public readonly path: string,
+    rawPath: string,
     /** HTTP status code. 0 = network/timeout error (no response) */
     public readonly status: number,
-    /** Response body or error.message; may be empty */
-    public readonly detail: string,
+    rawDetail: string,
   ) {
-    super(`${service} ${path}: ${status || "network"} ${detail}`.trim());
+    const safePath = redactSecrets(rawPath);
+    const safeDetail = redactSecrets(rawDetail);
+    super(`${service} ${safePath}: ${status || "network"} ${safeDetail}`.trim());
     this.name = "ArrApiError";
+    this.path = safePath;
+    this.detail = safeDetail;
   }
 
   /** Was this a timeout or network-level failure (no HTTP response)? */

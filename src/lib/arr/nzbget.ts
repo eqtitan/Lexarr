@@ -1,8 +1,24 @@
 import { arrFetch, ArrApiError } from "./_fetch";
+import { getBreaker } from "./circuit-breaker";
 
 const BASE = process.env.NZBGET_URL!;
 const USER = process.env.NZBGET_USER!;
 const PASS = process.env.NZBGET_PASS!;
+
+// NZBGet always returns HTTP 200, even for method errors -- arrFetch sees
+// only the transport status, so it calls recordSuccess() on every call
+// regardless of the RPC body. That resets the breaker's own failure
+// counter before rpc() below even looks at the body, so recordFailure()
+// alone could never accumulate past 1. Track consecutive app-level
+// errors here instead, and force the breaker open once they match the
+// same threshold every other integration trips at.
+const APP_ERROR_THRESHOLD = 5;
+let consecutiveAppErrors = 0;
+
+/** Test-only: reset the consecutive-app-error counter between cases. */
+export function _resetAppErrorCount(): void {
+  consecutiveAppErrors = 0;
+}
 
 async function rpc(method: string, params: unknown[] = []) {
   const data = await arrFetch<{ result?: unknown; error?: { message: string } }>(
@@ -19,8 +35,14 @@ async function rpc(method: string, params: unknown[] = []) {
   );
   // NZBGet returns 200 OK even for method errors — inspect the body.
   if (data && typeof data === "object" && "error" in data && data.error) {
-    throw new ArrApiError("NZBGet", `/jsonrpc#${method}`, 200, data.error.message);
+    const err = new ArrApiError("NZBGet", `/jsonrpc#${method}`, 200, data.error.message);
+    consecutiveAppErrors++;
+    if (consecutiveAppErrors >= APP_ERROR_THRESHOLD) {
+      getBreaker("NZBGet").forceOpen(err);
+    }
+    throw err;
   }
+  consecutiveAppErrors = 0;
   return data?.result;
 }
 

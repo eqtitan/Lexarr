@@ -5,6 +5,7 @@ import {
   approveRequest,
   denyRequest,
   cancelRequest,
+  RequestConflictError,
 } from "@/lib/services/admin";
 
 // GET: List pending requests
@@ -35,28 +36,35 @@ export async function PATCH(req: NextRequest) {
 
   const adminName = session.user?.name || "Admin";
 
-  if (action === "deny") {
-    const { request } = await denyRequest({
+  try {
+    if (action === "deny") {
+      const { request } = await denyRequest({
+        requestId,
+        note,
+        adminId,
+        adminName,
+      });
+      return NextResponse.json({ request });
+    }
+
+    const { request, arrError } = await approveRequest({
       requestId,
       note,
       adminId,
       adminName,
     });
+
+    if (arrError) {
+      return NextResponse.json({ request, arrError });
+    }
+
     return NextResponse.json({ request });
+  } catch (err: unknown) {
+    if (err instanceof RequestConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
   }
-
-  const { request, arrError } = await approveRequest({
-    requestId,
-    note,
-    adminId,
-    adminName,
-  });
-
-  if (arrError) {
-    return NextResponse.json({ request, arrError });
-  }
-
-  return NextResponse.json({ request });
 }
 
 // DELETE: Cancel a request
@@ -75,12 +83,19 @@ export async function DELETE(req: NextRequest) {
 
   const adminName = session.user?.name || "Admin";
 
-  const { request } = await cancelRequest({
-    requestId,
-    note,
-    adminId,
-    adminName,
-  });
+  try {
+    const { request } = await cancelRequest({
+      requestId,
+      note,
+      adminId,
+      adminName,
+    });
 
-  return NextResponse.json({ request });
+    return NextResponse.json({ request });
+  } catch (err: unknown) {
+    if (err instanceof RequestConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 }

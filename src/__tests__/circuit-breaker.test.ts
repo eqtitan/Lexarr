@@ -167,6 +167,20 @@ describe("circuit breaker", () => {
     expect(getBreaker("NZBGet").snapshot().state).toBe("closed");
   });
 
+  it("forceOpen trips the breaker regardless of the current failure count", () => {
+    // For callers (NZBGet) that detect failure inside an HTTP 200 body --
+    // arrFetch already called recordSuccess() for the transport-level
+    // success, so recordFailure() alone can never accumulate past 1. See
+    // nzbget.ts's own consecutive-app-error counter for the real usage.
+    const b = getBreaker("ForceOpenTest");
+    expect(b.snapshot().state).toBe("closed");
+    b.forceOpen(new ArrApiError("ForceOpenTest", "/jsonrpc", 200, "method error"));
+    const snap = b.snapshot();
+    expect(snap.state).toBe("open");
+    expect(snap.lastError).toBe("method error");
+    expect(snap.retryAt).not.toBeNull();
+  });
+
   it("snapshotAllBreakers returns a sorted snapshot across services", async () => {
     // Use distinct names for this test so we don't inherit breakers created
     // by earlier tests in the file (they share the module-scoped registry).

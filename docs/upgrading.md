@@ -73,12 +73,17 @@ docker start lexarr
      you've downgraded. Roll the DB back from the backup.)
    - **On disk but not applied** → runs them in order.
    - **All match** → no-op; continues.
-3. Next.js starts. `/api/healthz` returns 200 once DB + at least one *arr
-   respond.
+3. Next.js starts. `/api/livez` (Docker's HEALTHCHECK) returns 200 once
+   the app and its DB answer; `/api/healthz` (readiness) returns 200 once
+   DB + at least one *arr respond.
 
-If step 2 fails, the container exits and Docker keeps restarting it
-(depending on `restart` policy). Inspect via `docker compose logs lexarr`
-— the Prisma error message names the failing migration.
+If step 2 fails, the container exits without starting the app (since
+0.18.x — earlier images logged "DB migration skipped" and started anyway
+on a half-migrated schema), and Docker keeps restarting it depending on
+the `restart` policy. Inspect via `docker compose logs lexarr` (or
+`docker logs lexarr`) — the Prisma error message names the failing
+migration. `deploy.ps1` treats this as a failed deploy and rolls back to
+the previous container.
 
 ## Rolling back
 

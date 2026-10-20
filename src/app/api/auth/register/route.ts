@@ -87,23 +87,28 @@ export async function POST(req: NextRequest) {
 
   const hashed = await bcrypt.hash(password, 10);
 
-  // First user becomes admin
-  const userCount = await prisma.user.count({
-    where: { id: { not: "system" } },
-  });
-
   // P-01: handle P2002 from concurrent registrations that raced past the
   // findUnique checks above. The unique constraint on name/email is the
   // final arbiter — the checks are just for friendlier error messages.
+  //
+  // First user becomes admin: count() + create() run inside one
+  // transaction so two concurrent first-registrations can't both observe
+  // count === 0 and both get granted admin (same fix as the Plex/Jellyfin
+  // providers in lib/auth/config.ts).
   try {
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email: email || undefined,
-        password: hashed,
-        role: userCount === 0 ? "admin" : "user",
-        autoApprove: userCount === 0, // admin auto-approves by default
-      },
+    const user = await prisma.$transaction(async (tx) => {
+      const userCount = await tx.user.count({
+        where: { id: { not: "system" } },
+      });
+      return tx.user.create({
+        data: {
+          name,
+          email: email || undefined,
+          password: hashed,
+          role: userCount === 0 ? "admin" : "user",
+          autoApprove: userCount === 0, // admin auto-approves by default
+        },
+      });
     });
 
     return NextResponse.json({

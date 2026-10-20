@@ -77,19 +77,20 @@ async function checkMovies(
   const results: Record<string, LibraryStatusValue> = {};
   if (items.length === 0) return results;
 
-  const checks = items.map(async (item) => {
-    try {
-      const movie = await radarr.getMovieByTmdbId(Number(item.id));
-      if (movie) {
-        results[`movie:${item.id}`] = movie.hasFile
-          ? "available"
-          : "monitored";
+  // One cached library fetch + in-memory filter, matching checkTv/checkMusic
+  // below — this used to call getMovieByTmdbId() once per item, firing one
+  // Radarr request per search result instead of one for the whole batch.
+  try {
+    const allMovies = await radarr.getAllMoviesCached();
+    for (const item of items) {
+      const match = allMovies.find((m) => m.tmdbId === Number(item.id));
+      if (match) {
+        results[`movie:${item.id}`] = match.hasFile ? "available" : "monitored";
       }
-    } catch {
-      // Radarr unavailable — skip
     }
-  });
-  await Promise.all(checks);
+  } catch {
+    // Radarr unavailable — skip
+  }
   return results;
 }
 

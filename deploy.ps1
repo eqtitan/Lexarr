@@ -50,7 +50,7 @@ $version = $pkg.version
 $tag     = "v$version"
 
 Write-Host ""
-Write-Host "  Lexarr deploy  →  $IMAGE`:$tag  →  $UNRAID" -ForegroundColor Cyan
+Write-Host "  Lexarr deploy  ->  $IMAGE`:$tag  ->  $UNRAID" -ForegroundColor Cyan
 Write-Host ""
 
 # ── 1. Sync source ────────────────────────────────────────────────────────
@@ -100,10 +100,15 @@ if (-not $NoBuild) {
     $gitSha = (git rev-parse --short HEAD).Trim()
     $buildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-    # Run the build and stream output; grep keeps it tidy but shows errors in full
-    & ssh -o StrictHostKeyChecking=no $UNRAID @"
-cd $REMOTE && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'
-"@
+    # `set -o pipefail` is required here: without it, $LASTEXITCODE reflects
+    # grep's exit code (0 if it matched any line, success OR failure) instead
+    # of docker build's real exit code -- a masked-failure bug that let a
+    # broken build through undetected on 2026-07-06 and tore down the live
+    # container before the replacement was ready. Single-line command (no
+    # backslash-continuations) to avoid CRLF-vs-LF line-ending issues when a
+    # PowerShell here-string crosses SSH to a Linux remote shell.
+    $buildRemoteCmd = "set -o pipefail; cd $REMOTE && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'"
+    & ssh -o StrictHostKeyChecking=no $UNRAID $buildRemoteCmd
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "Build failed. Run with full output:" -ForegroundColor Red
@@ -111,47 +116,55 @@ cd $REMOTE && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$b
         exit 1
     }
 
-    Write-Host "      Build succeeded." -ForegroundColor Green
+    # Belt-and-suspenders: confirm the image actually exists before touching
+    # the running container, regardless of what the build's exit code says.
+    $imageCheck = & ssh -o StrictHostKeyChecking=no $UNRAID "docker images -q ${IMAGE}:${tag}"
+    if ([string]::IsNullOrWhiteSpace($imageCheck)) {
+        Write-Error "Build reported success but ${IMAGE}:${tag} does not exist on Unraid. Aborting before touching the live container."
+        exit 1
+    }
+
+    Write-Host "      Build succeeded and image verified present." -ForegroundColor Green
     Write-Host ""
 }
 
 # ── 3. Redeploy container ─────────────────────────────────────────────────
+# Rename (don't remove) the old container until the new one is confirmed
+# healthy, so a bad deploy can roll back instead of leaving nothing running --
+# a version of this script that did `docker rm` unconditionally caused a real
+# outage on 2026-07-06 when a build silently failed and the replacement never
+# started. Every remote step below is single-line (no backslash-continuation
+# here-strings) and exit-code-checked individually rather than chained.
 Write-Host "[3/3] Redeploying container..."
 
 $volFlags = ($VOLUMES | ForEach-Object { "-v $_" }) -join " "
-$deployCmd = @"
-docker stop lexarr 2>/dev/null || true
-docker rm   lexarr 2>/dev/null || true
-docker run -d \
-  --name lexarr \
-  --network $NETWORK \
-  -p $PORT \
-  --env-file $ENV_FILE \
-  $volFlags \
-  --restart unless-stopped \
-  ${IMAGE}:${tag} \
-&& docker tag ${IMAGE}:${tag} ${IMAGE}:latest \
-&& echo 'started'
-"@
 
-$result = & ssh -o StrictHostKeyChecking=no $UNRAID $deployCmd
-if ($LASTEXITCODE -ne 0 -or $result -notcontains "started") {
-    Write-Error "Container start failed."
+# Step back the old container out of the way (renamed, not removed)
+& ssh -o StrictHostKeyChecking=no $UNRAID "docker stop lexarr 2>/dev/null; docker rename lexarr lexarr-previous 2>/dev/null; true"
+
+# Start the new one
+$runCmd = "docker run -d --name lexarr --network $NETWORK -p $PORT --env-file $ENV_FILE $volFlags --restart unless-stopped ${IMAGE}:${tag}"
+& ssh -o StrictHostKeyChecking=no $UNRAID $runCmd
+$startFailed = ($LASTEXITCODE -ne 0)
+
+if (-not $startFailed) {
+    Write-Host "      Waiting for Next.js to be ready..."
+    Start-Sleep -Seconds 10
+    $health = & ssh -o StrictHostKeyChecking=no $UNRAID "curl -s -o /dev/null -w '%{http_code}' http://localhost:5056/api/healthz"
+    if ($health -ne "200") { $startFailed = $true }
+}
+
+if ($startFailed) {
+    Write-Host ""
+    Write-Host "  New container failed to start or isn't healthy -- rolling back." -ForegroundColor Red
+    & ssh -o StrictHostKeyChecking=no $UNRAID "docker stop lexarr 2>/dev/null; docker rm lexarr 2>/dev/null; docker rename lexarr-previous lexarr 2>/dev/null; docker start lexarr"
+    Write-Error "Deploy failed and was rolled back to the previous container. Check logs: ssh $UNRAID `"docker logs lexarr --tail 50`""
     exit 1
 }
 
-Write-Host "      Waiting for Next.js to be ready..."
-Start-Sleep -Seconds 10
+# New container confirmed healthy -- safe to drop the old one now
+& ssh -o StrictHostKeyChecking=no $UNRAID "docker rm lexarr-previous 2>/dev/null; docker tag ${IMAGE}:${tag} ${IMAGE}:latest"
 
-$logs = & ssh -o StrictHostKeyChecking=no $UNRAID "docker logs lexarr --tail 5 2>&1"
 Write-Host ""
-$logs | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
-Write-Host ""
-
-if ($logs -match "Ready in") {
-    Write-Host "  Lexarr $tag is live at http://${UnraidHost}:5056" -ForegroundColor Green
-} else {
-    Write-Host "  Container started but 'Ready' not yet seen — check logs:" -ForegroundColor Yellow
-    Write-Host "  ssh $UNRAID `"docker logs lexarr --tail 20`"" -ForegroundColor Yellow
-}
+Write-Host "  Lexarr $tag is live and healthy at http://${UnraidHost}:5056" -ForegroundColor Green
 Write-Host ""

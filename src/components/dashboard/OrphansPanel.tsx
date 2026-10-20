@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { OrphanItem } from "@/types/dashboard";
 
 interface OrphansPanelProps {
@@ -189,9 +189,8 @@ export default function OrphansPanel({ orphans, onRemove }: OrphansPanelProps) {
             const canAct = !!item.qbHash;
 
             return (
-              <>
+              <Fragment key={key}>
                 <tr
-                  key={key}
                   className="border-b border-[var(--border)] last:border-0"
                 >
                   <td className="max-w-[260px] truncate px-3 py-2.5 font-mono text-xs">
@@ -247,10 +246,7 @@ export default function OrphansPanel({ orphans, onRemove }: OrphansPanelProps) {
                   </td>
                 </tr>
                 {err && (
-                  <tr
-                    key={`${key}-err`}
-                    className="border-b border-[var(--border)] last:border-0"
-                  >
+                  <tr className="border-b border-[var(--border)] last:border-0">
                     <td
                       colSpan={5}
                       className="px-3 pb-2 text-xs text-[var(--danger)]"
@@ -259,7 +255,7 @@ export default function OrphansPanel({ orphans, onRemove }: OrphansPanelProps) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             );
           })}
         </tbody>

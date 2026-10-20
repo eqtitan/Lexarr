@@ -1,5 +1,6 @@
-import { arrFetch, type ArrFetchOptions } from "./_fetch";
+import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
 import { pickDefaultProfile, RADARR_DEFAULT_PATTERNS } from "./quality-profile";
+import { libraryCache } from "@/lib/cache";
 
 const BASE = `${process.env.ARR_HOST}:7878`;
 const KEY = process.env.RADARR_API_KEY!;
@@ -26,6 +27,21 @@ export async function lookup(term: string) {
 export async function getMovieByTmdbId(tmdbId: number) {
   const movies: { id: number; hasFile: boolean }[] = await api(`/api/v3/movie?tmdbId=${tmdbId}`);
   return movies[0] || null;
+}
+
+/** Get all movies with 60s cache for batch lookups -- same pattern as
+ *  sonarr.ts's getAllSeriesCached(), used by library-status.ts's
+ *  checkMovies() to avoid one Radarr request per search result. */
+export async function getAllMoviesCached(): Promise<
+  { id: number; tmdbId: number; hasFile: boolean }[]
+> {
+  const cached = libraryCache.get("radarr:movies");
+  if (cached) return cached as { id: number; tmdbId: number; hasFile: boolean }[];
+  const movies: { id: number; tmdbId: number; hasFile: boolean }[] = await api(
+    "/api/v3/movie",
+  );
+  libraryCache.set("radarr:movies", movies);
+  return movies;
 }
 
 export async function addMovie(tmdbId: number, _title: string, qualityProfileId?: number) {
@@ -57,17 +73,42 @@ export async function addMovie(tmdbId: number, _title: string, qualityProfileId?
     qualityProfileId ??
     pickDefaultProfile(profiles, RADARR_DEFAULT_PATTERNS)?.id;
 
-  const result = await api("/api/v3/movie", {
-    method: "POST",
-    body: JSON.stringify({
-      ...movieData,
-      qualityProfileId: profileId,
-      rootFolderPath: mediaFolder?.path || "/movies",
-      monitored: true,
-      addOptions: { searchForMovie: true },
-    }),
-  });
-  return { id: result.id, alreadyExists: false, hasFile: false };
+  try {
+    const result = await api("/api/v3/movie", {
+      method: "POST",
+      body: JSON.stringify({
+        ...movieData,
+        qualityProfileId: profileId,
+        rootFolderPath: mediaFolder?.path || "/movies",
+        monitored: true,
+        addOptions: { searchForMovie: true },
+      }),
+    });
+    // Drop the batch library cache so library-status reflects the new
+    // movie right away instead of up to 60s later.
+    libraryCache.delete("radarr:movies");
+    return { id: result.id, alreadyExists: false, hasFile: false };
+  } catch (err: unknown) {
+    // TOCTOU recovery: two near-simultaneous requests for the same movie
+    // can both pass the getMovieByTmdbId() check above before either POST
+    // lands. Radarr rejects the second with 400 "already been added" --
+    // treat that as success and re-fetch, same pattern lidarr.ts already
+    // uses for addSingleReleaseGroup.
+    const msg = err instanceof Error ? err.message : String(err);
+    const isDuplicate =
+      err instanceof ArrApiError &&
+      err.status === 400 &&
+      /already been added/i.test(msg);
+    if (!isDuplicate) throw err;
+    const existing = await getMovieByTmdbId(tmdbId);
+    if (!existing) {
+      throw new Error(
+        `Radarr reports movie tmdb:${tmdbId} already added but it can't be found via /api/v3/movie`,
+        { cause: err },
+      );
+    }
+    return { id: existing.id, alreadyExists: true, hasFile: existing.hasFile };
+  }
 }
 
 export async function getQueue() {

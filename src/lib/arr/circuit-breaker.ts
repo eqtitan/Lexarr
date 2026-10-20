@@ -116,6 +116,26 @@ class CircuitBreaker {
     }
   }
 
+  /**
+   * Force the breaker open regardless of the success/failure counter.
+   *
+   * recordSuccess() unconditionally zeroes `failures` -- correct for a
+   * real transport-level success, but it means a caller that detects
+   * failure *inside* a 200 response body (NZBGet's JSON-RPC envelope
+   * errors, e.g.) can never accumulate past 1 via recordFailure() alone:
+   * arrFetch already called recordSuccess() for the HTTP 200 before the
+   * caller even sees the body, wiping out the prior count on every
+   * cycle. Callers in that situation should keep their own consecutive-
+   * failure counter and call this once it crosses their threshold.
+   */
+  forceOpen(err: ArrApiError): void {
+    this.failures = FAILURE_THRESHOLD;
+    this.lastFailureAt = Date.now();
+    this.lastError = err.detail || err.message || "unknown";
+    this.state = "open";
+    this.openedAt = Date.now();
+  }
+
   snapshot(): BreakerSnapshot {
     return {
       service: this.service,

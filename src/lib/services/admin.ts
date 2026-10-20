@@ -12,6 +12,23 @@ import * as sonarr from "@/lib/arr/sonarr";
 import * as lidarr from "@/lib/arr/lidarr";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
+/**
+ * Thrown when approve/deny/cancel is attempted on a request that's no
+ * longer in a state that action applies to -- e.g. a double-click, two
+ * open admin tabs, or a genuine concurrent update. Callers (the API
+ * route) should map this to a 409.
+ */
+export class RequestConflictError extends Error {
+  constructor(
+    public readonly requestId: string,
+    public readonly currentStatus: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RequestConflictError";
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 interface ListRequestsResult {
@@ -59,6 +76,7 @@ export async function listPendingRequests(): Promise<ListRequestsResult> {
     where: { status: "pending" },
     include: { user: { select: { name: true, avatar: true } } },
     orderBy: { createdAt: "desc" },
+    take: 200,
   });
   return { requests };
 }
@@ -68,10 +86,23 @@ export async function listPendingRequests(): Promise<ListRequestsResult> {
 export async function denyRequest(input: DenyInput): Promise<DenyResult> {
   const { requestId, note, adminId, adminName } = input;
 
-  const request = await prisma.request.update({
-    where: { id: requestId },
+  // Guarded write: only a still-pending request can be denied. Without
+  // this, two concurrent deny calls (or a deny racing an approve) would
+  // both run to completion -- duplicate pipeline events, audit entries,
+  // and notifications.
+  const { count } = await prisma.request.updateMany({
+    where: { id: requestId, status: "pending" },
     data: { status: "denied", adminNote: note || undefined },
   });
+  if (count === 0) {
+    const current = await prisma.request.findUnique({ where: { id: requestId } });
+    throw new RequestConflictError(
+      requestId,
+      current?.status ?? "unknown",
+      `Request ${requestId} is no longer pending (current status: ${current?.status ?? "not found"})`,
+    );
+  }
+  const request = await prisma.request.findUniqueOrThrow({ where: { id: requestId } });
 
   await prisma.pipelineEvent.create({
     data: {
@@ -102,14 +133,27 @@ export async function approveRequest(
 ): Promise<ApproveResult> {
   const { requestId, note, adminId, adminName } = input;
 
-  const request = await prisma.request.update({
-    where: { id: requestId },
+  // Guarded write: only a still-pending request can be approved -- same
+  // reasoning as denyRequest above. Without it, a request already
+  // denied/cancelled/available could be silently resurrected and
+  // re-routed to the *arr, or approved twice (double *arr dispatch).
+  const { count } = await prisma.request.updateMany({
+    where: { id: requestId, status: "pending" },
     data: {
       status: "approved",
       approvedAt: new Date(),
       adminNote: note || undefined,
     },
   });
+  if (count === 0) {
+    const current = await prisma.request.findUnique({ where: { id: requestId } });
+    throw new RequestConflictError(
+      requestId,
+      current?.status ?? "unknown",
+      `Request ${requestId} is no longer pending (current status: ${current?.status ?? "not found"})`,
+    );
+  }
+  const request = await prisma.request.findUniqueOrThrow({ where: { id: requestId } });
 
   await prisma.pipelineEvent.create({
     data: {
@@ -159,6 +203,17 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
   if (!existing) {
     throw new Error(`Request not found: ${requestId}`);
   }
+  // Bail before the arr-queue removal below if it's already terminal --
+  // otherwise a second cancel (double-click, two admin tabs) re-runs the
+  // queue-removal/notify logic for no reason.
+  const TERMINAL_STATUSES = ["cancelled", "denied", "available"];
+  if (TERMINAL_STATUSES.includes(existing.status)) {
+    throw new RequestConflictError(
+      requestId,
+      existing.status,
+      `Request ${requestId} is already ${existing.status}`,
+    );
+  }
 
   // Best-effort: remove from arr queue if actively downloading
   if (existing.arrId) {
@@ -198,10 +253,22 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
     }
   }
 
-  const request = await prisma.request.update({
-    where: { id: requestId },
+  // Atomic guard against a genuine concurrent update landing between the
+  // early check above and this write (the early check alone only covers
+  // the common sequential double-click case).
+  const { count } = await prisma.request.updateMany({
+    where: { id: requestId, status: { notIn: TERMINAL_STATUSES } },
     data: { status: "cancelled", adminNote: note || undefined },
   });
+  if (count === 0) {
+    const current = await prisma.request.findUnique({ where: { id: requestId } });
+    throw new RequestConflictError(
+      requestId,
+      current?.status ?? "unknown",
+      `Request ${requestId} is no longer cancellable (current status: ${current?.status ?? "not found"})`,
+    );
+  }
+  const request = await prisma.request.findUniqueOrThrow({ where: { id: requestId } });
 
   await prisma.pipelineEvent.create({
     data: {

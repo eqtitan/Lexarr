@@ -34,6 +34,13 @@ const envSchema = z.object({
   REGISTRATION_OPEN: z.string().optional(),
   DATABASE_URL: z.string().optional(),
 
+  // Number of reverse-proxy hops to trust for rate-limiting's
+  // X-Forwarded-For lookup. See src/lib/rate-limit.ts and .env.example.
+  TRUSTED_PROXY_HOPS: z.string().optional(),
+  // Per-route ceiling across all clients (multiple of the per-client
+  // limit) when TRUSTED_PROXY_HOPS is 0. See src/lib/rate-limit.ts.
+  RATE_LIMIT_CEILING_MULTIPLIER: z.string().optional(),
+
   // Failover admin — ensures an admin always exists on fresh installs / DB wipes
   BOOTSTRAP_ADMIN_USERNAME: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(6).optional(),
@@ -72,7 +79,15 @@ export type Env = z.infer<typeof envSchema>;
 
 const result = envSchema.safeParse(process.env);
 
-if (!result.success) {
+// Next.js's build step statically analyzes route modules ("collecting page
+// data"), which imports this module without real runtime env vars present —
+// those only arrive via `docker run --env-file`, not `docker build`. Skip the
+// throw during that build phase; real validation still happens at actual
+// server startup via instrumentation.ts's dynamic `import("./lib/env")`,
+// which runs with NEXT_PHASE unset.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+if (!result.success && !isBuildPhase) {
   const issues = result.error.issues
     .map((i) => `  ${i.path.join(".")}: ${i.message}`)
     .join("\n");
@@ -81,7 +96,7 @@ if (!result.success) {
   );
 }
 
-export const env = result.data;
+export const env = result.success ? result.data : (process.env as unknown as Env);
 
 // Warn about recommended optional vars
 if (!env.LEXARR_WEBHOOK_SECRET) {

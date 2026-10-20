@@ -127,6 +127,33 @@ describe("arrFetch", () => {
     expect(h["Content-Type"]).toBe("application/xml");
   });
 
+  it("redacts apikey/api_key/token query params out of path, detail, and message", async () => {
+    // Regression test: LazyLibrarian's API is querystring-based, so its
+    // key has to be in the URL to make the real request -- but it must
+    // not end up in anything that gets logged or shown in the admin UI.
+    mockFetch(async () =>
+      new Response("upstream said apikey=leaked-body-secret failed", {
+        status: 500,
+      }),
+    );
+    try {
+      await arrFetch(
+        "LazyLibrarian",
+        "http://host",
+        "/api?cmd=getIndex&apikey=super-secret-key&id=1",
+      );
+      expect.fail("should have thrown");
+    } catch (err) {
+      const e = err as ArrApiError;
+      expect(e.path).not.toContain("super-secret-key");
+      expect(e.path).toContain("apikey=***");
+      expect(e.path).toContain("cmd=getIndex");
+      expect(e.detail).not.toContain("leaked-body-secret");
+      expect(e.message).not.toContain("super-secret-key");
+      expect(e.message).not.toContain("leaked-body-secret");
+    }
+  });
+
   it("isServerError true for 5xx", async () => {
     mockFetch(async () => new Response("upstream error", { status: 502 }));
     try {

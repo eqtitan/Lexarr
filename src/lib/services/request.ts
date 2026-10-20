@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { routeToArr } from "@/lib/arr/router";
 import { notify } from "@/lib/notifications";
 import { log } from "@/lib/log";
+import { updateRequestIfStatus } from "@/lib/request-transition";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 // P-03: narrow client type so checkDuplicate can be called inside a
@@ -111,6 +112,9 @@ export function validateRequestInput(input: {
 
 // ── Duplicate check ──────────────────────────────────────────────────
 
+/** Statuses that no longer block a new request for the same title. */
+const INACTIVE_STATUSES = ["denied", "cancelled"] as const;
+
 export async function checkDuplicate(
   externalId: string,
   mediaType: string,
@@ -127,11 +131,17 @@ export async function checkDuplicate(
   // $transaction client so the check + subsequent create can happen
   // atomically. @@index([externalId, mediaType]) on Request makes this
   // cheap.
+  //
+  // Denied and cancelled requests don't count -- matching the
+  // Request_active_dedupe_idx partial unique index (WHERE status NOT IN
+  // ('denied','cancelled')). Without this filter a title that was ever
+  // denied or cancelled could never be requested again by anyone.
   const where =
     mediaType === "book"
       ? {
           externalId,
           mediaType,
+          status: { notIn: [...INACTIVE_STATUSES] },
           OR: [
             { bookFormat: bookFormat ?? "ebook" },
             ...(bookFormat === "ebook" || bookFormat === undefined
@@ -139,7 +149,7 @@ export async function checkDuplicate(
               : []),
           ],
         }
-      : { externalId, mediaType };
+      : { externalId, mediaType, status: { notIn: [...INACTIVE_STATUSES] } };
 
   const existing = await client.request.findFirst({ where });
   if (existing) {
@@ -198,23 +208,32 @@ export async function sendToArrAndUpdateStatus(
       // the library, not that any files exist on disk — relying on it
       // here previously caused false-Available rows for series/movies/
       // albums that had been added but never downloaded.
+      //
+      // The arrId is stored unconditionally (a cancel that lands mid-send
+      // needs it to pull the item back out of the *arr queue), but the
+      // status only moves if the request is still "approved" -- see
+      // updateRequestIfStatus.
       await prisma.request.update({
         where: { id: request.id },
-        data: { arrId: result.arrId || null, status: "downloading" },
+        data: { arrId: result.arrId || null },
       });
       request.arrId = result.arrId;
-      request.status = "downloading";
-
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId: request.id,
-          event: "sent_to_arr",
-          detail: JSON.stringify({
-            arrId: result.arrId,
-            alreadyExists: result.alreadyExists,
-          }),
-        },
+      const moved = await updateRequestIfStatus(request.id, "approved", {
+        status: "downloading",
       });
+      if (moved) {
+        request.status = "downloading";
+        await prisma.pipelineEvent.create({
+          data: {
+            requestId: request.id,
+            event: "sent_to_arr",
+            detail: JSON.stringify({
+              arrId: result.arrId,
+              alreadyExists: result.alreadyExists,
+            }),
+          },
+        });
+      }
     }
   } catch (err: unknown) {
     arrError = err instanceof Error ? err.message : String(err);
@@ -224,27 +243,29 @@ export async function sendToArrAndUpdateStatus(
       err,
     });
 
-    await prisma.request.update({
-      where: { id: request.id },
-      data: { status: "failed", lastError: arrError },
-    });
-
-    await prisma.pipelineEvent.create({
-      data: {
-        requestId: request.id,
-        event: "failed",
-        detail: JSON.stringify({ error: arrError }),
-      },
-    });
-
-    notify({
-      event: "failed",
-      title: opts.title,
-      mediaType: opts.mediaType,
+    const moved = await updateRequestIfStatus(request.id, "approved", {
       status: "failed",
-      user: opts.userName,
-      detail: arrError,
+      lastError: arrError,
     });
+
+    if (moved) {
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "failed",
+          detail: JSON.stringify({ error: arrError }),
+        },
+      });
+
+      notify({
+        event: "failed",
+        title: opts.title,
+        mediaType: opts.mediaType,
+        status: "failed",
+        user: opts.userName,
+        detail: arrError,
+      });
+    }
   }
 
   return arrError;

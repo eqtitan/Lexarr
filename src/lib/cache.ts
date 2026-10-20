@@ -29,8 +29,11 @@ class TTLCache<T = unknown> {
   }
 
   set(key: string, data: T, ttlMs?: number): void {
-    // Evict oldest entries if we hit the limit
-    if (this.store.size >= this.maxEntries) {
+    // Evict the oldest entry if we're at the limit -- but only when this
+    // is a genuinely new key. Refreshing an existing entry at capacity
+    // shouldn't evict an unrelated one just because Map.size hasn't
+    // changed yet.
+    if (!this.store.has(key) && this.store.size >= this.maxEntries) {
       const firstKey = this.store.keys().next().value;
       if (firstKey !== undefined) this.store.delete(firstKey);
     }
@@ -85,3 +88,9 @@ export const lastfmCache = new TTLCache<number | null>(
   24 * 60 * 60 * 1000,
   1000,
 );
+
+// Plex pin-auth session cache: maps an opaque, server-generated session
+// token (set as an httpOnly cookie) to the real Plex pin id. The pin id
+// itself is never trusted from the client — see src/app/api/auth/plex/route.ts.
+// 10 minute TTL matches Plex's own pin expiry.
+export const plexPinSessionCache = new TTLCache<number>(10 * 60 * 1000, 500);

@@ -1,4 +1,4 @@
-import { arrFetch, type ArrFetchOptions } from "./_fetch";
+import { arrFetch, ArrApiError, type ArrFetchOptions } from "./_fetch";
 import { pickDefaultProfile, SONARR_DEFAULT_PATTERNS } from "./quality-profile";
 
 const BASE = `${process.env.ARR_HOST}:8989`;
@@ -64,17 +64,42 @@ export async function addSeries(tmdbId: number, _title: string, qualityProfileId
     qualityProfileId ??
     pickDefaultProfile(profiles, SONARR_DEFAULT_PATTERNS)?.id;
 
-  const result = await api("/api/v3/series", {
-    method: "POST",
-    body: JSON.stringify({
-      ...seriesData,
-      qualityProfileId: profileId,
-      rootFolderPath: mediaFolder?.path || "/tv",
-      monitored: true,
-      addOptions: { searchForMissingEpisodes: true },
-    }),
-  });
-  return { id: result.id, alreadyExists: false };
+  try {
+    const result = await api("/api/v3/series", {
+      method: "POST",
+      body: JSON.stringify({
+        ...seriesData,
+        qualityProfileId: profileId,
+        rootFolderPath: mediaFolder?.path || "/tv",
+        monitored: true,
+        addOptions: { searchForMissingEpisodes: true },
+      }),
+    });
+    // Drop the batch library cache so library-status reflects the new
+    // series right away instead of up to 60s later.
+    libraryCache.delete("sonarr:series");
+    return { id: result.id, alreadyExists: false };
+  } catch (err: unknown) {
+    // TOCTOU recovery: getSeriesByTmdbId() above reads from a 60s cache,
+    // making this race even more likely than Radarr's uncached check.
+    // Sonarr rejects the second near-simultaneous POST with 400 "already
+    // been added" -- treat that as success, same pattern as radarr.ts.
+    const msg = err instanceof Error ? err.message : String(err);
+    const isDuplicate =
+      err instanceof ArrApiError &&
+      err.status === 400 &&
+      /already been added/i.test(msg);
+    if (!isDuplicate) throw err;
+    libraryCache.delete("sonarr:series");
+    const existing = await getSeriesByTmdbId(tmdbId);
+    if (!existing) {
+      throw new Error(
+        `Sonarr reports series tmdb:${tmdbId} already added but it can't be found via /api/v3/series`,
+        { cause: err },
+      );
+    }
+    return { id: existing.id, alreadyExists: true };
+  }
 }
 
 export async function getQueue() {

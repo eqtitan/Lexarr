@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkSingleRequest } from "@/lib/status-checker";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
+import { verifyWebhookToken } from "@/lib/webhook-auth";
 
 /**
  * Radarr webhook receiver.
@@ -15,9 +16,8 @@ import { env } from "@/lib/env";
  * webhook on its own — duplicate POSTs converge on the same row state.
  */
 export async function POST(req: NextRequest) {
-  const secret = env.LEXARR_WEBHOOK_SECRET;
   const token = req.nextUrl.searchParams.get("token");
-  if (!secret || token !== secret) {
+  if (!verifyWebhookToken(env.LEXARR_WEBHOOK_SECRET, token)) {
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 

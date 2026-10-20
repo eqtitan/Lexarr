@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN apk add --no-cache openssl
 
 # Install dependencies
@@ -42,6 +42,13 @@ ENV BUILD_TIME=$BUILD_TIME
 
 ENV NODE_ENV=production
 ENV PORT=5056
+# Next.js standalone's server.js binds only to this address. Without it,
+# it binds to the container's bridge-network IP but not 127.0.0.1, so the
+# in-container HEALTHCHECK (wget http://localhost:5056/...) gets connection
+# refused even though the app is reachable fine from outside via Docker's
+# port mapping. Found 2026-07-06: HEALTHCHECK (P-08) was new, so this bind
+# gap was never exercised by a real deploy before.
+ENV HOSTNAME=0.0.0.0
 ENV DATABASE_URL=file:/app/data/lexarr.db
 
 RUN addgroup --system --gid 1001 nodejs
@@ -65,12 +72,25 @@ USER nextjs
 
 EXPOSE 5056
 
-# HEALTHCHECK (P-08): /api/healthz validates DB reachability + at least one
-# arr accessible. 30s start-period gives the app time to boot + run
-# `prisma migrate deploy` on first start. Three retries before marking
-# unhealthy. Image-level so `docker run` users get this, not just compose.
+# HEALTHCHECK (P-08): /api/livez -- liveness only (the app is up and its DB
+# answers). It deliberately does NOT check the *arr apps: when Radarr/
+# Sonarr/Lidarr are down Lexarr itself is fine, and probing them from here
+# every 30s marked the container unhealthy and hammered them. Readiness
+# ("can this deploy actually route requests?") stays at /api/healthz,
+# which deploy.ps1 checks after a deploy. 30s start-period gives the app
+# time to boot + run `prisma migrate deploy` on first start. Three retries
+# before marking unhealthy. Image-level so `docker run` users get this,
+# not just compose.
+# Uses 127.0.0.1, not localhost: Alpine/musl resolves "localhost" to the
+# IPv6 loopback (::1) first, but the app (even with HOSTNAME=0.0.0.0) only
+# actually gets probed successfully over IPv4 in practice here -- confirmed
+# 2026-07-07 that `wget http://localhost:...` got connection-refused while
+# `wget http://127.0.0.1:...` succeeded, in the same running container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:5056/api/healthz >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:5056/api/livez >/dev/null || exit 1
 
-# Initialize DB on first run, then start
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy || echo 'DB migration skipped'; node server.js"]
+# Apply pending migrations, then start. If a migration fails the container
+# exits non-zero instead of starting on a half-migrated schema (it used to
+# `|| echo 'DB migration skipped'` and carry on). `exec` makes node the
+# main process so `docker stop` signals reach it directly.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && exec node server.js"]

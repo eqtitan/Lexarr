@@ -2,16 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import type { NextRequest } from "next/server";
 
 // Mock dependencies before importing route
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    user: {
-      findUnique: vi.fn().mockResolvedValue(null),
-      findFirst: vi.fn().mockResolvedValue(null),
-      count: vi.fn().mockResolvedValue(0),
-      create: vi.fn().mockResolvedValue({ id: "1", name: "Test", role: "admin" }),
+vi.mock("@/lib/db", () => {
+  const user = {
+    findUnique: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
+    count: vi.fn().mockResolvedValue(0),
+    create: vi.fn().mockResolvedValue({ id: "1", name: "Test", role: "admin" }),
+  };
+  return {
+    prisma: {
+      user,
+      // The route wraps count()+create() in a transaction; the mock just
+      // hands the callback the same mocked `user` client.
+      $transaction: vi.fn((cb: (tx: { user: typeof user }) => unknown) =>
+        cb({ user }),
+      ),
     },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 4, resetAt: Date.now() }),
@@ -150,6 +158,22 @@ describe("Auth Registration", () => {
     const { POST } = await import("@/app/api/auth/register/route");
     const res = await POST(makeReq({ name: "Alice", password: "longpassword" }));
     expect(res.status).toBe(409);
+  });
+
+  it("returns 409 when email is already registered", async () => {
+    process.env.REGISTRATION_OPEN = "true";
+    const { prisma } = await import("@/lib/db");
+    // findUnique(name) → no collision, findUnique(email) → collision
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "u2", email: "taken@example.com" } as never);
+    const { POST } = await import("@/app/api/auth/register/route");
+    const res = await POST(
+      makeReq({ name: "Alice", password: "longpassword", email: "taken@example.com" }),
+    );
+    expect(res.status).toBe(409);
+    const body = await (res as Response).json();
+    expect(body.error).toMatch(/email/i);
   });
 
   it("subsequent users get user role", async () => {

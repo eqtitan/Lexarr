@@ -42,11 +42,11 @@ services:
       # service ratio — the deep-link modal shows "volume not mounted."
       # Comment out if you don't run the host-side stack-healthcheck cron.
       # - /mnt/user/data/stack-healthcheck:/stack-health:ro
-    # Docker-native health check — probes the real /api/healthz endpoint
-    # that validates DB + at least one *arr. Unraid shows green / red
-    # in the dashboard based on this result.
+    # Docker-native health check — probes /api/livez (app + DB only). It
+    # does not check the *arr apps, so Lexarr stays green when they are down;
+    # readiness (DB + at least one *arr) is /api/healthz. Unraid shows green / red based on this.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5056/api/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5056/api/livez"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -25,6 +25,7 @@ import * as lidarr from "./arr/lidarr";
 import * as lazylibrarian from "./arr/lazylibrarian";
 import { notify } from "./notifications";
 import { sendToArrAndUpdateStatus } from "./services/request";
+import { updateRequestIfStatus } from "./request-transition";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
 
@@ -53,10 +54,67 @@ function ageLabel(ms: number): string {
 }
 
 /**
- * Check all active requests and update their statuses.
- * Safe to call concurrently — each request is updated independently.
+ * Move a request to "available" and notify its owner -- once. Shared by
+ * the poller and the webhook path, which can both see the same import at
+ * the same moment; only the caller whose guarded write lands sends the
+ * event and notification.
  */
-export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
+async function markAvailable(
+  req: { id: string; userId: string; title: string; mediaType: string; posterPath: string | null },
+  fromStatus: string,
+  now: Date,
+): Promise<boolean> {
+  const moved = await updateRequestIfStatus(req.id, fromStatus, {
+    status: "available",
+    availableAt: now,
+    lastCheckedAt: now,
+    lastError: null,
+  });
+  if (!moved) return false;
+
+  await prisma.pipelineEvent.create({
+    data: { requestId: req.id, event: "available" },
+  });
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { name: true },
+  });
+  notify({
+    event: "available",
+    title: req.title,
+    mediaType: req.mediaType as MediaType,
+    status: "available",
+    user: user?.name || "Unknown",
+    posterUrl: req.posterPath || undefined,
+  });
+  return true;
+}
+
+// The cycle currently running, if any. A cycle makes one *arr call per
+// active request with a 15s timeout each, so with an *arr down it can
+// outlast the 60s interval; overlapping cycles would double every
+// transition's side effects.
+let inFlight: Promise<StatusCheckResult> | null = null;
+
+/**
+ * Check all active requests and update their statuses.
+ *
+ * Only one cycle runs at a time: a call made while a cycle is running
+ * (the background interval, the admin "check now" button, the dashboard
+ * piggyback) joins that cycle and gets its result. Every write is
+ * guarded on the status the cycle read (updateRequestIfStatus), so a
+ * concurrent admin action or webhook always wins over a stale snapshot.
+ */
+export function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
+  if (!inFlight) {
+    inFlight = runStatusCheck().finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
+
+async function runStatusCheck(): Promise<StatusCheckResult> {
   const activeRequests = await prisma.request.findMany({
     where: {
       status: { in: ["approved", "downloading"] },
@@ -126,45 +184,43 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
 
           if (earliestRelease && earliestRelease > now) {
             const releaseDate = earliestRelease.toISOString().split("T")[0];
-            await prisma.request.update({
-              where: { id: req.id },
-              data: {
-                status: "approved",
-                lastError: `Awaiting release: ${releaseDate}`,
-                lastCheckedAt: now,
-              },
+            const moved = await updateRequestIfStatus(req.id, req.status, {
+              status: "approved",
+              lastError: `Awaiting release: ${releaseDate}`,
+              lastCheckedAt: now,
             });
-            await prisma.pipelineEvent.create({
-              data: {
-                requestId: req.id,
-                event: "approved",
-                detail: JSON.stringify({
-                  reason: "unreleased",
-                  releaseDate,
-                }),
-              },
-            });
-            updated++;
+            if (moved) {
+              await prisma.pipelineEvent.create({
+                data: {
+                  requestId: req.id,
+                  event: "approved",
+                  detail: JSON.stringify({
+                    reason: "unreleased",
+                    releaseDate,
+                  }),
+                },
+              });
+              updated++;
+            }
             continue;
           }
 
           if (movie.status === "announced" && !earliestRelease) {
-            await prisma.request.update({
-              where: { id: req.id },
-              data: {
-                status: "approved",
-                lastError: "Not yet released (no release date announced)",
-                lastCheckedAt: now,
-              },
+            const moved = await updateRequestIfStatus(req.id, req.status, {
+              status: "approved",
+              lastError: "Not yet released (no release date announced)",
+              lastCheckedAt: now,
             });
-            await prisma.pipelineEvent.create({
-              data: {
-                requestId: req.id,
-                event: "approved",
-                detail: JSON.stringify({ reason: "announced_no_date" }),
-              },
-            });
-            updated++;
+            if (moved) {
+              await prisma.pipelineEvent.create({
+                data: {
+                  requestId: req.id,
+                  event: "approved",
+                  detail: JSON.stringify({ reason: "announced_no_date" }),
+                },
+              });
+              updated++;
+            }
             continue;
           }
         }
@@ -242,63 +298,40 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       }
 
       if (identityMismatch) {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: {
-            status: "failed",
-            lastError: `Tracker drift — please re-request. ${identityMismatch}`,
-            lastCheckedAt: now,
-          },
+        const moved = await updateRequestIfStatus(req.id, req.status, {
+          status: "failed",
+          lastError: `Tracker drift — please re-request. ${identityMismatch}`,
+          lastCheckedAt: now,
         });
-        await prisma.pipelineEvent.create({
-          data: {
-            requestId: req.id,
-            event: "failed",
-            detail: JSON.stringify({ reason: "arrid_drift", note: identityMismatch }),
-          },
-        });
-        updated++;
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "failed",
+              detail: JSON.stringify({ reason: "arrid_drift", note: identityMismatch }),
+            },
+          });
+          updated++;
+        }
         continue;
       }
 
-      if (isAvailable && req.status !== "available") {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { status: "available", availableAt: now, lastCheckedAt: now, lastError: null },
+      if (isAvailable) {
+        if (await markAvailable(req, req.status, now)) updated++;
+      } else if (req.status === "approved" && inQueue) {
+        const moved = await updateRequestIfStatus(req.id, "approved", {
+          status: "downloading",
+          lastCheckedAt: now,
+          lastError: null,
         });
-        await prisma.pipelineEvent.create({
-          data: { requestId: req.id, event: "available" },
-        });
-
-        // Notify user that content is now available
-        const user = await prisma.user.findUnique({
-          where: { id: req.userId },
-          select: { name: true },
-        });
-        notify({
-          event: "available",
-          title: req.title,
-          mediaType: req.mediaType as MediaType,
-          status: "available",
-          user: user?.name || "Unknown",
-          posterUrl: req.posterPath || undefined,
-        });
-
-        updated++;
-      } else if (!isAvailable && req.status === "approved" && inQueue) {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { status: "downloading", lastCheckedAt: now, lastError: null },
-        });
-        await prisma.pipelineEvent.create({
-          data: { requestId: req.id, event: "downloading" },
-        });
-        updated++;
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: { requestId: req.id, event: "downloading" },
+          });
+          updated++;
+        }
       } else {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { lastCheckedAt: now },
-        });
+        await updateRequestIfStatus(req.id, req.status, { lastCheckedAt: now });
       }
     } catch (err: unknown) {
       // Do NOT swallow. Surface the error so admins can see why an item is stuck,
@@ -308,28 +341,24 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       try {
         if (isDeleted) {
           // Item was deleted from the *arr — no point retrying. Flip to failed now.
-          await prisma.request.update({
-            where: { id: req.id },
-            data: {
-              status: "failed",
-              lastCheckedAt: now,
-              lastError: `Deleted from *arr — please re-request`,
-            },
+          const moved = await updateRequestIfStatus(req.id, req.status, {
+            status: "failed",
+            lastCheckedAt: now,
+            lastError: `Deleted from *arr — please re-request`,
           });
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "failed",
-              detail: JSON.stringify({ reason: "arr_404", raw: msg.slice(0, 200) }),
-            },
-          });
+          if (moved) {
+            await prisma.pipelineEvent.create({
+              data: {
+                requestId: req.id,
+                event: "failed",
+                detail: JSON.stringify({ reason: "arr_404", raw: msg.slice(0, 200) }),
+              },
+            });
+          }
         } else {
-          await prisma.request.update({
-            where: { id: req.id },
-            data: {
-              lastCheckedAt: now,
-              lastError: `Check failed: ${msg.slice(0, 240)}`,
-            },
+          await updateRequestIfStatus(req.id, req.status, {
+            lastCheckedAt: now,
+            lastError: `Check failed: ${msg.slice(0, 240)}`,
           });
         }
       } catch {
@@ -427,10 +456,7 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
       }
       if (inArrQueue) {
         // Genuinely downloading — stamp lastCheckedAt so we don't loop on it.
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { lastCheckedAt: now },
-        });
+        await updateRequestIfStatus(req.id, "downloading", { lastCheckedAt: now });
         continue;
       }
 
@@ -440,14 +466,12 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
           ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
           : `No releases found after ${ageLabel(ageMs)} — indexers returned nothing`;
 
-      await prisma.request.update({
-        where: { id: req.id },
-        data: {
-          status: "stalled",
-          lastError: reason,
-          lastCheckedAt: now,
-        },
+      const moved = await updateRequestIfStatus(req.id, "downloading", {
+        status: "stalled",
+        lastError: reason,
+        lastCheckedAt: now,
       });
+      if (!moved) continue;
       await prisma.pipelineEvent.create({
         data: {
           requestId: req.id,
@@ -462,12 +486,9 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       try {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: {
-            lastCheckedAt: now,
-            lastError: `Stall check failed: ${msg.slice(0, 240)}`,
-          },
+        await updateRequestIfStatus(req.id, "downloading", {
+          lastCheckedAt: now,
+          lastError: `Stall check failed: ${msg.slice(0, 240)}`,
         });
       } catch {
         // Skip
@@ -546,52 +567,62 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
           },
         });
       } else {
+        // sendToArrAndUpdateStatus already moved approved -> failed (if
+        // nothing else changed the row first); this records the attempt.
         const newRetryCount = req.retryCount + 1;
         if (newRetryCount >= 3) {
-          await prisma.request.update({
-            where: { id: req.id },
-            data: { status: "failed", retryCount: newRetryCount, lastError: arrError },
+          const moved = await updateRequestIfStatus(req.id, ["approved", "failed"], {
+            status: "failed",
+            retryCount: newRetryCount,
+            lastError: arrError,
           });
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "failed",
-              detail: JSON.stringify({ reason: "max_retries", error: arrError }),
-            },
-          });
+          if (moved) {
+            await prisma.pipelineEvent.create({
+              data: {
+                requestId: req.id,
+                event: "failed",
+                detail: JSON.stringify({ reason: "max_retries", error: arrError }),
+              },
+            });
+          }
         } else {
-          await prisma.request.update({
-            where: { id: req.id },
-            data: { retryCount: newRetryCount, lastError: arrError },
+          const moved = await updateRequestIfStatus(req.id, ["approved", "failed"], {
+            retryCount: newRetryCount,
+            lastError: arrError,
           });
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "retry_failed",
-              detail: JSON.stringify({ attempt: newRetryCount, error: arrError }),
-            },
-          });
+          if (moved) {
+            await prisma.pipelineEvent.create({
+              data: {
+                requestId: req.id,
+                event: "retry_failed",
+                detail: JSON.stringify({ attempt: newRetryCount, error: arrError }),
+              },
+            });
+          }
         }
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const newRetryCount = req.retryCount + 1;
       if (newRetryCount >= 3) {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { status: "failed", retryCount: newRetryCount, lastError: errMsg },
+        const moved = await updateRequestIfStatus(req.id, "approved", {
+          status: "failed",
+          retryCount: newRetryCount,
+          lastError: errMsg,
         });
-        await prisma.pipelineEvent.create({
-          data: {
-            requestId: req.id,
-            event: "failed",
-            detail: JSON.stringify({ reason: "max_retries", error: errMsg }),
-          },
-        });
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "failed",
+              detail: JSON.stringify({ reason: "max_retries", error: errMsg }),
+            },
+          });
+        }
       } else {
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { retryCount: newRetryCount, lastError: errMsg },
+        await updateRequestIfStatus(req.id, "approved", {
+          retryCount: newRetryCount,
+          lastError: errMsg,
         });
       }
     }
@@ -608,13 +639,11 @@ export async function checkAndUpdateStatuses(): Promise<StatusCheckResult> {
   });
 
   for (const req of stalledTooLong) {
-    await prisma.request.update({
-      where: { id: req.id },
-      data: {
-        status: "failed",
-        lastError: req.lastError || "Auto-failed: no progress after 48 hours",
-      },
+    const moved = await updateRequestIfStatus(req.id, "stalled", {
+      status: "failed",
+      lastError: req.lastError || "Auto-failed: no progress after 48 hours",
     });
+    if (!moved) continue;
     await prisma.pipelineEvent.create({
       data: {
         requestId: req.id,
@@ -681,34 +710,16 @@ export async function checkSingleRequest(
 
   const now = new Date();
 
-  if (isAvailable && request.status !== "available") {
-    await prisma.request.update({
-      where: { id: request.id },
-      data: { status: "available", availableAt: now, lastCheckedAt: now, lastError: null },
+  if (isAvailable) {
+    return markAvailable(request, request.status, now);
+  }
+  if (request.status === "approved") {
+    const moved = await updateRequestIfStatus(request.id, "approved", {
+      status: "downloading",
+      lastCheckedAt: now,
+      lastError: null,
     });
-    await prisma.pipelineEvent.create({
-      data: { requestId: request.id, event: "available" },
-    });
-
-    const user = await prisma.user.findUnique({
-      where: { id: request.userId },
-      select: { name: true },
-    });
-    notify({
-      event: "available",
-      title: request.title,
-      mediaType: request.mediaType as MediaType,
-      status: "available",
-      user: user?.name || "Unknown",
-      posterUrl: request.posterPath || undefined,
-    });
-
-    return true;
-  } else if (!isAvailable && request.status === "approved") {
-    await prisma.request.update({
-      where: { id: request.id },
-      data: { status: "downloading", lastCheckedAt: now, lastError: null },
-    });
+    if (!moved) return false;
     await prisma.pipelineEvent.create({
       data: { requestId: request.id, event: "downloading" },
     });

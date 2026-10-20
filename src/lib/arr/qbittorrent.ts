@@ -1,4 +1,7 @@
-import { ARR_TIMEOUT_MS } from "./_fetch";
+import { ARR_TIMEOUT_MS, ArrApiError } from "./_fetch";
+import { getBreaker } from "./circuit-breaker";
+
+const SERVICE = "qBittorrent";
 
 interface QbTorrent {
   hash: string;
@@ -15,15 +18,35 @@ const PASS = process.env.QBITTORRENT_PASS!;
 
 /** qBittorrent uses cookie-based sessions, so it doesn't fit arrFetch's
  *  pattern cleanly. We wrap each raw fetch in an AbortController with the
- *  shared timeout so a hung qBit can't stall the whole dashboard. */
+ *  shared timeout so a hung qBit can't stall the whole dashboard, and run
+ *  it through the same circuit breaker every other *arr integration uses
+ *  so a down qBittorrent fails fast instead of every caller (orphans scan,
+ *  status checks) independently paying a full login + 15s timeout. */
 async function qbFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const breaker = getBreaker(SERVICE);
+  breaker.beforeRequest(path); // throws ArrApiError if open
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ARR_TIMEOUT_MS);
   try {
-    return await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${BASE}${path}`, {
       ...init,
       signal: controller.signal,
     });
+    // Mirrors arrFetch's breaker semantics: only network/5xx/408/429 count
+    // as "service is failing" (see recordFailure). A 404 on a bad hash is
+    // a legitimate response, not a qBittorrent outage.
+    const counts = res.status >= 500 || res.status === 408 || res.status === 429;
+    if (counts) {
+      breaker.recordFailure(new ArrApiError(SERVICE, path, res.status, ""));
+    } else {
+      breaker.recordSuccess();
+    }
+    return res;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "Unknown network error";
+    breaker.recordFailure(new ArrApiError(SERVICE, path, 0, detail));
+    throw new ArrApiError(SERVICE, path, 0, detail);
   } finally {
     clearTimeout(timeout);
   }

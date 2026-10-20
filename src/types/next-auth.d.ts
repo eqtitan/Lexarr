@@ -11,10 +11,16 @@ declare module "next-auth" {
       autoApprove: boolean;
     };
   }
+
+  interface User {
+    /** Copied into the JWT at sign-in; see the jwt callback in lib/auth/config.ts. */
+    sessionVersion?: number;
+  }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     userId?: string;
+    sessionVersion?: number;
   }
 }

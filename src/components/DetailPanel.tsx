@@ -444,7 +444,11 @@ export default function DetailPanel({
                 bookFormat: result.mediaType === "book" ? bookFormat : undefined,
               })
             }
-            disabled={libraryStatus === "available" || libraryStatus === "monitored"}
+            disabled={
+              libraryStatus === "available" ||
+              libraryStatus === "monitored" ||
+              libraryStatus === "requested"
+            }
             className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60"
             style={{
               background:
