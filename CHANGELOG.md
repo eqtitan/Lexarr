@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.23.0] — 2026-11-13
+
+### Added
+- **Activity tab on the admin dashboard:** a notification inbox listing new requests, available, failed, stalled, denied and cancelled events for every user (last 14 days; `GET /api/admin/activity?days=1..90`), with filters (All / Problems / Available / Requests), a "new" marker and a tab badge counting events since the admin last opened it. It works with no webhook channel configured.
+
+### Fixed
+- **Upcoming TV:** a show Sonarr marks `upcoming` (not premiered) is parked at `approved` as "Awaiting release: <premiere date>" instead of stalling at 12h and auto-failing (Blade Runner 2099 sat "stuck" for 107 days). It's never treated as available before it premieres. The late-arrival sweep also moves a `stalled` title that turns out not to be out yet back to `approved`, so Tier C doesn't fail it.
+
 ## [0.22.0] — 2026-11-13
 
 ### Fixed

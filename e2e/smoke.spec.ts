@@ -72,6 +72,15 @@ test("request → approve → sent to Radarr → available", async ({ browser, r
   await user.goto("/requests");
   await expect(user.getByText("Available", { exact: true })).toHaveCount(1);
 
+  // ── The admin's Activity tab (dashboard notification inbox) shows it ─
+  await admin.goto("/admin/dashboard");
+  await admin.getByRole("tab", { name: /Activity/ }).click();
+  await expect(admin.getByText("New request", { exact: true })).toBeVisible();
+  await expect(admin.getByText("Now available", { exact: true })).toBeVisible();
+  await expect(admin.getByText(/Dune/).first()).toBeVisible();
+  await admin.getByRole("button", { name: "Problems", exact: true }).click();
+  await expect(admin.getByText("Nothing here for this filter.")).toBeVisible();
+
   expect(cspViolations).toEqual([]);
 
   await userCtx.close();

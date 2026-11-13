@@ -12,15 +12,40 @@ import DashboardKpis from "@/components/dashboard/DashboardKpis";
 import WarningsPanel from "@/components/dashboard/WarningsPanel";
 import IndexerPerformancePanel from "@/components/dashboard/IndexerPerformancePanel";
 import LivePill from "@/components/dashboard/LivePill";
+import ActivityPanel, { type ActivityItem, type ActivityFilter } from "@/components/dashboard/ActivityPanel";
+
+const SEEN_KEY = "lexarr:activity-seen-at";
+/** When the admin last opened the Activity tab. First visit counts as now,
+ *  so the badge starts at zero instead of every event from the last 14 days. */
+function readSeenAt(): number {
+  if (typeof window === "undefined") return Date.now();
+  try {
+    const v = Number(localStorage.getItem(SEEN_KEY));
+    if (Number.isFinite(v) && v > 0) return v;
+    const now = Date.now();
+    localStorage.setItem(SEEN_KEY, String(now));
+    return now;
+  } catch {
+    return Date.now();
+  }
+}
+function writeSeenAt(ms: number): void {
+  try {
+    localStorage.setItem(SEEN_KEY, String(ms));
+  } catch {
+    // localStorage unavailable (private mode) -- badge just resets per visit
+  }
+}
 
 /** Polling intervals. Active downloads → faster poll, idle → slower. */
 const POLL_ACTIVE_MS = 10_000;
 const POLL_IDLE_MS = 60_000;
 
-type TabId = "overview" | "approvals" | "pipeline" | "analytics" | "warnings";
+type TabId = "overview" | "activity" | "approvals" | "pipeline" | "analytics" | "warnings";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
+  { id: "activity", label: "Activity" },
   { id: "approvals", label: "Approvals" },
   { id: "pipeline", label: "Pipeline" },
   { id: "analytics", label: "Analytics" },
@@ -68,6 +93,31 @@ export default function DashboardPage() {
     },
   );
   const fetchDashboard = useCallback(() => void mutate(), [mutate]);
+
+  // Activity feed (the admin's notification inbox). Polled once a minute
+  // while live so the tab badge counts events since the admin last looked.
+  const { data: activityData, error: activityError } = useApi<{ activity: ActivityItem[]; days: number }>(
+    role === "admin" ? "/api/admin/activity" : null,
+    { refreshInterval: isLive ? POLL_IDLE_MS : 0 },
+  );
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
+  // seenAt: when the admin last opened the Activity tab (persisted);
+  // highlightSince: the value from before this visit, so "new" markers
+  // stay visible while they read the list.
+  const [seenAt, setSeenAt] = useState<number>(() => readSeenAt());
+  const [highlightSince, setHighlightSince] = useState<number>(seenAt);
+  useEffect(() => {
+    if (activeTab !== "activity") return;
+    setHighlightSince(seenAt);
+    const now = Date.now();
+    setSeenAt(now);
+    writeSeenAt(now);
+    // Only on entering the tab -- seenAt is intentionally not a dependency.
+  }, [activeTab]);
+  const unseenActivity =
+    activeTab === "activity"
+      ? 0
+      : (activityData?.activity ?? []).filter((a) => Date.parse(a.at) > seenAt).length;
 
   // Clear the action-error banner after a few seconds so it doesn't linger.
   useEffect(() => {
@@ -189,6 +239,7 @@ export default function DashboardPage() {
 
   const tabBadge: Record<TabId, number> = {
     overview: 0,
+    activity: unseenActivity,
     approvals: pendingCount,
     pipeline: activeCount,
     analytics: 0,
@@ -309,6 +360,17 @@ export default function DashboardPage() {
             <DashboardKpis data={data} onOpenTab={setActiveTab} />
             <IndexerPerformancePanel indexers={data.analytics.indexers} />
           </div>
+        )}
+
+        {activeTab === "activity" && (
+          <ActivityPanel
+            items={activityData?.activity}
+            error={activityError?.message ?? null}
+            seenAt={highlightSince}
+            filter={activityFilter}
+            onFilter={setActivityFilter}
+            days={activityData?.days ?? 14}
+          />
         )}
 
         {activeTab === "approvals" && (

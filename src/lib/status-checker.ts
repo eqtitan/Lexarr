@@ -99,6 +99,15 @@ async function markAvailable(
   return true;
 }
 
+/** The parked-at-"approved" reason for a title that isn't out yet. Every
+ *  string here must match a prefix in pipeline-rules.ts's
+ *  UNRELEASED_ERROR_PREFIXES, so the dashboard treats it as waiting. */
+function unreleasedMessage(u: { releaseDate: string | null; inTheaters?: boolean }): string {
+  if (u.releaseDate) return `Awaiting release: ${u.releaseDate}`;
+  if (u.inTheaters) return IN_THEATERS_MESSAGE;
+  return "Not yet released (no release date announced)";
+}
+
 // ── Late-arrival sweep ──────────────────────────────────────────────────
 // Lexarr gives up on a request (stalled at 12h, failed at ~60h) long before
 // the *arr does: Radarr/Sonarr/Lidarr keep the title monitored and grab it
@@ -144,7 +153,32 @@ async function sweepLateArrivals(now: Date): Promise<number> {
 
     try {
       const state = await getMediaState(req, { checkIdentity: true, now });
-      if (!state.available || state.identityMismatch) continue;
+      if (state.identityMismatch) continue;
+
+      // A stalled title that turns out not to be out yet (a show that
+      // hasn't premiered, a movie still in theaters) isn't stuck: park it
+      // back at "approved" with the reason, where the main loop keeps
+      // watching it. The main loop never looks at stalled rows, so without
+      // this Tier C would fail it after 48h.
+      if (!state.available && state.unreleased && req.status === "stalled") {
+        const moved = await updateRequestIfStatus(req.id, "stalled", {
+          status: "approved",
+          lastError: unreleasedMessage(state.unreleased),
+          lastCheckedAt: now,
+        });
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "approved",
+              detail: JSON.stringify({ reason: "unreleased_from_stalled", releaseDate: state.unreleased.releaseDate }),
+            },
+          });
+          lateArrivalCheckedAt.delete(req.id);
+        }
+        continue;
+      }
+      if (!state.available) continue;
 
       // When did Lexarr give up? The newest "failed" event, else the row's
       // last write (a failed row is otherwise left untouched).
@@ -239,11 +273,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       // this is a message refresh only, not a status change, in that case.
       if (!identityMismatch && state.unreleased && (req.status === "downloading" || isUnreleased(req.lastError))) {
         const { releaseDate, inTheaters } = state.unreleased;
-        const newError = releaseDate
-          ? `Awaiting release: ${releaseDate}`
-          : inTheaters
-            ? IN_THEATERS_MESSAGE
-            : "Not yet released (no release date announced)";
+        const newError = unreleasedMessage(state.unreleased);
         if (req.status === "approved" && req.lastError === newError) {
           // Nothing changed -- just prove the check ran.
           await updateRequestIfStatus(req.id, req.status, { lastCheckedAt: now });

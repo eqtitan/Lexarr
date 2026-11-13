@@ -36,7 +36,7 @@ export interface MediaState {
   inQueue: boolean;
   /** The *arr id now tracks a different title (deleted and re-added). */
   identityMismatch: string | null;
-  /** Movies only: not released yet, so not expected to download.
+  /** Movies and TV: not released / not premiered yet, so not expected to download.
    *  `inTheaters`: showing in cinemas, no digital/physical date known yet. */
   unreleased: { releaseDate: string | null; inTheaters?: boolean } | null;
 }
@@ -108,13 +108,24 @@ export async function getMediaState(
       String(series.tmdbId) !== String(req.externalId)
         ? `Sonarr id ${arrId} now tracks tmdbId=${series.tmdbId} but request expected tmdbId=${req.externalId}`
         : null;
+    // Not premiered yet (Sonarr status "upcoming"): nothing can be found
+    // before the first episode airs, so this is waiting, not stuck. Before
+    // this, such shows stalled at 12h and auto-failed (Blade Runner 2099 sat
+    // "stuck" for 107 days before its premiere).
+    let unreleased: MediaState["unreleased"] = null;
+    if (series.status === "upcoming") {
+      const premiere = [series.firstAired, series.nextAiring]
+        .map((d: string | undefined) => (d ? new Date(d) : null))
+        .find((d: Date | null) => d && !Number.isNaN(d.getTime()) && d > now);
+      unreleased = { releaseDate: premiere ? premiere.toISOString().split("T")[0] : null };
+    }
     const percent = series.statistics?.percentOfEpisodes ?? 0;
-    const available = percent === 100;
+    const available = !unreleased && percent === 100;
     const inQueue =
       checkQueue && !available
         ? queueHas((await sonarr.getQueue())?.records, (r) => r.seriesId === arrId)
         : false;
-    return { ...NOTHING, available, percent, inQueue, identityMismatch };
+    return { ...NOTHING, available, percent, inQueue, identityMismatch, unreleased };
   }
 
   if (req.mediaType === "music" && arrId) {
