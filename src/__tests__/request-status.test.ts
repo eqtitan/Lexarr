@@ -41,6 +41,8 @@ describe("request lifecycle table", () => {
     ["stalled", "failed"],
     ["stalled", "approved"],
     ["failed", "approved"],
+    ["failed", "available"], // late arrival: the *arr imported it after Lexarr gave up
+    ["stalled", "available"], // late arrival
   ] as const)("allows %s → %s", (from, to) => {
     expect(canTransition(from, to)).toBe(true);
   });
@@ -50,7 +52,7 @@ describe("request lifecycle table", () => {
     ["pending", "available"],
     ["denied", "approved"], // the resurrection bug #18 fixed
     ["available", "downloading"],
-    ["failed", "available"],
+    ["available", "failed"],
     ["stalled", "downloading"],
   ] as const)("refuses %s → %s", (from, to) => {
     expect(canTransition(from, to)).toBe(false);

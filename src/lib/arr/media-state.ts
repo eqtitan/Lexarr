@@ -36,8 +36,9 @@ export interface MediaState {
   inQueue: boolean;
   /** The *arr id now tracks a different title (deleted and re-added). */
   identityMismatch: string | null;
-  /** Movies only: not released yet, so not expected to download. */
-  unreleased: { releaseDate: string | null } | null;
+  /** Movies only: not released yet, so not expected to download.
+   *  `inTheaters`: showing in cinemas, no digital/physical date known yet. */
+  unreleased: { releaseDate: string | null; inTheaters?: boolean } | null;
 }
 
 export interface MediaStateOptions {
@@ -79,6 +80,11 @@ export async function getMediaState(
     let unreleased: MediaState["unreleased"] = null;
     if (earliest && earliest > now) {
       unreleased = { releaseDate: earliest.toISOString().split("T")[0] };
+    } else if (movie.status === "inCinemas" && !earliest) {
+      // In theaters with no home-release date yet: Radarr won't find a
+      // release until it streams, so this is waiting, not stuck. Before
+      // this, such titles stalled at 12h and auto-failed at ~60h.
+      unreleased = { releaseDate: null, inTheaters: true };
     } else if (movie.status === "announced" && !earliest) {
       unreleased = { releaseDate: null };
     }

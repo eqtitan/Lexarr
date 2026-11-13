@@ -27,7 +27,7 @@ import { notify } from "./notifications";
 import { sendToArrAndUpdateStatus } from "./services/request";
 import { updateRequestIfStatus } from "./request-transition";
 import { getMediaState } from "./arr/media-state";
-import { PIPELINE_RULES, isUnreleased } from "./pipeline-rules";
+import { PIPELINE_RULES, isUnreleased, IN_THEATERS_MESSAGE } from "./pipeline-rules";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
 
@@ -35,6 +35,8 @@ export interface StatusCheckResult {
   updated: number;
   autoRetried: number;
   autoFailed: number;
+  /** failed/stalled requests the late-arrival sweep found on disk. */
+  lateArrivals: number;
 }
 
 /** Automatic send attempts for an approved request that never reached an *arr. */
@@ -54,23 +56,34 @@ function ageLabel(ms: number): string {
  * the poller and the webhook path, which can both see the same import at
  * the same moment; only the caller whose guarded write lands sends the
  * event and notification.
+ *
+ * `opts.notifyOwner: false` records the move without telling anyone
+ * (the late-arrival sweep uses it for titles that failed long ago).
+ * `opts.detail` is stored on the pipeline event.
  */
 async function markAvailable(
   req: { id: string; userId: string; title: string; mediaType: string; posterPath: string | null },
   fromStatus: string,
   now: Date,
+  opts: { notifyOwner?: boolean; detail?: Record<string, unknown> } = {},
 ): Promise<boolean> {
   const moved = await updateRequestIfStatus(req.id, fromStatus, {
     status: "available",
     availableAt: now,
     lastCheckedAt: now,
     lastError: null,
+    checkFailingSince: null,
   });
   if (!moved) return false;
 
   await prisma.pipelineEvent.create({
-    data: { requestId: req.id, event: "available" },
+    data: {
+      requestId: req.id,
+      event: "available",
+      detail: opts.detail ? JSON.stringify(opts.detail) : undefined,
+    },
   });
+  if (opts.notifyOwner === false) return true;
   const user = await prisma.user.findUnique({
     where: { id: req.userId },
     select: { name: true },
@@ -84,6 +97,93 @@ async function markAvailable(
     posterUrl: req.posterPath || undefined,
   });
   return true;
+}
+
+// ── Late-arrival sweep ──────────────────────────────────────────────────
+// Lexarr gives up on a request (stalled at 12h, failed at ~60h) long before
+// the *arr does: Radarr/Sonarr/Lidarr keep the title monitored and grab it
+// whenever a release shows up. Before this sweep "failed" was terminal and
+// never re-checked, so titles that downloaded days later still showed as
+// failed (found live 2026-11-13: 21 of 51 failed requests were on disk).
+
+/** Re-check a given failed/stalled request at most this often. */
+export const LATE_ARRIVAL_RECHECK_MS = 6 * 60 * 60 * 1000;
+/** Stop looking this long after the request failed. */
+export const LATE_ARRIVAL_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
+/** Tell the requester only if it failed this recently; older ones flip quietly. */
+export const LATE_ARRIVAL_NOTIFY_MS = 30 * 24 * 60 * 60 * 1000;
+/** Failures that can't fix themselves: the *arr tracks something else, or the
+ *  item is gone. Re-checking those would be wrong (drift) or pointless (404). */
+const UNRECOVERABLE_PREFIXES = ["Tracker drift", "Deleted from *arr"];
+
+/** requestId → when the sweep last checked it. In memory on purpose: a
+ *  write to the row would bump updatedAt, which Tier C reads as "stalled
+ *  since". A restart just means each row is re-checked once early. */
+const lateArrivalCheckedAt = new Map<string, number>();
+
+/** Test hook: forget when rows were last swept. */
+export function _resetLateArrivalCache(): void {
+  lateArrivalCheckedAt.clear();
+}
+
+async function sweepLateArrivals(now: Date): Promise<number> {
+  const candidates = await prisma.request.findMany({
+    where: {
+      status: { in: ["failed", "stalled"] },
+      arrId: { not: null },
+      updatedAt: { gt: new Date(now.getTime() - LATE_ARRIVAL_WINDOW_MS) },
+    },
+  });
+
+  let recovered = 0;
+  for (const req of candidates) {
+    if (req.lastError && UNRECOVERABLE_PREFIXES.some((p) => req.lastError!.startsWith(p))) continue;
+    const last = lateArrivalCheckedAt.get(req.id);
+    if (last !== undefined && now.getTime() - last < LATE_ARRIVAL_RECHECK_MS) continue;
+    lateArrivalCheckedAt.set(req.id, now.getTime());
+
+    try {
+      const state = await getMediaState(req, { checkIdentity: true, now });
+      if (!state.available || state.identityMismatch) continue;
+
+      // When did Lexarr give up? The newest "failed" event, else the row's
+      // last write (a failed row is otherwise left untouched).
+      const failedEvent = await prisma.pipelineEvent.findFirst({
+        where: { requestId: req.id, event: "failed" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      const gaveUpAt = failedEvent?.createdAt ?? req.updatedAt;
+      const notifyOwner = now.getTime() - gaveUpAt.getTime() <= LATE_ARRIVAL_NOTIFY_MS;
+
+      if (
+        await markAvailable(req, req.status, now, {
+          notifyOwner,
+          detail: {
+            reason: "late_arrival",
+            from: req.status,
+            gaveUpAt: gaveUpAt.toISOString(),
+            previousError: req.lastError?.slice(0, 200) ?? null,
+            notified: notifyOwner,
+          },
+        })
+      ) {
+        recovered++;
+        lateArrivalCheckedAt.delete(req.id);
+        log.info("status-checker: late arrival recovered", {
+          requestId: req.id,
+          title: req.title,
+          from: req.status,
+          notified: notifyOwner,
+        });
+      }
+    } catch (err) {
+      // A 404 / network error just means "not this time" -- the row stays
+      // failed exactly as it was. Debug only: this runs for every candidate.
+      log.debug("status-checker: late-arrival check failed", { requestId: req.id, err });
+    }
+  }
+  return recovered;
 }
 
 // The cycle currently running, if any. A cycle makes one *arr call per
@@ -138,10 +238,12 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       // after the initial park isn't frozen on the original wording --
       // this is a message refresh only, not a status change, in that case.
       if (!identityMismatch && state.unreleased && (req.status === "downloading" || isUnreleased(req.lastError))) {
-        const { releaseDate } = state.unreleased;
+        const { releaseDate, inTheaters } = state.unreleased;
         const newError = releaseDate
           ? `Awaiting release: ${releaseDate}`
-          : "Not yet released (no release date announced)";
+          : inTheaters
+            ? IN_THEATERS_MESSAGE
+            : "Not yet released (no release date announced)";
         if (req.status === "approved" && req.lastError === newError) {
           // Nothing changed -- just prove the check ran.
           await updateRequestIfStatus(req.id, req.status, { lastCheckedAt: now });
@@ -160,7 +262,9 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
               detail: JSON.stringify(
                 releaseDate
                   ? { reason: "unreleased", releaseDate }
-                  : { reason: "announced_no_date" },
+                  : inTheaters
+                    ? { reason: "in_theaters" }
+                    : { reason: "announced_no_date" },
               ),
             },
           });
@@ -575,7 +679,10 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     autoFailed++;
   }
 
-  return { updated, autoRetried, autoFailed };
+  // ── Late arrivals: failed/stalled titles the *arr imported anyway ──
+  const lateArrivals = await sweepLateArrivals(now);
+
+  return { updated, autoRetried, autoFailed, lateArrivals };
 }
 
 /**

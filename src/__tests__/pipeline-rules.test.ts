@@ -24,6 +24,7 @@ describe("isUnreleased", () => {
   it("matches both lastError prefixes status-checker.ts's unreleased-movie block writes", () => {
     expect(isUnreleased("Awaiting release: 2026-12-18")).toBe(true);
     expect(isUnreleased("Not yet released (no release date announced)")).toBe(true);
+    expect(isUnreleased("In theaters — waiting for digital release")).toBe(true);
   });
 
   it("does not match null, empty, or unrelated lastError", () => {

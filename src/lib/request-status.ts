@@ -12,6 +12,10 @@
  *                           │                                         │
  *                           └──────────── admin retry ──▶ approved ◀──┘
  *
+ * Late arrivals: failed and stalled can also move to available when the
+ * *arr imports the title after Lexarr gave up (status-checker.ts's
+ * late-arrival sweep).
+ *
  * Terminal: available, denied, cancelled.
  */
 
@@ -38,10 +42,12 @@ const TRANSITIONS: Record<RequestStatus, readonly RequestStatus[]> = {
   // Imported → available; release date in the future → back to approved;
   // nothing found for 12h+ → stalled; drift / 404 → failed.
   downloading: ["available", "approved", "stalled", "failed", "cancelled"],
-  // No progress for 48h → failed; admin retry → approved.
-  stalled: ["failed", "approved", "cancelled"],
-  // Admin retry → approved.
-  failed: ["approved", "cancelled"],
+  // No progress for 48h → failed; admin retry → approved; imported after
+  // all (late-arrival sweep) → available.
+  stalled: ["failed", "approved", "cancelled", "available"],
+  // Admin retry → approved; the *arr kept searching after Lexarr gave up
+  // and imported it later (late-arrival sweep) → available.
+  failed: ["approved", "cancelled", "available"],
   available: [],
   denied: [],
   cancelled: [],

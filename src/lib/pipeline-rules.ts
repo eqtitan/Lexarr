@@ -73,12 +73,15 @@ export const PIPELINE_RULES: { [K in RuleKind]: PipelineRule } = {
 };
 
 /**
- * True when `lastError` is one of the two exact strings
+ * True when `lastError` is one of the exact strings
  * status-checker.ts's movie-unreleased block writes (the only call sites
  * that ever set this) -- an "approved" request parked there on purpose,
  * not stuck. Matching on them is precise, not a guess.
  */
-export const UNRELEASED_ERROR_PREFIXES = ["Awaiting release:", "Not yet released"] as const;
+/** Written for a movie showing in theaters with no home-release date yet. */
+export const IN_THEATERS_MESSAGE = "In theaters — waiting for digital release";
+
+export const UNRELEASED_ERROR_PREFIXES = ["Awaiting release:", "Not yet released", IN_THEATERS_MESSAGE] as const;
 
 export function isUnreleased(lastError: string | null | undefined): boolean {
   if (!lastError) return false;

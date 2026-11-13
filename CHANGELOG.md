@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.22.0] — 2026-11-13
+
+### Fixed
+- **Late arrivals:** a request Lexarr had marked `failed` or `stalled` now flips to `available` when Radarr/Sonarr/Lidarr import the title later. The *arr apps keep searching after Lexarr gives up, but `failed` used to be final, so titles that downloaded days later still showed as failed (21 of 51 failed requests in production were on disk). The status checker re-checks each one at most every 6 hours, for 120 days after the last update. It skips tracker drift and items deleted from the *arr, and leaves the row untouched (no `updatedAt` bump) until the title arrives. The requester is notified only if the request failed in the last 30 days. Lifecycle: `failed → available` and `stalled → available` are now allowed.
+- **Movies in theaters** with no digital or physical release date are parked at `approved` with "In theaters — waiting for digital release" instead of stalling at 12h and auto-failing at about 60h (Toy Story 5, Supergirl, Avengers: Secret Wars).
+- **SQLite lock timeouts:** writes now wait up to 15s for the database lock (`socket_timeout=15` added to a `file:` `DATABASE_URL` that doesn't set one) instead of Prisma's ~5s default. When the poller, a webhook and an admin retry wrote at once, the loser failed with "Operations timed out after `N/A`" (4 requests in production).
+
 ## [0.21.0] — 2026-11-13
 
 ### Fixed
