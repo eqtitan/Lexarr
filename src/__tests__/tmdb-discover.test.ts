@@ -122,9 +122,16 @@ describe("discoverRecentMovies", () => {
     expect(params.get("release_date.gte")).toBeNull();
     const gte = new Date(params.get("primary_release_date.gte")!);
     const lte = new Date(params.get("primary_release_date.lte")!);
+    // Use the UTC getters, not local ones: gte/lte are date-only strings
+    // ("YYYY-MM-DD"), which `new Date(...)` parses as UTC midnight. Reading
+    // them back with getMonth()/getFullYear() (local time) shifts the
+    // value a calendar day in either direction for any negative-UTC-offset
+    // timezone, which silently flips monthsSpan near a month boundary --
+    // exactly the kind of mismatch that let this test mask a real bug in
+    // sixMonthWindow() for months when run locally outside UTC.
     const monthsSpan =
-      (lte.getFullYear() - gte.getFullYear()) * 12 +
-      (lte.getMonth() - gte.getMonth());
+      (lte.getUTCFullYear() - gte.getUTCFullYear()) * 12 +
+      (lte.getUTCMonth() - gte.getUTCMonth());
     expect(monthsSpan).toBe(6);
   });
 

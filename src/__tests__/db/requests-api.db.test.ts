@@ -43,6 +43,7 @@ async function makeRequest(data: {
   title?: string;
   releaseType?: string;
   retryCount?: number;
+  autoRetryCount?: number;
   availableAt?: Date;
 }) {
   const prisma = await testPrisma();
@@ -55,6 +56,7 @@ async function makeRequest(data: {
       status: data.status,
       releaseType: data.releaseType,
       retryCount: data.retryCount ?? 0,
+      autoRetryCount: data.autoRetryCount ?? 0,
       availableAt: data.availableAt,
     },
   });
@@ -97,6 +99,29 @@ describe("/api/admin/requests", () => {
     const res = await PATCH(req({ requestId: r.id, action: "approve" }));
     expect(res.status).toBe(200);
     expect(await statusOf(r.id)).toBe("downloading");
+  });
+
+  it("logs the chosen qualityProfileId/rootFolderPath on the sent_to_arr pipeline event", async () => {
+    routeToArr.mockResolvedValue({
+      arrId: 7,
+      alreadyExists: false,
+      qualityProfileId: 4,
+      rootFolderPath: "/media/movies",
+    });
+    const r = await makeRequest({ status: "pending" });
+    const { PATCH } = await routes();
+    await PATCH(req({ requestId: r.id, action: "approve" }));
+
+    const prisma = await testPrisma();
+    const event = await prisma.pipelineEvent.findFirst({
+      where: { requestId: r.id, event: "sent_to_arr" },
+    });
+    expect(JSON.parse(event?.detail ?? "{}")).toEqual({
+      arrId: 7,
+      alreadyExists: false,
+      qualityProfileId: 4,
+      rootFolderPath: "/media/movies",
+    });
   });
 
   it("approve surfaces the *arr error and marks the request failed", async () => {
@@ -142,11 +167,40 @@ describe("/api/admin/retry", () => {
     expect((await retry({ requestId: "nope" })).status).toBe(404);
   });
 
-  it("refuses statuses that can't be retried and exhausted requests", async () => {
+  it("refuses a status that can't be retried regardless of retryCount", async () => {
     const done = await makeRequest({ status: "available" });
-    const exhausted = await makeRequest({ status: "failed", retryCount: 3 });
     expect((await retry({ requestId: done.id })).status).toBe(400);
-    expect((await retry({ requestId: exhausted.id })).status).toBe(400);
+  });
+
+  it("retries a 'downloading' request (warnings.ts's Orphaned-download case) -- previously dead on arrival", async () => {
+    // Regression test: the "Orphaned download" warning (downloading, no
+    // queue item) pointed at this same action, but "downloading" wasn't
+    // in RETRYABLE -- the admin's only offered action always 400'd.
+    routeToArr.mockResolvedValue({ arrId: 9, alreadyExists: true });
+    const r = await makeRequest({ status: "downloading" });
+    const res = await retry({ requestId: r.id });
+    expect(res.status).toBe(200);
+    expect(await statusOf(r.id)).toBe("downloading");
+  });
+
+  it("has no retry cap: a request already retried many times can still be retried manually", async () => {
+    // Regression test: manual retry used to share a hard-capped counter
+    // with the silent background auto-retry (status-checker.ts Tier A),
+    // so an admin could lose the ability to retry at all with no warning.
+    // A deliberate admin click isn't capped the way an unattended loop is.
+    routeToArr.mockResolvedValue({ arrId: 9, alreadyExists: false });
+    const r = await makeRequest({ status: "failed", retryCount: 10 });
+    const res = await retry({ requestId: r.id });
+    expect(res.status).toBe(200);
+    expect(await statusOf(r.id)).toBe("downloading");
+  });
+
+  it("is unaffected by autoRetryCount being maxed out -- the two counters are independent", async () => {
+    routeToArr.mockResolvedValue({ arrId: 9, alreadyExists: false });
+    const r = await makeRequest({ status: "failed", autoRetryCount: 3 });
+    expect((await retry({ requestId: r.id })).status).toBe(200);
+    const row = await (await testPrisma()).request.findUniqueOrThrow({ where: { id: r.id } });
+    expect(row).toMatchObject({ status: "downloading", retryCount: 1, autoRetryCount: 3 });
   });
 
   it("re-sends with the request's own releaseType and moves to downloading", async () => {

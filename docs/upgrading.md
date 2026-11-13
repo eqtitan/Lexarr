@@ -83,7 +83,10 @@ on a half-migrated schema), and Docker keeps restarting it depending on
 the `restart` policy. Inspect via `docker compose logs lexarr` (or
 `docker logs lexarr`) — the Prisma error message names the failing
 migration. `deploy.ps1` treats this as a failed deploy and rolls back to
-the previous container.
+the previous container. It backs up the DB (with the old container
+stopped) before every deploy, and if the failed image had already applied
+a migration, it restores that backup before restarting the old
+container — so the invariant below holds without manual steps.
 
 ## Rolling back
 

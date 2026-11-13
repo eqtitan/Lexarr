@@ -2,7 +2,7 @@ import pkg from "../../package.json";
 
 /**
  * The current app version, sourced from package.json at build time.
- * Bumped by `npm run release -- <major|minor|patch>`.
+ * Bumped in a release PR (see .changelog-rules.md).
  */
 export const APP_VERSION: string = pkg.version;
 

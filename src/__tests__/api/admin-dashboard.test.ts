@@ -77,6 +77,7 @@ function baseRequestRow(overrides: Record<string, unknown> = {}) {
     approvedAt: null,
     availableAt: null,
     retryCount: 0,
+    autoRetryCount: 0,
     lastError: null,
     adminNote: null,
     user: { name: "Alice", avatar: null },

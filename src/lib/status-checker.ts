@@ -27,21 +27,18 @@ import { notify } from "./notifications";
 import { sendToArrAndUpdateStatus } from "./services/request";
 import { updateRequestIfStatus } from "./request-transition";
 import { getMediaState } from "./arr/media-state";
+import { PIPELINE_RULES, isUnreleased } from "./pipeline-rules";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
 
 export interface StatusCheckResult {
   updated: number;
-  stuckFlagged: number;
   autoRetried: number;
   autoFailed: number;
 }
 
 /** Automatic send attempts for an approved request that never reached an *arr. */
 const MAX_AUTO_RETRIES = 3;
-
-// Hours before a monitored, never-found item is considered "no sources found".
-const NO_SOURCES_HOURS = 12;
 
 /**
  * Format a duration (ms) as a short human string like "14h" or "3d".
@@ -136,16 +133,26 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       // Unreleased movie (release date still in the future, or announced
       // with no date yet): not expected to download, so park it back at
       // "approved" with the reason instead of leaving it "downloading".
-      if (!identityMismatch && req.status === "downloading" && state.unreleased) {
+      // Also re-enters here for an already-approved row still carrying one
+      // of these messages, so a date that gets announced (or changes)
+      // after the initial park isn't frozen on the original wording --
+      // this is a message refresh only, not a status change, in that case.
+      if (!identityMismatch && state.unreleased && (req.status === "downloading" || isUnreleased(req.lastError))) {
         const { releaseDate } = state.unreleased;
+        const newError = releaseDate
+          ? `Awaiting release: ${releaseDate}`
+          : "Not yet released (no release date announced)";
+        if (req.status === "approved" && req.lastError === newError) {
+          // Nothing changed -- just prove the check ran.
+          await updateRequestIfStatus(req.id, req.status, { lastCheckedAt: now });
+          continue;
+        }
         const moved = await updateRequestIfStatus(req.id, req.status, {
           status: "approved",
-          lastError: releaseDate
-            ? `Awaiting release: ${releaseDate}`
-            : "Not yet released (no release date announced)",
+          lastError: newError,
           lastCheckedAt: now,
         });
-        if (moved) {
+        if (moved && req.status === "downloading") {
           await prisma.pipelineEvent.create({
             data: {
               requestId: req.id,
@@ -188,6 +195,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           status: "downloading",
           lastCheckedAt: now,
           lastError: null,
+          checkFailingSince: null,
         });
         if (moved) {
           await prisma.pipelineEvent.create({
@@ -196,7 +204,20 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           updated++;
         }
       } else {
-        await updateRequestIfStatus(req.id, req.status, { lastCheckedAt: now });
+        // A successful check (even one that changes nothing) proves the
+        // *arr is reachable and this request's record is fine -- clear
+        // any in-progress "check-failing" streak from a prior blip. Also
+        // clear a stale "unreleased" message: state.unreleased is falsy
+        // here (the block above already handles the still-unreleased
+        // case), so if lastError is still one of those markers the title
+        // has since released but nothing's grabbed it yet -- clearing it
+        // lets the normal "Not in queue" warning / Tier B apply instead of
+        // leaving it silently suppressed forever.
+        await updateRequestIfStatus(req.id, req.status, {
+          lastCheckedAt: now,
+          checkFailingSince: req.checkFailingSince ? null : undefined,
+          lastError: isUnreleased(req.lastError) ? null : undefined,
+        });
       }
     } catch (err: unknown) {
       // Do NOT swallow. Surface the error so admins can see why an item is stuck,
@@ -210,6 +231,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
             status: "failed",
             lastCheckedAt: now,
             lastError: `Deleted from *arr — please re-request`,
+            checkFailingSince: null,
           });
           if (moved) {
             await prisma.pipelineEvent.create({
@@ -221,9 +243,14 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
             });
           }
         } else {
+          // Stamp checkFailingSince on the FIRST failure only -- lastError
+          // gets overwritten every cycle, which previously made it
+          // impossible to tell a 5-minute blip from a 2-month-old one (see
+          // the new escalation tier below, which reads this field).
           await updateRequestIfStatus(req.id, req.status, {
             lastCheckedAt: now,
             lastError: `Check failed: ${msg.slice(0, 240)}`,
+            checkFailingSince: req.checkFailingSince ?? now,
           });
         }
       } catch (err) {
@@ -238,8 +265,18 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   // Covers monitored items that have never downloaded anything and are
   // not in the *arr queue. Books are now included. Uses a 12h floor so
   // we don't race the *arr's initial search cycle.
+  //
+  // Measured from approvedAt (when the request actually reached the
+  // *arr), not createdAt (when the user first submitted it) -- a request
+  // that sat "pending" for a day before approval would otherwise be
+  // eligible for this tier within seconds of being sent, flagged
+  // "stalled" with a misleading "No releases found after 1d" before the
+  // *arr had even started searching. Same approvedAt-with-createdAt-
+  // fallback pattern Tier A already uses below.
   // ────────────────────────────────────────────────────────────────────
-  const noSourcesCutoff = new Date(now.getTime() - NO_SOURCES_HOURS * 60 * 60 * 1000);
+  const noSourcesCutoff = new Date(
+    now.getTime() - PIPELINE_RULES["no-sources-found"].escalateThresholdMs,
+  );
   // Age-based filter: any download older than 12h gets re-evaluated regardless of
   // when we last looked. Internal checks return early if the item is in queue /
   // has hasFile, so running this every cycle for old items is cheap.
@@ -247,7 +284,10 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     where: {
       status: "downloading",
       arrId: { not: null },
-      createdAt: { lt: noSourcesCutoff },
+      OR: [
+        { approvedAt: { lt: noSourcesCutoff } },
+        { approvedAt: null, createdAt: { lt: noSourcesCutoff } },
+      ],
     },
   });
 
@@ -267,11 +307,14 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       }
       if (inArrQueue) {
         // Genuinely downloading — stamp lastCheckedAt so we don't loop on it.
-        await updateRequestIfStatus(req.id, "downloading", { lastCheckedAt: now });
+        await updateRequestIfStatus(req.id, "downloading", {
+          lastCheckedAt: now,
+          checkFailingSince: req.checkFailingSince ? null : undefined,
+        });
         continue;
       }
 
-      const ageMs = now.getTime() - new Date(req.createdAt).getTime();
+      const ageMs = now.getTime() - new Date(req.approvedAt ?? req.createdAt).getTime();
       const reason =
         percent > 0
           ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
@@ -281,6 +324,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
         status: "stalled",
         lastError: reason,
         lastCheckedAt: now,
+        checkFailingSince: null,
       });
       if (!moved) continue;
       await prisma.pipelineEvent.create({
@@ -294,12 +338,28 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           }),
         },
       });
+      // Previously silent on every channel -- this was pipeline-event-only,
+      // so neither the admin nor the requester learned a title stalled
+      // until someone happened to open the dashboard.
+      const stalledUser = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { name: true },
+      });
+      void notify({
+        event: "stalled",
+        title: req.title,
+        mediaType: req.mediaType as MediaType,
+        status: "stalled",
+        user: stalledUser?.name || "Unknown",
+        detail: reason,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       try {
         await updateRequestIfStatus(req.id, "downloading", {
           lastCheckedAt: now,
           lastError: `Stall check failed: ${msg.slice(0, 240)}`,
+          checkFailingSince: req.checkFailingSince ?? now,
         });
       } catch (err) {
         log.error("status-checker: could not record a failed stall check", { err });
@@ -308,34 +368,12 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     }
   }
 
-  // Legacy stuck-event marker retained for PipelineEvent history (24h cutoff).
-  const stuckCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const stuck = await prisma.request.findMany({
-    where: {
-      status: "downloading",
-      OR: [
-        { lastCheckedAt: { lt: stuckCutoff } },
-        { lastCheckedAt: null, createdAt: { lt: stuckCutoff } },
-      ],
-    },
-  });
-  for (const req of stuck) {
-    const alreadyFlagged = await prisma.pipelineEvent.findFirst({
-      where: { requestId: req.id, event: "stalled" },
-    });
-    if (!alreadyFlagged) {
-      await prisma.pipelineEvent.create({
-        data: {
-          requestId: req.id,
-          event: "stalled",
-          detail: JSON.stringify({
-            reason: "No progress in 24 hours",
-            stuckSince: req.updatedAt,
-          }),
-        },
-      });
-    }
-  }
+  // (Removed: a legacy 24h lastCheckedAt-staleness "stuck" marker used to
+  // live here. It could only fire when polling itself had been failing
+  // for 24h straight -- a case lastError from the per-request catch block
+  // above already surfaces -- so it only ever added a confusing duplicate
+  // "stalled" PipelineEvent with no status change. Tier B above is the
+  // real stall detector now.)
 
   // ── Auto-escalation Tier A: approved but never reached an *arr → retry ──
   // Up to MAX_AUTO_RETRIES attempts, at most one per hour (each recorded
@@ -343,13 +381,24 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   // and is only marked failed -- and its owner notified -- after the last
   // one. (Before, the first failed attempt already marked it failed, so the
   // later retries never happened.)
+  //
+  // Tracked via autoRetryCount, NOT retryCount: retryCount is the admin's
+  // manual-retry counter (services/retry.ts), which has no cap. Sharing one
+  // counter meant this silent, unattended loop could burn through most of
+  // an admin's manual retry budget before they ever saw the request --
+  // worse, retry.ts's old hard cap meant the Retry button could disappear
+  // from the dashboard with no explanation. Keeping the counters separate
+  // means an admin always gets a full, uncapped set of manual attempts
+  // regardless of how many background attempts already ran.
   let autoRetried = 0;
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const oneHourAgo = new Date(
+    now.getTime() - PIPELINE_RULES["never-dispatched"].escalateThresholdMs,
+  );
   const orphanedApproved = await prisma.request.findMany({
     where: {
       status: "approved",
       arrId: null,
-      retryCount: { lt: MAX_AUTO_RETRIES },
+      autoRetryCount: { lt: MAX_AUTO_RETRIES },
       updatedAt: { lt: oneHourAgo },
       OR: [
         { approvedAt: { lt: oneHourAgo } },
@@ -360,7 +409,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   });
 
   for (const req of orphanedApproved) {
-    const attempt = req.retryCount + 1;
+    const attempt = req.autoRetryCount + 1;
     let arrError: string | undefined;
     try {
       arrError = await sendToArrAndUpdateStatus(req, {
@@ -396,7 +445,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     if (attempt >= MAX_AUTO_RETRIES) {
       const moved = await updateRequestIfStatus(req.id, "approved", {
         status: "failed",
-        retryCount: attempt,
+        autoRetryCount: attempt,
         lastError: arrError,
       });
       if (moved) {
@@ -418,7 +467,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       }
     } else {
       const recorded = await updateRequestIfStatus(req.id, "approved", {
-        retryCount: attempt,
+        autoRetryCount: attempt,
         lastError: arrError,
       });
       if (recorded) {
@@ -435,7 +484,9 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
 
   // ── Auto-escalation Tier C: Stalled + >48 hours → failed ──
   let autoFailed = 0;
-  const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const fortyEightHoursAgo = new Date(
+    now.getTime() - PIPELINE_RULES["stalled-too-long"].escalateThresholdMs,
+  );
   const stalledTooLong = await prisma.request.findMany({
     where: {
       status: "stalled",
@@ -459,10 +510,72 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
         }),
       },
     });
+    // Previously silent -- a request could auto-fail after 48h stalled
+    // with nobody, admin or requester, ever told.
+    const failedUser = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { name: true },
+    });
+    void notify({
+      event: "failed",
+      title: req.title,
+      mediaType: req.mediaType as MediaType,
+      status: "failed",
+      user: failedUser?.name || "Unknown",
+      detail: req.lastError || "No progress after 48 hours",
+    });
     autoFailed++;
   }
 
-  return { updated, stuckFlagged: stuck.length, autoRetried, autoFailed };
+  // ── Auto-escalation Tier D: can't even check it, for >2 hours → failed ──
+  // Covers a request that already has an arrId (so Tier A's "never
+  // dispatched" rule doesn't see it) and isn't "downloading" (so Tier B's
+  // "no sources found" rule doesn't see it either) -- its *arr record is
+  // throwing on every poll (network blip, the *arr choking on this one
+  // title, etc.). Previously nothing ever escalated this: lastError gets
+  // overwritten with the same string every cycle, so the request would
+  // just sit at its current status re-accumulating that error forever,
+  // with only a passive dashboard badge (if any) to notice it.
+  const twoHoursAgo = new Date(
+    now.getTime() - PIPELINE_RULES["check-failing"].escalateThresholdMs,
+  );
+  const checkFailingTooLong = await prisma.request.findMany({
+    where: {
+      status: { in: ["approved", "downloading"] },
+      arrId: { not: null },
+      checkFailingSince: { lt: twoHoursAgo },
+    },
+    include: { user: { select: { name: true } } },
+  });
+
+  for (const req of checkFailingTooLong) {
+    const moved = await updateRequestIfStatus(req.id, req.status, {
+      status: "failed",
+      lastError: req.lastError || "Auto-failed: couldn't verify status for 2+ hours",
+    });
+    if (!moved) continue;
+    await prisma.pipelineEvent.create({
+      data: {
+        requestId: req.id,
+        event: "failed",
+        detail: JSON.stringify({
+          reason: "check_failing_too_long",
+          checkFailingSince: req.checkFailingSince?.toISOString(),
+        }),
+      },
+    });
+    void notify({
+      event: "failed",
+      title: req.title,
+      mediaType: req.mediaType as MediaType,
+      status: "failed",
+      user: req.user?.name || "Unknown",
+      detail: req.lastError || "Couldn't verify status for 2+ hours",
+    });
+    autoFailed++;
+  }
+
+  return { updated, autoRetried, autoFailed };
 }
 
 /**
@@ -484,14 +597,40 @@ export async function checkSingleRequest(
   if (!request) return false;
 
   let isAvailable: boolean;
+  let identityMismatch: string | null;
   try {
-    isAvailable = (await getMediaState(request)).available;
+    // checkIdentity: true -- matches the poller (runStatusCheck), which
+    // was the only path actually catching an *arr ID being reused for a
+    // different title (deleted + re-added). Without it, a webhook firing
+    // right after that happens could promote this request to "available"
+    // based on an unrelated title's hasFile.
+    const state = await getMediaState(request, { checkIdentity: true });
+    isAvailable = state.available;
+    identityMismatch = state.identityMismatch;
   } catch (err) {
     log.warn("status-checker: webhook-triggered check failed", { err });
     return false;
   }
 
   const now = new Date();
+
+  if (identityMismatch) {
+    const moved = await updateRequestIfStatus(request.id, request.status, {
+      status: "failed",
+      lastError: `Tracker drift — please re-request. ${identityMismatch}`,
+      lastCheckedAt: now,
+    });
+    if (moved) {
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: request.id,
+          event: "failed",
+          detail: JSON.stringify({ reason: "arrid_drift", note: identityMismatch }),
+        },
+      });
+    }
+    return moved;
+  }
 
   if (isAvailable) {
     return markAvailable(request, request.status, now);

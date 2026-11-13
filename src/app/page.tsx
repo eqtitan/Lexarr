@@ -129,6 +129,17 @@ export default function Home() {
         toast("Already requested", "info");
       } else if (!res.ok) {
         toast(data.error || "Request failed", "error");
+      } else if (data.arrError) {
+        // POST /api/request returns 200 even when the *arr dispatch
+        // itself failed (createRequest -> sendToArrAndUpdateStatus) --
+        // the request row was saved, but nothing was sent to download.
+        // A plain success toast here would hide a real failure; the
+        // request was created, the download wasn't.
+        markRequested(target);
+        toast(
+          `Request saved, but couldn't start the download: ${data.arrError}`,
+          "warning",
+        );
       } else {
         markRequested(target);
         toast(`Requested: ${target.title}`, "success");

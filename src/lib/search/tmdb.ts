@@ -67,6 +67,11 @@ function toIsoDate(d: Date): string {
 function sixMonthWindow(): { gte: string; lte: string } {
   const now = new Date();
   const sixMonthsAgo = new Date(now);
+  // Clamp to day 1 before subtracting months -- setMonth() on e.g. Oct 31
+  // minus 6 lands on "April 31", which JS Date rolls over to May 1,
+  // silently shrinking the window to ~5 months on the 29th-31st of any
+  // month whose 6-months-back target has fewer days.
+  sixMonthsAgo.setDate(1);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   return { gte: toIsoDate(sixMonthsAgo), lte: toIsoDate(now) };
 }

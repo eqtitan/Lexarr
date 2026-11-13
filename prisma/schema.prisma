@@ -39,11 +39,13 @@ model Request {
   status          String           @default("pending") // pending | approved | downloading | available | denied | failed | stalled
   adminNote       String?          // Admin note when approving/denying
   arrId           Int?             // ID in the *arr system after submission
-  retryCount      Int              @default(0)
+  retryCount      Int              @default(0) // Manual admin retries (POST /api/admin/retry) — no hard cap, see services/retry.ts
+  autoRetryCount  Int              @default(0) // Silent hourly auto-retries (status-checker.ts Tier A) — capped at MAX_AUTO_RETRIES. Separate from retryCount so a background cron attempt never eats into an admin's manual retry budget.
   lastError       String?          // Last error message from *arr submission
   approvedAt      DateTime?
   availableAt     DateTime?
   lastCheckedAt   DateTime?        // Last time status was synced from *arr or qBittorrent
+  checkFailingSince DateTime?      // Set the first time a status check throws while arrId is set; cleared on the next successful check. Lets status-checker.ts tell "broken for 5 minutes" from "broken for 2 months" even though lastError is overwritten every cycle.
   qaPassed        Boolean?         // Whether QA check passed (file exists, size ok, subtitles ready)
   qaCheckedAt     DateTime?        // Last time QA was evaluated
   source          String           @default("lexarr") // "lexarr" | "system"

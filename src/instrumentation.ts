@@ -60,10 +60,9 @@ export async function register() {
             log.info("status-checker recovered after backoff");
           }
           consecutiveFailures = 0;
-          if (result.updated > 0 || result.stuckFlagged > 0 || result.autoRetried > 0 || result.autoFailed > 0) {
+          if (result.updated > 0 || result.autoRetried > 0 || result.autoFailed > 0) {
             log.info("status-checker cycle completed", {
               updated: result.updated,
-              stalled: result.stuckFlagged,
               retried: result.autoRetried,
               failed: result.autoFailed,
             });

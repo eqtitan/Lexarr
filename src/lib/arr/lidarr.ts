@@ -89,7 +89,11 @@ export async function getArtistByForeignId(foreignArtistId: string) {
   return artists.find((a) => a.foreignArtistId === foreignArtistId) || null;
 }
 
-export async function addArtist(foreignArtistId: string, _artistName: string) {
+export async function addArtist(
+  foreignArtistId: string,
+  _artistName: string,
+  qualityProfileId?: number,
+) {
   // Check if already exists
   const existing = await getArtistByForeignId(foreignArtistId);
   if (existing) {
@@ -116,6 +120,7 @@ export async function addArtist(foreignArtistId: string, _artistName: string) {
   // See src/lib/arr/quality-profile.ts for why we don't use profiles[0]
   // as the fallback — avoids a pathological "Any" default.
   const qpId =
+    qualityProfileId ??
     pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
     profiles[0]?.id;
   const metaId =
@@ -172,6 +177,25 @@ export async function setAlbumMonitored(
   });
 }
 
+/**
+ * Unmonitor a whole artist in Lidarr (used when an admin cancels a
+ * whole-artist request -- the addArtist fallback path, not a narrow
+ * release-group request, which should unmonitor just its one album via
+ * setAlbumMonitored above). Unmonitors rather than deletes -- see
+ * radarr.ts's setMovieMonitored for the rationale (same pattern).
+ */
+export async function setArtistMonitored(
+  arrId: number,
+  monitored: boolean,
+): Promise<void> {
+  const artist = await api(`/api/v1/artist/${arrId}`);
+  await api(`/api/v1/artist/${arrId}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...artist, monitored }),
+  });
+  invalidateArtistCache();
+}
+
 /** Trigger a search for specific albums (by Lidarr internal ID) */
 export async function triggerAlbumSearch(albumIds: number[]): Promise<void> {
   await api("/api/v1/command", {
@@ -194,6 +218,7 @@ export async function triggerAlbumSearch(albumIds: number[]): Promise<void> {
 export async function addSingleReleaseGroup(
   foreignArtistId: string,
   releaseGroupId: string,
+  qualityProfileId?: number,
 ): Promise<{ id: number; alreadyExists: boolean }> {
   const existingArtist = await getArtistByForeignId(foreignArtistId);
 
@@ -222,6 +247,7 @@ export async function addSingleReleaseGroup(
       folders[0];
 
     const qpId =
+      qualityProfileId ??
       pickDefaultProfile(profiles, LIDARR_DEFAULT_PATTERNS)?.id ??
       profiles[0]?.id;
     const metaId =

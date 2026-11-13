@@ -55,6 +55,7 @@ export default function DetailPanel({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
+  const [profileFetchFailed, setProfileFetchFailed] = useState(false);
   // Books-only: which format to request. Default ebook; user toggles to
   // audiobook before hitting Request. Not persisted — one-shot choice.
   const [bookFormat, setBookFormat] = useState<BookFormat>("ebook");
@@ -96,15 +97,18 @@ export default function DetailPanel({
     void (async () => {
       try {
         const res = await fetch(`/api/quality-profiles?type=${result.mediaType}`);
-        if (res.ok && !cancelled) {
+        if (cancelled) return;
+        if (res.ok) {
           const profiles: QualityProfile[] = await res.json();
           setQualityProfiles(profiles);
           if (profiles.length > 0) {
             setSelectedProfileId(profiles[0].id);
           }
+        } else {
+          setProfileFetchFailed(true);
         }
       } catch {
-        // Quality profile fetch is enhancement, not critical
+        if (!cancelled) setProfileFetchFailed(true);
       }
     })();
     return () => { cancelled = true; };
@@ -437,6 +441,13 @@ export default function DetailPanel({
               </select>
             </div>
           )}
+          {(result.mediaType === "movie" || result.mediaType === "tv") &&
+            qualityProfiles.length === 0 &&
+            profileFetchFailed && (
+              <p className="text-xs text-[var(--muted)]">
+                Quality profile unavailable — using default
+              </p>
+            )}
           <button
             onClick={() =>
               onRequest({

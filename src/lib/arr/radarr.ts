@@ -88,7 +88,13 @@ export async function addMovie(tmdbId: number, _title: string, qualityProfileId?
     // Drop the batch library cache so library-status reflects the new
     // movie right away instead of up to 60s later.
     libraryCache.delete("radarr:movies");
-    return { id: result.id, alreadyExists: false, hasFile: false };
+    return {
+      id: result.id,
+      alreadyExists: false,
+      hasFile: false,
+      qualityProfileId: profileId,
+      rootFolderPath: mediaFolder?.path || "/movies",
+    };
   } catch (err: unknown) {
     // TOCTOU recovery: two near-simultaneous requests for the same movie
     // can both pass the getMovieByTmdbId() check above before either POST
@@ -110,6 +116,27 @@ export async function addMovie(tmdbId: number, _title: string, qualityProfileId?
     }
     return { id: existing.id, alreadyExists: true, hasFile: existing.hasFile };
   }
+}
+
+/**
+ * Unmonitor a movie in Radarr (used when an admin cancels a request).
+ * Deliberately unmonitors rather than deletes: Radarr keeps the metadata,
+ * so a future re-request for the same title adds cleanly instead of
+ * losing history, and nothing on disk is touched. Radarr's PUT expects
+ * the full movie object back, so GET-modify-PUT like addMovie's own
+ * lookup step. Best-effort by design -- caller (cancelRequest) already
+ * treats *arr cleanup as best-effort and won't block cancellation on it.
+ */
+export async function setMovieMonitored(
+  arrId: number,
+  monitored: boolean,
+): Promise<void> {
+  const movie = await api(`/api/v3/movie/${arrId}`);
+  await api(`/api/v3/movie/${arrId}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...movie, monitored }),
+  });
+  libraryCache.delete("radarr:movies");
 }
 
 export async function getQueue() {

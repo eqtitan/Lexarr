@@ -1,0 +1,15 @@
+-- status-checker.ts's per-request status check can throw repeatedly (a
+-- network blip, a *arr-side issue specific to one title) while `arrId` is
+-- already set, so the request never matches Tier A (needs arrId=null),
+-- Tier B (needs status=downloading) or Tier C (needs status=stalled) --
+-- it just sits at its current status re-overwriting the same `lastError`
+-- forever, with nothing recording how long it's been broken.
+--
+-- `checkFailingSince` is stamped the first time a check fails and cleared
+-- on the next successful check, so a new escalation tier can measure
+-- "broken for 2 hours" instead of relying on `lastError`/`updatedAt`,
+-- which get rewritten every cycle regardless of how long the failure has
+-- persisted. Nullable, no backfill: existing rows default to "not
+-- currently failing", which is the correct assumption until the next poll
+-- proves otherwise.
+ALTER TABLE "Request" ADD COLUMN "checkFailingSince" DATETIME;

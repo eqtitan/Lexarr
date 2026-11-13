@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { useApi } from "@/lib/use-api";
 
 interface Notification {
   id: string;
@@ -13,10 +14,14 @@ interface Notification {
 
 export default function NotificationBell() {
   const { data: session } = useSession();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
+  const { data, error } = useApi<{ notifications?: Notification[] }>(
+    session ? "/api/notifications" : null,
+    { refreshInterval: 60_000, onSuccess: () => setLastSuccessAt(Date.now()) },
+  );
+  const notifications = data?.notifications ?? [];
+  const pollError = error?.message ?? null;
   const [seen, setSeen] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -27,27 +32,6 @@ export default function NotificationBell() {
     }
   });
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!session) return;
-
-    const poll = async () => {
-      try {
-        const r = await fetch("/api/notifications");
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const d = await r.json();
-        setNotifications(d.notifications || []);
-        setLastSuccessAt(Date.now());
-        setPollError(null);
-      } catch (err: unknown) {
-        setPollError(err instanceof Error ? err.message : "Network error");
-      }
-    };
-
-    void poll();
-    const interval = setInterval(() => void poll(), 60_000);
-    return () => clearInterval(interval);
-  }, [session]);
 
   // Consider notifications stale if we haven't had a successful poll in 5 min
   const STALE_MS = 5 * 60_000;

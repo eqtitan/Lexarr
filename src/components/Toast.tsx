@@ -11,11 +11,11 @@ import {
 interface ToastMessage {
   id: number;
   message: string;
-  type: "success" | "error" | "info";
+  type: "success" | "error" | "info" | "warning";
 }
 
 interface ToastContextValue {
-  toast: (message: string, type?: "success" | "error" | "info") => void;
+  toast: (message: string, type?: "success" | "error" | "info" | "warning") => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({ toast: () => {} });
@@ -30,7 +30,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ToastMessage[]>([]);
 
   const toast = useCallback(
-    (message: string, type: "success" | "error" | "info" = "info") => {
+    (message: string, type: "success" | "error" | "info" | "warning" = "info") => {
       const id = nextId++;
       setMessages((prev) => [...prev, { id, message, type }]);
       setTimeout(() => {
@@ -44,6 +44,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     success: "bg-green-600",
     error: "bg-red-600",
     info: "bg-[var(--accent)]",
+    warning: "bg-[var(--warning)]",
   };
 
   return (

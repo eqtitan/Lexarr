@@ -184,7 +184,9 @@ export async function GET() {
         createdAt: e.createdAt.toISOString(),
       })),
       retryCount: r.retryCount ?? 0,
+      autoRetryCount: r.autoRetryCount ?? 0,
       lastError: r.lastError ?? null,
+      checkFailingSince: r.checkFailingSince?.toISOString() ?? null,
       adminNote: r.adminNote ?? null,
       queueItem: null,
     };

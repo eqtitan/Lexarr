@@ -1,5 +1,6 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
+import globals from "globals";
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -56,12 +57,18 @@ export default tseslint.config(
     },
   },
   {
+    // Node-side tooling: the e2e stub server/seed and the helper scripts.
+    files: ["e2e/**/*.{ts,mjs}", "scripts/**/*.mjs"],
+    languageOptions: { globals: globals.node },
+  },
+  {
     ignores: [
       "node_modules/",
       ".next/",
       "out/",
       "prisma/",
-      "scripts/",
+      "playwright-report/",
+      "test-results/",
       "*.config.*",
     ],
   },

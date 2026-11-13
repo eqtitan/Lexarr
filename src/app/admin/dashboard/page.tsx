@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import type { DashboardData, OrphanItem } from "@/types/dashboard";
+import { apiFetch, apiSend, failure, useApi } from "@/lib/use-api";
 import PendingApprovalsCard from "@/components/dashboard/PendingApprovalsCard";
 import PipelineTable from "@/components/dashboard/PipelineTable";
 import AnalyticsGrid from "@/components/dashboard/AnalyticsGrid";
@@ -31,13 +32,10 @@ export default function DashboardPage() {
   const router = useRouter();
   const role = session?.user?.role;
 
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [userPaused, setUserPaused] = useState(false);
   const [tabHidden, setTabHidden] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Orphan state — lazy-loaded the first time the Warnings tab is opened.
   // undefined = not fetched yet, null = fetch failed, [] = clean.
@@ -60,37 +58,23 @@ export default function DashboardPage() {
     }
   }, [session, sessionStatus, role, router]);
 
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/dashboard");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: DashboardData = await res.json();
-      setData(json);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (role === "admin") {
-      void fetchDashboard();
-    }
-  }, [role, fetchDashboard]);
-
   // Adaptive polling: faster when downloads are active, slower when idle,
   // paused entirely when the browser tab is hidden or the user paused.
-  const activeDownloads = data?.pipeline.active.length ?? 0;
+  const { data, error, isLoading, mutate } = useApi<DashboardData>(
+    role === "admin" ? "/api/admin/dashboard" : null,
+    {
+      refreshInterval: (d) =>
+        !isLive ? 0 : (d?.pipeline.active.length ?? 0) > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS,
+    },
+  );
+  const fetchDashboard = useCallback(() => void mutate(), [mutate]);
+
+  // Clear the action-error banner after a few seconds so it doesn't linger.
   useEffect(() => {
-    if (!isLive || role !== "admin") return;
-    const interval = activeDownloads > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
-    intervalRef.current = setInterval(() => void fetchDashboard(), interval);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isLive, role, fetchDashboard, activeDownloads]);
+    if (!actionError) return;
+    const id = setTimeout(() => setActionError(null), 5000);
+    return () => clearTimeout(id);
+  }, [actionError]);
 
   // Track browser tab visibility so we don't poll in the background.
   useEffect(() => {
@@ -108,18 +92,20 @@ export default function DashboardPage() {
   // Force refresh: run a status check against the *arr apps now (the GET
   // above is read-only), then reload. A failed check still reloads.
   const refreshNow = useCallback(async () => {
-    await fetch("/api/status", { method: "POST" }).catch(() => undefined);
-    await fetchDashboard();
-  }, [fetchDashboard]);
+    try {
+      await apiSend("/api/status", "POST");
+    } catch (err) {
+      setActionError(failure("Status check", err));
+    }
+    await mutate();
+  }, [mutate]);
 
   const fetchOrphans = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/orphans");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const json = await apiFetch<{ orphans?: OrphanItem[] }>("/api/admin/orphans");
       setOrphans(json.orphans ?? []);
     } catch {
-      setOrphans(null);
+      setOrphans(null); // the Warnings panel shows "couldn't load"
     }
   }, []);
 
@@ -128,47 +114,29 @@ export default function DashboardPage() {
     deleteFiles: boolean,
     folderName: string,
   ) {
-    const res = await fetch("/api/admin/orphans", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hash, deleteFiles, folderName }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
+    await apiSend("/api/admin/orphans", "DELETE", { hash, deleteFiles, folderName });
     // Optimistically remove from local state — orphan-state.txt is cron-managed
     // (read-only mount), so re-fetching would still show the entry until the next
     // healthcheck run clears it.
     setOrphans((prev) => prev?.filter((o) => o.folderName !== folderName) ?? prev);
   }
 
-  async function handleApprove(id: string, note?: string) {
-    await fetch("/api/admin/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: id, action: "approve", note }),
-    });
-    void fetchDashboard();
+  /** Run an action, surface a failure in the banner, refresh either way. */
+  async function act(label: string, send: () => Promise<unknown>) {
+    try {
+      await send();
+    } catch (err) {
+      setActionError(failure(label, err));
+    }
+    await mutate();
   }
 
-  async function handleDeny(id: string, note?: string) {
-    await fetch("/api/admin/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: id, action: "deny", note }),
-    });
-    void fetchDashboard();
-  }
-
-  async function handleRetry(id: string) {
-    await fetch("/api/admin/retry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId: id }),
-    });
-    void fetchDashboard();
-  }
+  const handleApprove = (id: string, note?: string) =>
+    act("Approve", () => apiSend("/api/admin/requests", "PATCH", { requestId: id, action: "approve", note }));
+  const handleDeny = (id: string, note?: string) =>
+    act("Deny", () => apiSend("/api/admin/requests", "PATCH", { requestId: id, action: "deny", note }));
+  const handleRetry = (id: string) =>
+    void act("Retry", () => apiSend("/api/admin/retry", "POST", { requestId: id }));
 
   if (
     sessionStatus === "loading" ||
@@ -181,7 +149,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (loading && !data) {
+  if (isLoading && !data) {
     return (
       <div className="flex justify-center py-16">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
@@ -196,7 +164,7 @@ export default function DashboardPage() {
         style={{ background: "var(--card)" }}
       >
         <p className="text-[var(--danger)]">
-          Failed to load dashboard: {error}
+          Failed to load dashboard: {error.message}
         </p>
         <button
           onClick={fetchDashboard}
@@ -241,6 +209,15 @@ export default function DashboardPage() {
         />
       </div>
 
+      {actionError && (
+        <div
+          className="rounded-lg px-4 py-2 text-sm ring-1"
+          style={{ background: "rgba(239,68,68,0.08)", borderColor: "var(--danger)", color: "var(--danger)" }}
+          role="alert"
+        >
+          {actionError}
+        </div>
+      )}
 
       {/* Tabs. On mobile we tighten padding/text so all 5 fit, and add a
           right-edge gradient fade to hint at horizontal scroll when they

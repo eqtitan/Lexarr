@@ -6,6 +6,15 @@
  * so a retry carries the request's own releaseType / bookFormat -- the old
  * route-local copy dropped them, re-sending a single as a full album and an
  * audiobook as an ebook.
+ *
+ * No hard cap here (unlike the background auto-retry in status-checker.ts,
+ * which caps at MAX_AUTO_RETRIES and uses its own `autoRetryCount`). A
+ * manual retry is a deliberate, authenticated admin action -- rationing it
+ * the same way an unattended loop needs to be rationed just meant an admin
+ * who'd already fixed the underlying problem (rotated an API key,
+ * restarted a dead *arr) had no way to try again short of cancelling and
+ * asking the user to resubmit. The circuit breaker already stops a retry
+ * from hammering a genuinely dead service.
  */
 import { prisma } from "@/lib/db";
 import { notify } from "@/lib/notifications";
@@ -14,8 +23,7 @@ import { updateRequestIfStatus } from "@/lib/request-transition";
 import { sendToArrAndUpdateStatus } from "@/lib/services/request";
 import type { BookFormat, MediaType, MusicReleaseType } from "@/types";
 
-export const MAX_MANUAL_RETRIES = 3;
-const RETRYABLE = ["failed", "stalled", "approved"];
+const RETRYABLE = ["failed", "stalled", "approved", "downloading"];
 
 export class RetryError extends Error {
   constructor(
@@ -37,13 +45,13 @@ export async function retryRequest(
   });
   if (!request) throw new RetryError(404, "Request not found");
 
-  // failed / stalled, or approved (covers "routing failed silently" and
-  // "routed but never entered the download queue").
+  // failed / stalled, approved (covers "routing failed silently" and
+  // "routed but never entered the download queue"), or downloading
+  // (covers warnings.ts's "Orphaned download" -- marked downloading but
+  // no longer found in any *arr queue; re-approving and resending gives
+  // it a fresh dispatch instead of leaving the only offered action dead).
   if (!RETRYABLE.includes(request.status)) {
     throw new RetryError(400, `Cannot retry request with status: ${request.status}`);
-  }
-  if (request.retryCount >= MAX_MANUAL_RETRIES) {
-    throw new RetryError(400, `Max retries (${MAX_MANUAL_RETRIES}) reached`);
   }
 
   // Guarded: a concurrent cancel or retry since we read it wins.

@@ -74,3 +74,58 @@ describe("qBittorrent circuit breaker", () => {
     expect(getBreaker("qBittorrent").snapshot().failures).toBe(0);
   });
 });
+
+describe("qBittorrent login across versions", () => {
+  function mockQbit(login: () => Response) {
+    const sent: (string | null)[] = [];
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      const isLogin = (init?.body as URLSearchParams | undefined)?.toString().includes("username");
+      if (isLogin) return login();
+      sent.push(new Headers(init?.headers).get("cookie"));
+      return new Response("[]", { status: 200 });
+    }) as typeof fetch;
+    return sent;
+  }
+
+  it("accepts qBittorrent 5.x: 204, empty body, per-port cookie name", async () => {
+    const sent = mockQbit(
+      () =>
+        new Response(null, {
+          status: 204,
+          headers: { "set-cookie": "QBT_SID_8080=xyz789; HttpOnly; SameSite=Lax; path=/" },
+        }),
+    );
+    const { health, getAllTorrents } = await import("@/lib/arr/qbittorrent");
+    expect(await health()).toBe(true);
+    expect(await getAllTorrents()).toEqual([]);
+    expect(sent).toEqual(["QBT_SID_8080=xyz789", "QBT_SID_8080=xyz789"]);
+  });
+
+  it("still accepts qBittorrent 4.x: 200 \"Ok.\" with SID cookie", async () => {
+    const sent = mockQbit(
+      () => new Response("Ok.", { status: 200, headers: { "set-cookie": "SID=abc123; HttpOnly; path=/" } }),
+    );
+    const { health } = await import("@/lib/arr/qbittorrent");
+    expect(await health()).toBe(true);
+    expect(sent).toEqual(["SID=abc123"]);
+  });
+
+  it("treats \"Fails.\" (wrong password) as a failed login", async () => {
+    const sent = mockQbit(() => new Response("Fails.", { status: 200 }));
+    const { health } = await import("@/lib/arr/qbittorrent");
+    expect(await health()).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it("treats 403 (IP banned) as a failed login", async () => {
+    mockQbit(() => new Response("Forbidden", { status: 403 }));
+    const { health } = await import("@/lib/arr/qbittorrent");
+    expect(await health()).toBe(false);
+  });
+
+  it("fails when login succeeds but no session cookie comes back", async () => {
+    mockQbit(() => new Response(null, { status: 204 }));
+    const { health } = await import("@/lib/arr/qbittorrent");
+    expect(await health()).toBe(false);
+  });
+});

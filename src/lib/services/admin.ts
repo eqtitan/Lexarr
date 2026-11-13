@@ -216,7 +216,11 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
     );
   }
 
-  // Best-effort: remove from arr queue if actively downloading
+  // Best-effort: remove from arr queue if actively downloading, and
+  // unmonitor the title in the *arr so it doesn't keep downloading in the
+  // background after Lexarr considers the request cancelled. Unmonitor,
+  // not delete -- keeps metadata/history so a future re-request adds
+  // cleanly, and never touches files already on disk.
   if (existing.arrId) {
     try {
       const mediaType = existing.mediaType as MediaType;
@@ -229,6 +233,7 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
         if (item) {
           await radarr.deleteQueueItem(item.id, true);
         }
+        await radarr.setMovieMonitored(existing.arrId, false);
       } else if (mediaType === "tv") {
         const queue = await sonarr.getQueue();
         const records = queue.records || [];
@@ -238,6 +243,7 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
         if (item) {
           await sonarr.deleteQueueItem(item.id, true);
         }
+        await sonarr.setSeriesMonitored(existing.arrId, false);
       } else if (mediaType === "music") {
         const queue = await lidarr.getQueue();
         const records = queue.records || [];
@@ -246,6 +252,15 @@ export async function cancelRequest(input: CancelInput): Promise<CancelResult> {
         );
         if (item) {
           await lidarr.deleteQueueItem(item.id, true);
+        }
+        // releaseType set → arrId is a narrow-monitored release-group's
+        // album id (addSingleReleaseGroup); unset → arrId is the whole
+        // artist (addArtist fallback). Same distinction media-state.ts
+        // already makes when reading status.
+        if (existing.releaseType) {
+          await lidarr.setAlbumMonitored([existing.arrId], false);
+        } else {
+          await lidarr.setArtistMonitored(existing.arrId, false);
         }
       }
     } catch (err: unknown) {

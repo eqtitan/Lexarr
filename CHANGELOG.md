@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.21.0] — 2026-11-13
+
+### Fixed
+- qBittorrent 5.x: login answers `204` with an empty body and names the session cookie per port (`QBT_SID_8080`), so every qBittorrent call failed with "qBittorrent login failed: ". Login now accepts any 2xx that isn't `Fails.` plus any `*SID*` cookie, and still works with 4.x (`200 "Ok."` + `SID`). Torrent add also accepts the newer JSON answer.
+
+### Changed
+- Frontend data layer: pages read the API through one SWR `useApi` hook and write through `apiSend`, which shows the server's own error message. The dashboard, requests page and notification bell poll via `refreshInterval` instead of hand-rolled timers.
+- Admin users and settings pages split into feature components (`src/components/admin/`).
+- Dashboard approve / deny / retry / status-check failures now show an error banner instead of failing silently.
+
+### Deploy (`deploy.ps1`)
+- Refuses to deploy unless HEAD is `master`, pushed, and green in CI (`-Force` to override).
+- Backs up the DB with the old container stopped before every deploy; a rollback restores that backup if the failed image had migrated the schema.
+- Health gate polls `/api/livez` for up to 90s and requires healthz's DB check; an unreachable *arr app warns instead of rolling back a good release.
+- `-Rehearse`: runs the new image on port 5059 against a copy of the live DB (dummy keys, notifications off), then tears it down.
+- Images are tagged `v<version>-<sha>`; each production deploy pushes a `deployed/<time>-<sha>` git tag.
+- Fixed: `git archive` shipped CRLF line endings to the server on Windows (`core.autocrlf`); build-dir pruning only touches sha-named dirs.
+
+### CI and tooling
+- Dependabot: weekly grouped npm updates (core-stack majors excluded), monthly GitHub Actions and base-image updates; repo Dependabot alerts on.
+- CI audits production dependencies (`npm audit --omit=dev --audit-level=high`) and builds the Docker image on every PR, then starts it against an empty DB and probes `/api/livez`.
+- Lint now also covers `e2e/` and `scripts/`.
+- `.dockerignore` keeps docs, tests, `e2e/` and scripts out of the build context.
+
+### Removed
+- `publish-image.yml` and `scripts/release.js` / `npm run release`: `deploy.ps1` is the one release path (see `.changelog-rules.md` → Cutting a release).
+- `npm run db:push`, which bypassed migrations. Use `npx prisma migrate deploy`.
+
+### Tests
+- E2E: admin users (create, promote, reset password, delete) and settings (music regions, notification channel add/test/toggle/delete).
+
 ## [0.20.0] — 2026-10-20
 
 From the 2026-10-20 senior code review (#23–#29).

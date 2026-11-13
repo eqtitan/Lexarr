@@ -8,6 +8,9 @@ import { routeToArr } from "@/lib/arr/router";
 import { notify } from "@/lib/notifications";
 import { log } from "@/lib/log";
 import { updateRequestIfStatus } from "@/lib/request-transition";
+import { searchCache } from "@/lib/cache";
+import * as radarr from "@/lib/arr/radarr";
+import * as sonarr from "@/lib/arr/sonarr";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 // P-03: narrow client type so checkDuplicate can be called inside a
@@ -136,6 +139,41 @@ export function validateRequestInput(input: {
   return null;
 }
 
+// ── Quality profile check ────────────────────────────────────────────
+
+// Same cache key/TTL as src/app/api/quality-profiles/route.ts, so a
+// profile list the client already fetched for the dropdown is reused here
+// instead of hitting the *arr again.
+const QUALITY_PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Checks qualityProfileId against the *arr's real profile list. Returns
+ * false only when the list was fetched successfully and the ID isn't in
+ * it -- if the *arr can't be reached, this fails open (returns true) so a
+ * transient outage doesn't block every request; the existing post-hoc
+ * arrError path still surfaces a real *arr failure to the user.
+ */
+async function isValidQualityProfileId(
+  mediaType: "movie" | "tv",
+  profileId: number,
+): Promise<boolean> {
+  const cacheKey = `quality-profiles:${mediaType}`;
+  let profiles = searchCache.get(cacheKey) as { id: number; name: string }[] | undefined;
+  if (!profiles) {
+    try {
+      profiles =
+        mediaType === "movie"
+          ? await radarr.getQualityProfiles()
+          : await sonarr.getQualityProfiles();
+      searchCache.set(cacheKey, profiles, QUALITY_PROFILE_CACHE_TTL_MS);
+    } catch (err: unknown) {
+      log.error("quality-profile validation fetch failed", { mediaType, err });
+      return true;
+    }
+  }
+  return (profiles ?? []).some((p) => p.id === profileId);
+}
+
 // ── Duplicate check ──────────────────────────────────────────────────
 
 /** Statuses that no longer block a new request for the same title. */
@@ -262,6 +300,8 @@ export async function sendToArrAndUpdateStatus(
             detail: JSON.stringify({
               arrId: result.arrId,
               alreadyExists: result.alreadyExists,
+              qualityProfileId: result.qualityProfileId,
+              rootFolderPath: result.rootFolderPath,
             }),
           },
         });
@@ -331,6 +371,14 @@ export async function createRequest(
     posterUrl,
   });
   if (validationError) return validationError;
+
+  if (
+    qualityProfileId !== undefined &&
+    (mediaType === "movie" || mediaType === "tv") &&
+    !(await isValidQualityProfileId(mediaType, qualityProfileId))
+  ) {
+    return { ok: false, error: "Invalid quality profile", status: 400 };
+  }
 
   // Quota check (before the dedupe tx — a concurrent burst can still
   // slip one over the cap, but quota is a soft guard, not security).

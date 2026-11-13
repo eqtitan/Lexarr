@@ -1,14 +1,26 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Sync Lexarr source to Unraid and rebuild the container.
+    Ship the current master commit to Unraid and swap the running container.
 
 .DESCRIPTION
     Ships the committed HEAD (git archive) to a fresh build directory on
-    Unraid, builds a Docker image tagged with the package.json version, and
-    hot-swaps the running container.  Run from the lexarr project root with
-    a clean working tree -- what gets deployed is exactly the commit, never
-    stray local edits or stale files left on the server.
+    Unraid, builds a Docker image, and swaps the running container -- with a
+    database backup taken while the old container is stopped, and a rollback
+    that also restores that backup if the new image migrated the schema.
+
+    Only a commit that is master, pushed, and green in CI is deployed (see
+    -Force). The server-side steps live in scripts/deploy-remote.sh, which
+    ships with the commit.
+
+.PARAMETER Rehearse
+    Build the image and run it on port 5059 against a copy of the live DB
+    with dummy keys and notifications off, then tear it down. The live
+    container is never touched. Works from any branch.
+
+.PARAMETER Force
+    Deploy even if the commit isn't master, isn't pushed, or CI hasn't
+    passed for it. Prints a warning; use for emergencies only.
 
 .PARAMETER NoSync
     Skip shipping the source (re-build from the already-shipped commit).
@@ -17,46 +29,64 @@
     Skip the Docker build step and re-use the image already on Unraid.
 
 .EXAMPLE
-    .\deploy.ps1
-    .\deploy.ps1 -NoSync   # rebuild + redeploy without re-syncing files
+    .\deploy.ps1 -UnraidHost 192.168.1.100 -Rehearse   # try it first
+    .\deploy.ps1 -UnraidHost 192.168.1.100             # then deploy
+    $env:LEXARR_UNRAID_HOST = "192.168.1.100"            # or set it once
 #>
 param(
+    [switch]$Rehearse,
+    [switch]$Force,
     [switch]$NoSync,
     [switch]$NoBuild,
-    [string]$UnraidHost = "your-server-ip"
+    [string]$UnraidHost = $(if ($env:LEXARR_UNRAID_HOST) { $env:LEXARR_UNRAID_HOST } else { "your-server-ip" }),
+    # The container being replaced. Overridable so the rollback path can be
+    # exercised against a throwaway container instead of production.
+    [string]$ContainerName = "lexarr",
+    [int]$HostPort = 5056,
+    [string]$DataVolume = "lexarr-data",
+    [string]$EnvFile = "/mnt/user/appdata/lexarr/.env"
 )
 
 $ErrorActionPreference = "Stop"
 
 # ── Config ────────────────────────────────────────────────────────────────
 $UNRAID  = "root@$UnraidHost"
-$REMOTE  = "/mnt/user/appdata/lexarr"          # holds .env (never overwritten)
+$SSH     = @("-o", "StrictHostKeyChecking=no", $UNRAID)
 $BUILDS  = "/mnt/user/appdata/lexarr-build"    # one clean dir per deployed commit
 $IMAGE   = "lexarr"
-
-# Container run params (mirrors the hand-crafted docker run we've been using)
-$NETWORK   = "arrnet"
-$PORT      = "5056:5056"
-$ENV_FILE  = "$REMOTE/.env"
-$VOLUMES   = @(
+$NETWORK = "arrnet"
+$REHEARSAL_PORT = 5059
+$VOLUMES = @(
     "/mnt/user/data/stack-healthcheck:/stack-health:ro",
-    "lexarr-data:/app/data"
+    "${DataVolume}:/app/data"
 )
+$isProduction = ($ContainerName -eq "lexarr")
+
+function Remote([string]$cmd) { & ssh @SSH $cmd }
+function Step([string]$msg) { Write-Host $msg }
+function Ok([string]$msg) { Write-Host "      $msg" -ForegroundColor Green }
+function Fail([string]$msg) { Write-Host ""; Write-Host "  $msg" -ForegroundColor Red; exit 1 }
 
 # ── Version from package.json ─────────────────────────────────────────────
 if (-not (Test-Path "package.json")) {
     Write-Error "Run deploy.ps1 from the lexarr project root (package.json not found)."
     exit 1
 }
-$pkg     = Get-Content "package.json" -Raw | ConvertFrom-Json
-$version = $pkg.version
-$tag     = "v$version"
+$version  = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+$gitSha   = (git rev-parse --short HEAD).Trim()
+$fullSha  = (git rev-parse HEAD).Trim()
+# Every image is tagged with its commit, so v0.20.0 built from two different
+# commits can't be confused. v<version> and latest follow the live container.
+$shaTag   = "v$version-$gitSha"
+$BUILD_DIR = "$BUILDS/$gitSha"
+$REMOTE_SCRIPT = "bash $BUILD_DIR/scripts/deploy-remote.sh"
 
+$mode = if ($Rehearse) { "rehearsal on :$REHEARSAL_PORT" } else { "$ContainerName on :$HostPort" }
 Write-Host ""
-Write-Host "  Lexarr deploy  ->  $IMAGE`:$tag  ->  $UNRAID" -ForegroundColor Cyan
+Write-Host "  Lexarr deploy  ->  ${IMAGE}:$shaTag  ->  $UNRAID  ($mode)" -ForegroundColor Cyan
 Write-Host ""
 
-# ── 0. Deploy only committed code ─────────────────────────────────────────
+# ── 0. Deploy only committed, pushed, CI-green master ─────────────────────
 # The image is built from `git archive HEAD`, so uncommitted edits would be
 # silently left out. Refuse instead of surprising anyone.
 $dirty = (git status --porcelain --untracked-files=no) -join "`n"
@@ -65,107 +95,161 @@ if ($dirty) {
     Write-Host $dirty
     exit 1
 }
-$gitSha = (git rev-parse --short HEAD).Trim()
-$BUILD_DIR = "$BUILDS/$gitSha"
+
+if (-not $Rehearse) {
+    # There's no branch protection on this repo, so this is the gate that
+    # keeps an unreviewed or red commit off the server.
+    $problems = @()
+    $branch = (git rev-parse --abbrev-ref HEAD).Trim()
+    if ($branch -ne "master") { $problems += "on branch '$branch', not master" }
+    & git fetch -q origin master
+    $remoteSha = (git rev-parse origin/master).Trim()
+    if ($fullSha -ne $remoteSha) { $problems += "HEAD $gitSha is not origin/master ($($remoteSha.Substring(0,7)))" }
+    $ci = $null
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+        # try/catch: Windows PowerShell turns a native command's stderr into
+        # a terminating error under ErrorActionPreference=Stop.
+        try {
+            $ci = (& gh run list --workflow ci.yml --commit $fullSha --event push --limit 1 --json conclusion -q '.[0].conclusion' 2>$null)
+        } catch { $ci = $null }
+    }
+    if ($ci -ne "success") {
+        $state = if ($ci) { $ci } else { "no finished run found (or gh missing)" }
+        $problems += "CI for $gitSha is not green: $state"
+    }
+    if ($problems.Count -gt 0) {
+        if (-not $Force) {
+            Write-Host "Refusing to deploy:" -ForegroundColor Red
+            $problems | ForEach-Object { Write-Host "  - $_" }
+            Write-Host "Rehearse with -Rehearse, or override with -Force (emergencies only)."
+            exit 1
+        }
+        Write-Host "WARNING: deploying anyway (-Force):" -ForegroundColor Yellow
+        $problems | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+        Write-Host ""
+    }
+}
 
 # ── 1. Ship the commit ────────────────────────────────────────────────────
-# A fresh directory per commit: the old scp-over-the-top sync never deleted
-# anything, so removed files (and .bak copies) lingered on the server and
-# could end up in an image.
+# A fresh directory per commit, so files removed from the repo can't linger
+# into an image. core.autocrlf=false: with autocrlf on (the Windows default),
+# git archive writes CRLF line endings, which breaks shell scripts on Linux.
 if (-not $NoSync) {
-    Write-Host "[1/3] Shipping commit $gitSha..."
+    Step "[1/4] Shipping commit $gitSha..."
     $archive = Join-Path ([System.IO.Path]::GetTempPath()) "lexarr-$gitSha.tar"
-    & git archive --format=tar -o $archive HEAD
-    if ($LASTEXITCODE -ne 0) { Write-Error "git archive failed"; exit 1 }
+    & git -c core.autocrlf=false archive --format=tar -o $archive HEAD
+    if ($LASTEXITCODE -ne 0) { Fail "git archive failed" }
     # Via a temp file, not a pipe: Windows PowerShell can mangle binary
     # data piped between native commands.
     & scp -o StrictHostKeyChecking=no $archive "${UNRAID}:/tmp/lexarr-$gitSha.tar"
-    if ($LASTEXITCODE -ne 0) { Remove-Item $archive; Write-Error "SCP failed"; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Remove-Item $archive; Fail "SCP failed" }
     Remove-Item $archive
-    & ssh -o StrictHostKeyChecking=no $UNRAID "rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && tar -xf /tmp/lexarr-$gitSha.tar -C $BUILD_DIR && rm -f /tmp/lexarr-$gitSha.tar"
-    if ($LASTEXITCODE -ne 0) { Write-Error "Extracting on Unraid failed"; exit 1 }
-    # Keep the three most recent build directories.
-    & ssh -o StrictHostKeyChecking=no $UNRAID "ls -dt $BUILDS/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf"
-
-    Write-Host "      Done." -ForegroundColor Green
+    Remote "rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && tar -xf /tmp/lexarr-$gitSha.tar -C $BUILD_DIR && rm -f /tmp/lexarr-$gitSha.tar"
+    if ($LASTEXITCODE -ne 0) { Fail "Extracting on Unraid failed" }
+    # Keep the three most recent build directories. Only directories named
+    # like a commit sha are ever pruned -- anything else under $BUILDS is
+    # someone's, not ours (a stale hand-copied source tree once sat there).
+    Remote "find $BUILDS -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9a-f]{7,40}' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | xargs -r rm -rf"
+    Ok "Done."
     Write-Host ""
 }
 
 # ── 2. Docker build ───────────────────────────────────────────────────────
 if (-not $NoBuild) {
-    Write-Host "[2/3] Building $IMAGE`:$tag on Unraid (this takes ~30s)..."
-
-    # GIT_SHA/BUILD_TIME are baked in as build args so /api/version reports
-    # real provenance instead of falling back to "unknown". Computed locally
-    # (not on the remote) so GIT_SHA reflects the commit actually being
-    # deployed from this machine.
+    Step "[2/4] Building ${IMAGE}:$shaTag on Unraid (this takes ~1 min)..."
+    # GIT_SHA/BUILD_TIME are baked in so /api/version reports real provenance.
     $buildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-    # `set -o pipefail` is required here: without it, $LASTEXITCODE reflects
-    # grep's exit code (0 if it matched any line, success OR failure) instead
-    # of docker build's real exit code -- a masked-failure bug that let a
-    # broken build through undetected on 2026-07-06 and tore down the live
-    # container before the replacement was ready. Single-line command (no
-    # backslash-continuations) to avoid CRLF-vs-LF line-ending issues when a
-    # PowerShell here-string crosses SSH to a Linux remote shell.
-    $buildRemoteCmd = "set -o pipefail; cd $BUILD_DIR && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'"
-    & ssh -o StrictHostKeyChecking=no $UNRAID $buildRemoteCmd
+    # pipefail: without it the exit code is grep's, not docker build's -- a
+    # masked failure that once tore down the live container (2026-07-06).
+    Remote "set -o pipefail; cd $BUILD_DIR && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${shaTag} . 2>&1 | grep -E --color=never 'error|Error|ERROR|writing image|naming to|^#[0-9]+ ERROR'"
     if ($LASTEXITCODE -ne 0) {
-        Write-Host ""
         Write-Host "Build failed. Run with full output:" -ForegroundColor Red
-        Write-Host "  ssh $UNRAID `"cd $BUILD_DIR && docker build --build-arg GIT_SHA=$gitSha --build-arg BUILD_TIME=$buildTime -t ${IMAGE}:${tag} .`"" -ForegroundColor Yellow
+        Write-Host "  ssh $UNRAID `"cd $BUILD_DIR && docker build -t ${IMAGE}:${shaTag} .`"" -ForegroundColor Yellow
         exit 1
     }
+}
+# Confirm the image exists before touching anything, whatever the build said.
+if ([string]::IsNullOrWhiteSpace((Remote "docker images -q ${IMAGE}:${shaTag}"))) {
+    Fail "${IMAGE}:$shaTag does not exist on Unraid. Nothing was changed."
+}
+Ok "Image ${IMAGE}:$shaTag present."
+Write-Host ""
 
-    # Belt-and-suspenders: confirm the image actually exists before touching
-    # the running container, regardless of what the build's exit code says.
-    $imageCheck = & ssh -o StrictHostKeyChecking=no $UNRAID "docker images -q ${IMAGE}:${tag}"
-    if ([string]::IsNullOrWhiteSpace($imageCheck)) {
-        Write-Error "Build reported success but ${IMAGE}:${tag} does not exist on Unraid. Aborting before touching the live container."
-        exit 1
-    }
-
-    Write-Host "      Build succeeded and image verified present." -ForegroundColor Green
+# ── Rehearsal: run against a copy of the live DB, then stop ───────────────
+if ($Rehearse) {
+    Step "[3/4] Rehearsing..."
+    Remote "$REMOTE_SCRIPT rehearse ${IMAGE}:${shaTag} $REHEARSAL_PORT"
+    if ($LASTEXITCODE -ne 0) { Fail "Rehearsal FAILED -- don't deploy this commit. The live container was not touched." }
     Write-Host ""
+    Write-Host "  Rehearsal passed. Deploy with: .\deploy.ps1 -UnraidHost $UnraidHost" -ForegroundColor Green
+    Write-Host ""
+    exit 0
 }
 
-# ── 3. Redeploy container ─────────────────────────────────────────────────
-# Rename (don't remove) the old container until the new one is confirmed
-# healthy, so a bad deploy can roll back instead of leaving nothing running --
-# a version of this script that did `docker rm` unconditionally caused a real
-# outage on 2026-07-06 when a build silently failed and the replacement never
-# started. Every remote step below is single-line (no backslash-continuation
-# here-strings) and exit-code-checked individually rather than chained.
-Write-Host "[3/3] Redeploying container..."
+# ── 3. Back up the DB with the old container stopped ──────────────────────
+# Stopped first, so no request can land between the backup and the swap.
+Step "[3/4] Stopping $ContainerName and backing up its database..."
+$previous = "$ContainerName-previous"
+if (Remote "docker ps -aq --filter name=^/$previous$") {
+    Fail "A '$previous' container already exists (a past deploy didn't finish). Inspect it and remove it before deploying."
+}
+Remote "docker stop $ContainerName >/dev/null 2>&1; docker rename $ContainerName $previous >/dev/null 2>&1; true"
 
+$backupOut = Remote "$REMOTE_SCRIPT backup $DataVolume $ContainerName-$gitSha $EnvFile"
+if ($LASTEXITCODE -ne 0) {
+    Remote "docker rename $previous $ContainerName >/dev/null 2>&1; docker start $ContainerName >/dev/null"
+    Fail "Database backup failed -- restarted the old container, nothing was changed."
+}
+$backupPath, $migrationsBefore = (($backupOut | Select-Object -Last 1) -split " ")
+Ok "Backup: $backupPath ($migrationsBefore migrations)"
+Write-Host ""
+
+# ── 4. Start the new container; roll back (DB too) if it isn't healthy ───
+Step "[4/4] Starting ${IMAGE}:$shaTag..."
 $volFlags = ($VOLUMES | ForEach-Object { "-v $_" }) -join " "
-
-# Step back the old container out of the way (renamed, not removed)
-& ssh -o StrictHostKeyChecking=no $UNRAID "docker stop lexarr 2>/dev/null; docker rename lexarr lexarr-previous 2>/dev/null; true"
-
-# Start the new one
-$runCmd = "docker run -d --name lexarr --network $NETWORK -p $PORT --env-file $ENV_FILE $volFlags --restart unless-stopped ${IMAGE}:${tag}"
-& ssh -o StrictHostKeyChecking=no $UNRAID $runCmd
-$startFailed = ($LASTEXITCODE -ne 0)
-
-if (-not $startFailed) {
-    Write-Host "      Waiting for Next.js to be ready..."
-    Start-Sleep -Seconds 10
-    $health = & ssh -o StrictHostKeyChecking=no $UNRAID "curl -s -o /dev/null -w '%{http_code}' http://localhost:5056/api/healthz"
-    if ($health -ne "200") { $startFailed = $true }
+Remote "docker run -d --name $ContainerName --network $NETWORK -p ${HostPort}:5056 --env-file $EnvFile $volFlags --restart unless-stopped ${IMAGE}:${shaTag}"
+$healthy = ($LASTEXITCODE -eq 0)
+if ($healthy) {
+    # Polls /api/livez for up to 90s (migrations run first), then requires
+    # healthz's DB check. An unreachable *arr app only warns.
+    Remote "$REMOTE_SCRIPT wait-healthy $HostPort 90 $ContainerName"
+    $healthy = ($LASTEXITCODE -eq 0)
 }
 
-if ($startFailed) {
+if (-not $healthy) {
     Write-Host ""
     Write-Host "  New container failed to start or isn't healthy -- rolling back." -ForegroundColor Red
-    & ssh -o StrictHostKeyChecking=no $UNRAID "docker stop lexarr 2>/dev/null; docker rm lexarr 2>/dev/null; docker rename lexarr-previous lexarr 2>/dev/null; docker start lexarr"
-    Write-Error "Deploy failed and was rolled back to the previous container. Check logs: ssh $UNRAID `"docker logs lexarr --tail 50`""
-    exit 1
+    Remote "docker logs $ContainerName --tail 30 2>&1"
+    Remote "docker rm -f $ContainerName >/dev/null 2>&1; true"
+    # The new image runs `prisma migrate deploy` before the app starts, so a
+    # failed deploy may still have changed the schema. The old app can't be
+    # trusted on a newer schema: put the pre-deploy DB back first.
+    $migrationsAfter = (Remote "$REMOTE_SCRIPT migrations $DataVolume" | Select-Object -Last 1)
+    if ($backupPath -ne "none" -and $migrationsAfter -ne $migrationsBefore) {
+        Write-Host "  Schema changed ($migrationsBefore -> $migrationsAfter migrations); restoring the pre-deploy DB." -ForegroundColor Yellow
+        Remote "$REMOTE_SCRIPT restore $DataVolume $backupPath"
+        if ($LASTEXITCODE -ne 0) { Fail "RESTORE FAILED. The old container is stopped as '$previous'. Restore $backupPath by hand before starting it." }
+    }
+    Remote "docker rename $previous $ContainerName >/dev/null 2>&1; docker start $ContainerName >/dev/null"
+    Remote "$REMOTE_SCRIPT wait-healthy $HostPort 90 $ContainerName"
+    $oldOk = if ($LASTEXITCODE -eq 0) { "and is healthy" } else { "BUT IS NOT HEALTHY -- check it now" }
+    Fail "Deploy failed. Rolled back to the previous container, which is running $oldOk."
 }
 
-# New container confirmed healthy -- safe to drop the old one now
-& ssh -o StrictHostKeyChecking=no $UNRAID "docker rm lexarr-previous 2>/dev/null; docker tag ${IMAGE}:${tag} ${IMAGE}:latest"
+# Healthy: drop the old container and move the moving tags.
+Remote "docker rm $previous >/dev/null 2>&1; true"
+if ($isProduction) {
+    Remote "docker tag ${IMAGE}:${shaTag} ${IMAGE}:v$version && docker tag ${IMAGE}:${shaTag} ${IMAGE}:latest"
+    # Record what's live in git too. Not a v* tag, so it doesn't look like a
+    # release.
+    $deployTag = "deployed/$((Get-Date).ToString('yyyyMMdd-HHmm'))-$gitSha"
+    & git tag -a $deployTag -m "Deployed v$version ($gitSha) to $UnraidHost" HEAD
+    & git push -q origin $deployTag
+    if ($LASTEXITCODE -ne 0) { Write-Host "  (couldn't push git tag $deployTag -- push it by hand)" -ForegroundColor Yellow }
+}
 
 Write-Host ""
-Write-Host "  Lexarr $tag is live and healthy at http://${UnraidHost}:5056" -ForegroundColor Green
+Write-Host "  Lexarr v$version ($gitSha) is live and healthy at http://${UnraidHost}:$HostPort" -ForegroundColor Green
+Write-Host "  Pre-deploy backup: $backupPath" -ForegroundColor Green
+Write-Host "  Add a row to docs/deployments.md." -ForegroundColor Green
 Write-Host ""

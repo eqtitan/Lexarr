@@ -12,10 +12,11 @@ import OrphansPanel from "./OrphansPanel";
  *   "X is unreachable"       → (no inline action; link to Diagnose)
  *   "Failed download: …"     → POST DELETE /api/{arr}/queue (blocklist)
  *   "Stalled download: …"    → same
- *   "Failed to route: …"     → POST /api/admin/retry
+ *   kind: never-dispatched   → POST /api/admin/retry ("Failed to route: …")
+ *   kind: check-failing      → POST /api/admin/retry ("Can't verify: …")
+ *   kind: no-sources-found   → POST /api/admin/retry ("Stuck download: …")
+ *   kind: stalled-too-long   → POST /api/admin/retry ("Stalled: …")
  *   "Not in queue: …"        → POST /api/admin/retry
- *   "Orphaned download: …"   → POST /api/admin/retry
- *   "Stalled: …"             → POST /api/admin/retry
  *   "Pending Xh: …"          → POST /api/admin/approve or /deny
  *   "High failure rate: …"   → external link to Prowlarr
  *   "Large download queue"   → informational, no action
@@ -49,8 +50,11 @@ const severityLabels: Record<WarningSeverity, string> = {
 };
 
 /**
- * Determine which action a warning supports based on its title.
- * Title-matching is brittle but the warning titles are centralised in
+ * Determine which action a warning supports. `kind` (set by warnings.ts
+ * for its four pipeline-rules.ts-backed warnings) is checked first and
+ * is the reliable path; title-matching only covers the warnings outside
+ * that table (pending approval, "Not in queue", queue items, service
+ * health) and stays brittle by nature -- those titles are centralised in
  * src/lib/dashboard/warnings.ts, so a change there + here stays close.
  */
 type ActionKind =
@@ -59,17 +63,11 @@ type ActionKind =
   | "blocklist-queue" // download-client queue item — needs queue ID
   | "none";
 
-function actionForWarning(w: DashboardWarning): ActionKind {
+export function actionForWarning(w: DashboardWarning): ActionKind {
+  if (w.kind) return "retry"; // every pipeline-rules.ts kind today maps to retry
   const t = w.title;
   if (t.startsWith("Pending ")) return "approve-deny";
-  if (
-    t.startsWith("Failed to route") ||
-    t.startsWith("Not in queue") ||
-    t.startsWith("Orphaned download") ||
-    t.startsWith("Stalled: ")
-  ) {
-    return "retry";
-  }
+  if (t.startsWith("Not in queue")) return "retry";
   // Queue-item warnings now carry queueId + queueSource (0.16.0) so
   // we can fire a blocklist+remove against the right *arr.
   if (

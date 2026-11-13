@@ -114,12 +114,23 @@ npx tsc --noEmit     # Type check
 - Zod-based startup env validation fails fast on missing/malformed vars
 
 ## Deployment
-- **Container:** `lexarr:<package.json version>` on Unraid (port 5056), e.g.
-  `lexarr:0.18.0` — **tag images with the actual `package.json` version, not
-  an arbitrary incrementing counter.** `deploy.ps1` and `scripts/release.js`
-  already do this correctly (they read the version out of `package.json`);
-  when building by hand, match that convention instead of inventing a new
-  counter.
+- **How:** `deploy.ps1` is the one release path. Always rehearse first:
+  ```powershell
+  .\deploy.ps1 -UnraidHost <host> -Rehearse   # port 5059, copy of live DB, dummy keys, notifications off
+  .\deploy.ps1 -UnraidHost <host>             # the real deploy
+  ```
+  It refuses to deploy unless HEAD is `master`, pushed, and green in CI
+  (`-Force` overrides, emergencies only). It stops the old container, backs
+  up the DB (`lexarr-backups/pre-deploy-lexarr-<sha>-<time>.db`, newest 5
+  kept), starts the new image, and waits up to 90s for `/api/livez` plus
+  healthz's DB check (an unreachable *arr only warns). On failure it rolls
+  back, and **restores the backup if the new image had migrated the
+  schema**. Server-side steps live in `scripts/deploy-remote.sh`.
+- **Container:** `lexarr` on Unraid (port 5056), image
+  `lexarr:v<package.json version>-<sha>`; `lexarr:v<version>` and
+  `lexarr:latest` point at whatever is live. Each production deploy pushes a
+  git tag `deployed/<yyyymmdd-hhmm>-<sha>`. When building by hand, keep the
+  `package.json` version in the tag, never an arbitrary counter.
 - **Volume:** `lexarr-data:/app/data` (SQLite DB)
 - **DB migrations:** `prisma migrate deploy` (runs on container start)
 - **Build:** must pass `GIT_SHA` and `BUILD_TIME` build args so

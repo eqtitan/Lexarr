@@ -12,6 +12,13 @@ import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 export interface RouteResult {
   arrId?: number;
   alreadyExists?: boolean;
+  /** Movie/TV only, and only when the title was newly added -- the
+   *  profile/folder *actually* used, which may differ from the caller's
+   *  requested qualityProfileId if none was given (the *arr lib picks a
+   *  default). Logged into the sent_to_arr pipeline event for diagnosing
+   *  "wrong profile got used" without checking the *arr by hand. */
+  qualityProfileId?: number;
+  rootFolderPath?: string;
 }
 
 interface RouteInput {
@@ -35,12 +42,22 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
   switch (mediaType) {
     case "movie": {
       const result = await radarr.addMovie(Number(externalId), title, qualityProfileId);
-      return { arrId: result.id, alreadyExists: result.alreadyExists };
+      return {
+        arrId: result.id,
+        alreadyExists: result.alreadyExists,
+        qualityProfileId: result.qualityProfileId,
+        rootFolderPath: result.rootFolderPath,
+      };
     }
 
     case "tv": {
       const result = await sonarr.addSeries(Number(externalId), title, qualityProfileId);
-      return { arrId: result.id, alreadyExists: result.alreadyExists };
+      return {
+        arrId: result.id,
+        alreadyExists: result.alreadyExists,
+        qualityProfileId: result.qualityProfileId,
+        rootFolderPath: result.rootFolderPath,
+      };
     }
 
     case "music": {
@@ -58,11 +75,12 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
         const result = await lidarr.addSingleReleaseGroup(
           artistForeignId,
           externalId,
+          qualityProfileId,
         );
         return { arrId: result.id, alreadyExists: result.alreadyExists };
       }
       // Fallback only (missing artist id on the search result)
-      const result = await lidarr.addArtist(externalId, title);
+      const result = await lidarr.addArtist(externalId, title, qualityProfileId);
       return { arrId: result.id, alreadyExists: result.alreadyExists };
     }
 

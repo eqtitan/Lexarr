@@ -67,10 +67,11 @@ export default function PipelineTable({
           const eta = req.queueItem?.eta;
           const isStuckApproved =
             req.status === "approved" && !req.arrId && !req.queueItem;
+          // Manual retry has no cap (services/retry.ts) -- only the
+          // background auto-retry (autoRetryCount) is capped, and that's
+          // tracked separately so it never eats into this.
           const canRetry =
-            ((req.status === "failed" || req.status === "stalled") &&
-              (req.retryCount ?? 0) < 3) ||
-            isStuckApproved;
+            req.status === "failed" || req.status === "stalled" || isStuckApproved;
 
           return (
             <div key={req.id}>
@@ -116,8 +117,19 @@ export default function PipelineTable({
                       {req.user.name}
                     </span>
                     {(req.retryCount ?? 0) > 0 && (
-                      <span className="text-[10px] text-[var(--warning)]">
-                        Retry {req.retryCount}/3
+                      <span
+                        className="text-[10px] text-[var(--warning)]"
+                        title="Manual retries have no fixed limit"
+                      >
+                        Retried {req.retryCount}×
+                      </span>
+                    )}
+                    {(req.autoRetryCount ?? 0) > 0 && (
+                      <span
+                        className="text-[10px] text-[var(--muted)]"
+                        title="Automatic background attempts, separate from manual retries"
+                      >
+                        auto {req.autoRetryCount}/3
                       </span>
                     )}
                   </div>

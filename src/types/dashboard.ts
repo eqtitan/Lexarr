@@ -1,4 +1,5 @@
 import type { MediaType } from ".";
+import type { RuleKind } from "@/lib/pipeline-rules";
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
@@ -23,7 +24,10 @@ export interface PipelineRequestDTO {
   user: { name: string; avatar: string | null };
   events: PipelineEventDTO[];
   retryCount?: number;
+  autoRetryCount?: number;
   lastError?: string | null;
+  /** Set when status-checker.ts's per-request check has been throwing since this time; null once a check succeeds. */
+  checkFailingSince?: string | null;
   adminNote?: string | null;
   /** Merged from live *arr queue */
   queueItem?: QueueItemDTO | null;
@@ -74,6 +78,13 @@ export interface DashboardWarning {
   severity: WarningSeverity;
   title: string;
   detail?: string;
+  /**
+   * Set when this warning is one of pipeline-rules.ts's four shared
+   * stuck-request kinds -- lets WarningsPanel.tsx pick an action without
+   * re-parsing `title`. Absent for warnings outside that table (service
+   * health, queue items, pending approval, "Not in queue").
+   */
+  kind?: RuleKind;
   /**
    * For warnings about a specific user request — enables per-request
    * actions (Retry / Approve / Deny) in the admin dashboard panel.

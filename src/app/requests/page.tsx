@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useApi } from "@/lib/use-api";
 import PipelineTimeline from "@/components/dashboard/PipelineTimeline";
 import type { PipelineEventDTO } from "@/types/dashboard";
 
@@ -106,10 +107,19 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function RequestsPage() {
-  const [requests, setRequests] = useState<RequestItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [jellyfinUrl, setJellyfinUrl] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
+  // Auto-refresh every 30 seconds while any request is in an active state.
+  // A failed refresh keeps showing the last known data.
+  const { data, isLoading, mutate } = useApi<{ requests: RequestItem[] }>("/api/requests", {
+    refreshInterval: (d) =>
+      d?.requests.some((r) => ["pending", "approved", "downloading"].includes(r.status)) ? 30_000 : 0,
+    onSuccess: () => setLastRefresh(Date.now()),
+  });
+  const { data: config, isLoading: configLoading } = useApi<{ jellyfinUrl?: string }>("/api/config");
+  const requests = data?.requests ?? [];
+  const jellyfinUrl = config?.jellyfinUrl || null;
+  const loading = isLoading || configLoading;
+  const fetchRequests = () => void mutate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Cached timeline events, keyed by request id.
   // `null` sentinel = fetch failed; undefined = never fetched.
@@ -138,41 +148,6 @@ export default function RequestsPage() {
     },
     [expandedId, timelines],
   );
-
-  const fetchRequests = useCallback(async () => {
-    try {
-      const res = await fetch("/api/requests");
-      if (res.ok) {
-        const d = await res.json();
-        setRequests(d.requests || []);
-        setLastRefresh(Date.now());
-      }
-    } catch {
-      // Silently fail on refresh — keep showing last known data
-    }
-  }, []);
-
-  // Initial load + config
-  useEffect(() => {
-    void Promise.all([
-      fetchRequests(),
-      fetch("/api/config")
-        .then((r) => r.json())
-        .then((d) => setJellyfinUrl(d.jellyfinUrl || null))
-        .catch(() => null),
-    ]).finally(() => setLoading(false));
-  }, [fetchRequests]);
-
-  // Auto-refresh every 30 seconds if any requests are in active states
-  useEffect(() => {
-    const hasActive = requests.some((r) =>
-      ["pending", "approved", "downloading"].includes(r.status),
-    );
-    if (!hasActive) return;
-
-    const interval = setInterval(() => void fetchRequests(), 30000);
-    return () => clearInterval(interval);
-  }, [requests, fetchRequests]);
 
   if (loading) {
     return (

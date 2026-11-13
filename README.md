@@ -192,7 +192,7 @@ npm install
 # Set up the database
 cp .env.example .env
 # Edit .env with your values
-npx prisma db push
+npx prisma migrate deploy
 
 # Start dev server
 npm run dev
@@ -348,23 +348,20 @@ box is checked, not when a feature list is complete.
 - [ ] `SECURITY.md` + `LICENSE` + `README.md` all visible on the
       public-facing repo
 - [ ] At least one Lexarr image pushed to `ghcr.io` with the `1.0.0`
-      tag so others can `docker pull`
+      tag so others can `docker pull` *(needs an image-publish workflow
+      again — the old tag-triggered one was removed while `deploy.ps1` is
+      the only release path)*
 
 ## Versioning
 
 Lexarr follows [Semantic Versioning](https://semver.org). See
 [`CHANGELOG.md`](CHANGELOG.md) for release history and
 [`.changelog-rules.md`](.changelog-rules.md) for the commit prefix
-conventions that drive automated CHANGELOG generation.
+conventions and how a release is cut.
 
-Release a new version with:
-
-```bash
-npm run release -- patch    # bug fix:      0.10.0 → 0.10.1
-npm run release -- minor    # new feature:  0.10.0 → 0.11.0
-npm run release -- major    # breaking:     0.10.0 → 1.0.0 (only when 1.0 criteria met)
-npm run release -- --dry    # preview without writing
-```
+A release is a normal PR (`chore: release vX.Y.Z`) that bumps the version
+and dates the CHANGELOG's `[Unreleased]` block; once merged it ships with
+`deploy.ps1` (rehearse first — see `CLAUDE.md` → Deployment).
 
 ## Contributing
 

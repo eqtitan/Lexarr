@@ -1,11 +1,24 @@
+# Patterns are relative to the build context root: `scripts/x.sh`, not `x.sh`.
 node_modules
 .next
 .git
+.github
+.husky
+.claude
 .env
 .env.*
 *.db
 *.db-journal
+*.log
 .DS_Store
 Thumbs.db
-.claude
-*.log
+
+# Not needed to build or run the app
+docs
+e2e
+playwright-report
+test-results
+coverage
+src/__tests__
+scripts
+*.md

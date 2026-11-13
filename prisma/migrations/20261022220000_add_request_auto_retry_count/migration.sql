@@ -1,0 +1,13 @@
+-- Separates the silent hourly background auto-retry (status-checker.ts
+-- Tier A) from the admin's manual "Retry" click (services/retry.ts). Both
+-- previously shared `retryCount`, so a request could burn through most or
+-- all of its 3-attempt budget via unattended auto-retries before an admin
+-- ever saw it, leaving them with zero manual retries and no indication why
+-- the Retry button had silently disappeared.
+--
+-- `retryCount` keeps its existing meaning (now manual-only, uncapped -- see
+-- services/retry.ts) with no backfill needed. `autoRetryCount` starts at 0
+-- for all existing rows, which is the correct value: no row has a
+-- meaningful "auto retries so far" count to migrate, since the two kinds
+-- of retry were never tracked separately until now.
+ALTER TABLE "Request" ADD COLUMN "autoRetryCount" INTEGER NOT NULL DEFAULT 0;

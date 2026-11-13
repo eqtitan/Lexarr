@@ -79,7 +79,12 @@ export async function addSeries(tmdbId: number, _title: string, qualityProfileId
     // Drop the batch library cache so library-status reflects the new
     // series right away instead of up to 60s later.
     libraryCache.delete("sonarr:series");
-    return { id: result.id, alreadyExists: false };
+    return {
+      id: result.id,
+      alreadyExists: false,
+      qualityProfileId: profileId,
+      rootFolderPath: mediaFolder?.path || "/tv",
+    };
   } catch (err: unknown) {
     // TOCTOU recovery: getSeriesByTmdbId() above reads from a 60s cache,
     // making this race even more likely than Radarr's uncached check.
@@ -101,6 +106,24 @@ export async function addSeries(tmdbId: number, _title: string, qualityProfileId
     }
     return { id: existing.id, alreadyExists: true };
   }
+}
+
+/**
+ * Unmonitor a series in Sonarr (used when an admin cancels a request).
+ * Unmonitors rather than deletes -- see radarr.ts's setMovieMonitored for
+ * the rationale (same pattern). Sonarr's PUT expects the full series
+ * object back, so GET-modify-PUT like addSeries's own lookup step.
+ */
+export async function setSeriesMonitored(
+  arrId: number,
+  monitored: boolean,
+): Promise<void> {
+  const series = await api(`/api/v3/series/${arrId}`);
+  await api(`/api/v3/series/${arrId}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...series, monitored }),
+  });
+  libraryCache.delete("sonarr:series");
 }
 
 export async function getQueue() {

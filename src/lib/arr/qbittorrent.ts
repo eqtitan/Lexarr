@@ -54,22 +54,33 @@ async function qbFetch(path: string, init: RequestInit = {}): Promise<Response> 
   }
 }
 
+/** Matches qBittorrent's session cookie. Before 5.x it was always `SID`;
+ *  newer builds name it per port (`QBT_SID_8080`) and the name is
+ *  configurable, so accept any cookie whose name ends in `SID` or `SID_<n>`. */
+const SESSION_COOKIE = /(?:^|[\s,;])([A-Za-z0-9_]*SID(?:_\d+)?)=([^;,\s]+)/;
+
+/** Log in and return the session as a ready-to-send `Cookie` header value.
+ *  qBittorrent < 5 answers `200 "Ok."`; 5.x answers `204` with an empty
+ *  body. A failed login is `200 "Fails."` (or 403 when the IP is banned),
+ *  so success = 2xx, not "Fails.", and a session cookie present. */
 async function login(): Promise<string> {
   const res = await qbFetch(`/api/v2/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ username: username(), password: password() }),
   });
-  const text = await res.text();
-  if (text !== "Ok.") throw new Error(`qBittorrent login failed: ${text}`);
+  const text = (await res.text()).trim();
+  if (!res.ok || text === "Fails.") {
+    throw new Error(`qBittorrent login failed (${res.status}): ${text || "no body"}`);
+  }
   const setCookie = res.headers.get("set-cookie") || "";
-  const sid = setCookie.match(/SID=([^;]+)/)?.[1];
-  if (!sid) throw new Error("qBittorrent: no SID in response");
-  return sid;
+  const m = setCookie.match(SESSION_COOKIE);
+  if (!m) throw new Error("qBittorrent: no session cookie in login response");
+  return `${m[1]}=${m[2]}`;
 }
 
-async function qbGet(path: string, sid: string) {
-  const res = await qbFetch(path, { headers: { Cookie: `SID=${sid}` } });
+async function qbGet(path: string, cookie: string) {
+  const res = await qbFetch(path, { headers: { Cookie: cookie } });
   if (!res.ok) throw new Error(`qBittorrent GET ${path}: ${res.status}`);
   return res.json();
 }
@@ -92,12 +103,29 @@ export async function addTorrentFromUrl(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: `SID=${sid}`,
+      Cookie: sid,
     },
     body,
   });
-  const text = await res.text();
-  if (text !== "Ok.") throw new Error(`qBittorrent add failed: ${text}`);
+  const text = (await res.text()).trim();
+  if (!res.ok || text === "Fails.") {
+    throw new Error(`qBittorrent add failed (${res.status}): ${text || "no body"}`);
+  }
+  // Newer WebAPI versions may answer with JSON counts and the added ids
+  // instead of "Ok."; use the id directly when there is one.
+  if (text.startsWith("{")) {
+    let r: { success_count?: number; failure_count?: number; added_torrent_ids?: string[] } = {};
+    try {
+      r = JSON.parse(text);
+    } catch {
+      // Not the JSON we expected; fall through to the category lookup.
+    }
+    if ((r.failure_count ?? 0) > 0 && !(r.success_count ?? 0)) {
+      throw new Error(`qBittorrent add failed: ${text}`);
+    }
+    const id = r.added_torrent_ids?.[0];
+    if (id) return id;
+  }
 
   // Give qBittorrent a moment to register the torrent
   await new Promise((r) => setTimeout(r, 1500));
@@ -187,7 +215,7 @@ export async function health(): Promise<boolean> {
   try {
     const sid = await login();
     const res = await qbFetch(`/api/v2/app/version`, {
-      headers: { Cookie: `SID=${sid}` },
+      headers: { Cookie: sid },
     });
     return res.ok;
   } catch (err) {
@@ -222,7 +250,7 @@ export async function deleteTorrent(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: `SID=${sid}`,
+      Cookie: sid,
     },
     body,
   });

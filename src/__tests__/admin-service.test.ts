@@ -44,11 +44,27 @@ vi.mock("@/lib/services/request", () => ({
 }));
 
 const radarrGetQueueDetails = vi.fn();
+const radarrSetMovieMonitored = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/arr/radarr", () => ({
   getQueueDetails: (...args: unknown[]) => radarrGetQueueDetails(...args),
+  setMovieMonitored: (...args: unknown[]) => radarrSetMovieMonitored(...args),
 }));
-vi.mock("@/lib/arr/sonarr", () => ({ getQueue: vi.fn() }));
-vi.mock("@/lib/arr/lidarr", () => ({ getQueue: vi.fn() }));
+
+const sonarrGetQueue = vi.fn().mockResolvedValue({ records: [] });
+const sonarrSetSeriesMonitored = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/arr/sonarr", () => ({
+  getQueue: (...args: unknown[]) => sonarrGetQueue(...args),
+  setSeriesMonitored: (...args: unknown[]) => sonarrSetSeriesMonitored(...args),
+}));
+
+const lidarrGetQueue = vi.fn().mockResolvedValue({ records: [] });
+const lidarrSetAlbumMonitored = vi.fn().mockResolvedValue(undefined);
+const lidarrSetArtistMonitored = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/arr/lidarr", () => ({
+  getQueue: (...args: unknown[]) => lidarrGetQueue(...args),
+  setAlbumMonitored: (...args: unknown[]) => lidarrSetAlbumMonitored(...args),
+  setArtistMonitored: (...args: unknown[]) => lidarrSetArtistMonitored(...args),
+}));
 
 function requestRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -179,6 +195,80 @@ describe("cancelRequest", () => {
       }),
     );
     expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression coverage for the finding this fixes: cancel removed the
+  // active queue item but never unmonitored the title in the *arr itself,
+  // so a "cancelled" request could keep silently downloading in the
+  // background. One case per media type's unmonitor call.
+  it("unmonitors the movie in Radarr when cancelling a movie request", async () => {
+    requestFindUnique.mockResolvedValue(
+      requestRow({ status: "downloading", mediaType: "movie", arrId: 42 }),
+    );
+    radarrGetQueueDetails.mockResolvedValue({ records: [] });
+    requestUpdateMany.mockResolvedValue({ count: 1 });
+    requestFindUniqueOrThrow.mockResolvedValue(requestRow({ status: "cancelled" }));
+
+    const { cancelRequest } = await import("@/lib/services/admin");
+    await cancelRequest({ requestId: "r1", adminId: "a1", adminName: "Admin" });
+
+    expect(radarrSetMovieMonitored).toHaveBeenCalledWith(42, false);
+  });
+
+  it("unmonitors the series in Sonarr when cancelling a tv request", async () => {
+    requestFindUnique.mockResolvedValue(
+      requestRow({ status: "downloading", mediaType: "tv", arrId: 99 }),
+    );
+    requestUpdateMany.mockResolvedValue({ count: 1 });
+    requestFindUniqueOrThrow.mockResolvedValue(requestRow({ status: "cancelled" }));
+
+    const { cancelRequest } = await import("@/lib/services/admin");
+    await cancelRequest({ requestId: "r1", adminId: "a1", adminName: "Admin" });
+
+    expect(sonarrSetSeriesMonitored).toHaveBeenCalledWith(99, false);
+  });
+
+  it("unmonitors just the album in Lidarr for a narrow-monitored (release-group) music request", async () => {
+    requestFindUnique.mockResolvedValue(
+      requestRow({ status: "downloading", mediaType: "music", arrId: 7, releaseType: "single" }),
+    );
+    requestUpdateMany.mockResolvedValue({ count: 1 });
+    requestFindUniqueOrThrow.mockResolvedValue(requestRow({ status: "cancelled" }));
+
+    const { cancelRequest } = await import("@/lib/services/admin");
+    await cancelRequest({ requestId: "r1", adminId: "a1", adminName: "Admin" });
+
+    expect(lidarrSetAlbumMonitored).toHaveBeenCalledWith([7], false);
+    expect(lidarrSetArtistMonitored).not.toHaveBeenCalled();
+  });
+
+  it("unmonitors the whole artist in Lidarr for a whole-artist music request (no releaseType)", async () => {
+    requestFindUnique.mockResolvedValue(
+      requestRow({ status: "downloading", mediaType: "music", arrId: 7, releaseType: null }),
+    );
+    requestUpdateMany.mockResolvedValue({ count: 1 });
+    requestFindUniqueOrThrow.mockResolvedValue(requestRow({ status: "cancelled" }));
+
+    const { cancelRequest } = await import("@/lib/services/admin");
+    await cancelRequest({ requestId: "r1", adminId: "a1", adminName: "Admin" });
+
+    expect(lidarrSetArtistMonitored).toHaveBeenCalledWith(7, false);
+    expect(lidarrSetAlbumMonitored).not.toHaveBeenCalled();
+  });
+
+  it("still cancels successfully (best-effort) when the unmonitor call itself throws", async () => {
+    requestFindUnique.mockResolvedValue(
+      requestRow({ status: "downloading", mediaType: "movie", arrId: 42 }),
+    );
+    radarrGetQueueDetails.mockResolvedValue({ records: [] });
+    radarrSetMovieMonitored.mockRejectedValueOnce(new Error("Radarr unreachable"));
+    requestUpdateMany.mockResolvedValue({ count: 1 });
+    requestFindUniqueOrThrow.mockResolvedValue(requestRow({ status: "cancelled" }));
+
+    const { cancelRequest } = await import("@/lib/services/admin");
+    const { request } = await cancelRequest({ requestId: "r1", adminId: "a1", adminName: "Admin" });
+
+    expect(request.status).toBe("cancelled");
   });
 
   it("rejects immediately on an already-terminal request, without touching the arr queue", async () => {
