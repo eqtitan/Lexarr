@@ -100,14 +100,18 @@ export async function getMediaState(
   if (req.mediaType === "tv" && arrId) {
     const series = await sonarr.getSeries(arrId);
     // Lexarr stores the tmdbId in externalId, same as for movies.
+    const numericId = req.externalId && /^\d+$/.test(String(req.externalId));
+    // The pre-0.24 add bug's signature: Sonarr's `tmdb:` lookup returned the
+    // show whose TVDB id equals the request's TMDB id, and that show often
+    // has no tmdbId at all -- so the tmdbId comparison alone missed it.
+    const tvdbCollision =
+      numericId && !series.tmdbId && String(series.tvdbId) === String(req.externalId);
     const identityMismatch =
-      checkIdentity &&
-      series.tmdbId &&
-      req.externalId &&
-      /^\d+$/.test(String(req.externalId)) &&
-      String(series.tmdbId) !== String(req.externalId)
+      checkIdentity && numericId && series.tmdbId && String(series.tmdbId) !== String(req.externalId)
         ? `Sonarr id ${arrId} now tracks tmdbId=${series.tmdbId} but request expected tmdbId=${req.externalId}`
-        : null;
+        : checkIdentity && tvdbCollision
+          ? `Sonarr id ${arrId} is "${series.title}" (tvdb ${series.tvdbId}), a different show whose TVDB id equals the request's TMDB id`
+          : null;
     // Not premiered yet (Sonarr status "upcoming"): nothing can be found
     // before the first episode airs, so this is waiting, not stuck. Before
     // this, such shows stalled at 12h and auto-failed (Blade Runner 2099 sat

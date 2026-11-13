@@ -198,3 +198,19 @@ export async function discoverRecentTv(limit = 24): Promise<SearchResult[]> {
     .map(mapDiscoverTv)
     .slice(0, limit);
 }
+
+/**
+ * TheTVDB id for a TMDB TV show (Sonarr is TVDB-based), or null when TMDB
+ * has no TVDB mapping yet. Throws when TMDB can't be reached, so callers
+ * can tell "unknown" from "not on TVDB".
+ */
+export async function getTvdbIdForTmdbTv(tmdbId: number): Promise<number | null> {
+  if (!apiKey()) throw new Error("TMDB_API_KEY is not set");
+  const res = await fetch(`${base()}/tv/${tmdbId}/external_ids?api_key=${apiKey()}`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`TMDB /tv/${tmdbId}/external_ids: ${res.status}`);
+  const data = (await res.json()) as { tvdb_id?: number | null };
+  return typeof data.tvdb_id === "number" && data.tvdb_id > 0 ? data.tvdb_id : null;
+}

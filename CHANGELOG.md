@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.24.0] — 2026-11-13
+
+### Fixed
+- **TV requests could add the wrong show to Sonarr.** Sonarr's `term=tmdb:<id>` lookup, when TheTVDB has no mapping for that TMDB id, returns the show whose *TVDB* id equals the number, and Lexarr added `lookup[0]` blindly. 5 of 33 production TV requests got a different show (e.g. "V: The Final Battle" → "Intervention", "The Mandalorian and Grogu" → "Outlander"). `addSeries` now resolves the TVDB id through TMDB (`/tv/{id}/external_ids`), looks up `tvdb:<id>`, reuses a series Sonarr already has under that TVDB id, and only falls back to `tmdb:` (when TMDB is unreachable) for a result whose tmdbId matches. If the show isn't on TheTVDB, the request fails with "Not on TheTVDB yet…" instead of adding a stranger.
+- The TV identity check now also catches that signature (a Sonarr series with no tmdbId whose TVDB id equals the request's TMDB id), so such a request fails as tracker drift instead of tracking the wrong show.
+
 ## [0.23.0] — 2026-11-13
 
 ### Added

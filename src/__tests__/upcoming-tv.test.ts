@@ -97,3 +97,29 @@ describe("upcoming TV", () => {
     expect((await row(req.id))?.status).toBe("downloading");
   });
 });
+
+describe("TV identity check", () => {
+  it("flags the old wrong-show signature: Sonarr series with no tmdbId whose TVDB id equals the request's TMDB id", async () => {
+    const req = await prisma.request.create({
+      data: { userId, mediaType: "tv", externalId: "75896", title: "V: The Final Battle", status: "downloading", arrId: 21 },
+    });
+    getSeries.mockResolvedValue({ title: "Intervention", tvdbId: 75896, tmdbId: 0, status: "continuing", statistics: { percentOfEpisodes: 28 } });
+
+    await checker.checkAndUpdateStatuses();
+
+    const r = await row(req.id);
+    expect(r?.status).toBe("failed");
+    expect(r?.lastError).toMatch(/Tracker drift.*"Intervention"/);
+  });
+
+  it("doesn't flag a correct show that simply lacks a tmdbId in Sonarr", async () => {
+    const req = await prisma.request.create({
+      data: { userId, mediaType: "tv", externalId: "287620", title: "Stuart Fails", status: "downloading", arrId: 41 },
+    });
+    getSeries.mockResolvedValue({ title: "Stuart Fails to Save the Universe", tvdbId: 465664, tmdbId: 0, status: "continuing", statistics: { percentOfEpisodes: 20 } });
+
+    await checker.checkAndUpdateStatuses();
+
+    expect((await row(req.id))?.status).toBe("downloading");
+  });
+});
