@@ -88,6 +88,18 @@ describe("upcoming TV", () => {
     expect(JSON.parse(ev!.detail!)).toMatchObject({ reason: "unreleased_from_stalled" });
   });
 
+  it("moves a failed upcoming show back to approved too (given up on before it was out)", async () => {
+    const req = await show("failed");
+    getSeries.mockResolvedValue({ status: "upcoming", firstAired: premiere, statistics: { percentOfEpisodes: 0 } });
+
+    await checker.checkAndUpdateStatuses();
+
+    const r = await row(req.id);
+    expect(r?.status).toBe("approved");
+    const ev = await prisma.pipelineEvent.findFirst({ where: { requestId: req.id, event: "approved" } });
+    expect(JSON.parse(ev!.detail!)).toMatchObject({ reason: "unreleased_from_failed" });
+  });
+
   it("leaves a show that has aired alone (continuing, not complete)", async () => {
     const req = await show("downloading");
     getSeries.mockResolvedValue({ status: "continuing", firstAired: "2020-01-01", statistics: { percentOfEpisodes: 40 } });

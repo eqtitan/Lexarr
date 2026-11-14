@@ -2,8 +2,13 @@ import type { SearchResult, MusicReleaseType } from "@/types";
 import { getArtistListeners, isLastfmEnabled } from "./lastfm";
 import { lastfmCache } from "@/lib/cache";
 import { log } from "@/lib/log";
+import { env } from "@/lib/env";
 
-const BASE = "https://musicbrainz.org/ws/2";
+// DISCOVER_STUB_BASE is only set by the end-to-end tests (e2e/).
+const base = () => {
+  const stub = env().DISCOVER_STUB_BASE;
+  return stub ? `${stub}/musicbrainz/ws/2` : "https://musicbrainz.org/ws/2";
+};
 const UA = "Lexarr/1.0 (media-request-portal)";
 
 /**
@@ -108,7 +113,7 @@ function toResult(rg: MbReleaseGroup): SearchResult {
 
 async function mbGet<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${base()}${path}`, {
       headers: { "User-Agent": UA },
     });
     if (!res.ok) {
@@ -472,6 +477,57 @@ export async function search(
 
   const textResults = await fetchTextResults(trimmed, opts);
   return textResults.slice(0, 15).map(toResult);
+}
+
+// ── Chart matching (Music tab discovery) ────────────────────────────
+
+const EDITION_SUFFIX = /\s+-\s+(single|ep)$/i;
+const BRACKETED = /\s*[([][^)\]]*[)\]]/g;
+
+/** Lower-case, drop edition suffixes ("(Deluxe)", "[Explicit]",
+ *  " - Single", " - EP") and punctuation, so a chart title and a
+ *  MusicBrainz title compare equal. */
+export function normalizeTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(EDITION_SUFFIX, "")
+    .replace(BRACKETED, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/** First credited artist, normalized ("Lil Baby & Young Thug" → "lilbaby"). */
+export function leadArtist(s: string): string {
+  const first = s.split(/\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?|\bwith\b)\s*/i)[0] ?? s;
+  return first.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/**
+ * Find the MusicBrainz release group for a chart album by artist + title.
+ * Returns the search-shaped result (so the card requests it exactly like a
+ * search hit), `null` when MusicBrainz answered but nothing matched, or
+ * `undefined` when MusicBrainz couldn't be reached — so callers don't cache
+ * a miss that was really a 503.
+ */
+export async function findAlbumReleaseGroup(
+  artist: string,
+  title: string,
+): Promise<SearchResult | null | undefined> {
+  const cleanTitle = title.replace(EDITION_SUFFIX, "").replace(BRACKETED, "").trim() || title;
+  const firstArtist = artist.split(/\s*(?:,|&)\s*/)[0] || artist;
+  const esc = (s: string) => s.replace(/["\\]/g, "");
+  const q = `releasegroup:"${esc(cleanTitle)}" AND artist:"${esc(firstArtist)}"`;
+  const data = await mbGet<{ "release-groups"?: MbReleaseGroup[] }>(
+    `/release-group?query=${encodeURIComponent(q)}&limit=10&fmt=json`,
+  );
+  if (!data) return undefined;
+  const wantTitle = normalizeTitle(title);
+  const wantArtist = leadArtist(artist);
+  const hit = (data["release-groups"] ?? []).find((rg) => {
+    if (normalizeTitle(rg.title || "") !== wantTitle) return false;
+    const got = leadArtist(rg["artist-credit"]?.[0]?.name ?? "");
+    return got !== "" && wantArtist !== "" && (got === wantArtist || got.includes(wantArtist) || wantArtist.includes(got));
+  });
+  return hit ? toResult(hit) : null;
 }
 
 // ── Test exports — not part of the public runtime API ───────────────

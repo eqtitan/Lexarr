@@ -44,6 +44,7 @@ export default defineConfig({
         LIDARR_API_KEY: "e2e",
         TMDB_API_KEY: "e2e",
         TMDB_API_BASE: "http://127.0.0.1:9100",
+        DISCOVER_STUB_BASE: "http://127.0.0.1:9100",
       },
     },
   ],

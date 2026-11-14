@@ -49,6 +49,10 @@ const envSchema = z.object({
   BUILD_TIME: z.string().optional(),
   // Test-only: points TMDB calls at the e2e stub server (e2e/stub-server.mjs).
   TMDB_API_BASE: z.string().url().optional(),
+  // Test-only: points the Music/Books discovery sources (Apple chart,
+  // MusicBrainz, OpenLibrary) at the same stub, under /apple, /musicbrainz
+  // and /openlibrary.
+  DISCOVER_STUB_BASE: z.string().url().optional(),
 
   // Number of reverse-proxy hops to trust for rate-limiting's
   // X-Forwarded-For lookup. See src/lib/rate-limit.ts and .env.example.

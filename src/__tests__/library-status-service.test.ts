@@ -113,4 +113,24 @@ describe("getLibraryStatuses", () => {
     const result = await getLibraryStatuses([{ id: "603", mediaType: "movie" }]);
     expect(result["movie:603"]).toBeNull();
   });
+
+  it("checks albums one by one: an album by a Lidarr artist is only monitored if that album is", async () => {
+    getAllArtistsCached.mockResolvedValue([{ id: 7, foreignArtistId: "ar-1" }]);
+    getAlbumsForArtist.mockResolvedValue([
+      { id: 1, foreignAlbumId: "rg-wanted", monitored: true, artistId: 7, title: "Wanted" },
+      { id: 2, foreignAlbumId: "rg-unmonitored", monitored: false, artistId: 7, title: "Not wanted" },
+    ]);
+    const { getLibraryStatuses } = await import("@/lib/services/library-status");
+    const result = await getLibraryStatuses([
+      { id: "rg-wanted", mediaType: "music", artistId: "ar-1", releaseType: "album" },
+      { id: "rg-unmonitored", mediaType: "music", artistId: "ar-1", releaseType: "album" },
+      { id: "rg-new", mediaType: "music", artistId: "ar-1", releaseType: "album" },
+      { id: "ar-1", mediaType: "music" },
+    ]);
+    expect(result["music:rg-wanted"]).toBe("monitored");
+    expect(result["music:rg-unmonitored"]).toBeNull();
+    expect(result["music:rg-new"]).toBeNull();
+    expect(result["music:ar-1"]).toBe("monitored");
+    expect(getAlbumsForArtist).toHaveBeenCalledTimes(1);
+  });
 });

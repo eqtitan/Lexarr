@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.26.0] — 2026-11-13
+
+### Added
+- **Music and Books tabs have real lists.** With an empty search box, the Music chip shows **Popular new albums** (Apple Music's public US most-played albums chart, each album matched to its MusicBrainz release group, so the card requests exactly like a search hit; unmatched albums are dropped, never guessed) and **New from your artists** (albums and EPs by artists already in Lidarr from the last 60 days or due in the next 30). The Books chip shows **Trending books** (OpenLibrary's weekly trending works, same ids as book search). Titles already in the library or requested are hidden, like the movie/TV feed. `GET /api/discover?type=music|book`.
+  - The lists are built in the background at startup and every 12 hours (matching the chart takes ~30s at MusicBrainz's 1 request/second limit), so opening a tab doesn't wait. MusicBrainz matches are cached for 7 days; a 503 is retried once and never cached as a miss; edition titles ("…: The Encore") fall back to the base title.
+  - If a source is down or a list is empty, the tab shows the "what to search for" card as before.
+
+### Fixed
+- **Failed requests for titles that aren't out yet go back to waiting.** The late-arrival sweep moved a *stalled* unreleased title back to `approved`, but not a *failed* one, so a movie given up on before "in theaters" counted as unreleased stayed failed. Both now move to `approved` with the release date, and the *arr grabs them on release day. Pipeline event reason: `unreleased_from_failed` / `unreleased_from_stalled`.
+- **An album by an artist already in Lidarr no longer shows as "monitored" when it isn't.** The library check marked any album by a known artist as monitored, though requests monitor one album, not the artist's catalog. It now checks the album itself, as it already did for singles and EPs. This affects search results too.
+
+### Tests
+- `discover.test.ts`: chart matching (wrong-artist same-title skipped, edition fallback, 503 retry, misses cached but outages not, 1 req/s pacing), Lidarr list, OpenLibrary list, the route's in-library filtering, empty-but-200 on outages, and the background refresh keeping old lists on failure. Chip tests now cover the lists and the fallback card. A test for failed→approved, and one for the per-album library check.
+- e2e: the stub server serves the Apple chart, MusicBrainz and OpenLibrary under `DISCOVER_STUB_BASE`, and the chip smoke test checks both lists.
+
 ## [0.25.0] — 2026-11-13
 
 ### Fixed

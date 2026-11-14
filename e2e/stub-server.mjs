@@ -70,6 +70,26 @@ function tmdb(req, res) {
       results: [{ ...item, poster_path: "/stub.jpg", overview: "", vote_average: 7 }],
     });
   }
+  // Music / Books discovery sources (DISCOVER_STUB_BASE points here).
+  if (url.pathname.startsWith("/apple/")) {
+    return send(res, 200, { feed: { results: [{ artistName: "Stub Artist", name: "Stub Chart Album" }] } });
+  }
+  if (url.pathname === "/musicbrainz/ws/2/release-group") {
+    return send(res, 200, {
+      "release-groups": [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          title: "Stub Chart Album",
+          "primary-type": "Album",
+          "first-release-date": "2026-11-01",
+          "artist-credit": [{ name: "Stub Artist", artist: { id: "00000000-0000-4000-8000-0000000000a1" } }],
+        },
+      ],
+    });
+  }
+  if (url.pathname === "/openlibrary/trending/weekly.json") {
+    return send(res, 200, { works: [{ key: "/works/OL1STUBW", title: "Stub Trending Book", author_name: ["Stub Author"] }] });
+  }
   if (url.pathname === `/movie/${DUNE.id}`) {
     return send(res, 200, {
       id: DUNE.id,

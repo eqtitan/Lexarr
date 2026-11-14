@@ -16,6 +16,7 @@ interface ReleasesResponse {
  *  search-results grid), so nothing is hidden behind a carousel scroll. */
 function ReleaseRow({
   label,
+  subtitle,
   icon,
   accentVar,
   items,
@@ -24,6 +25,7 @@ function ReleaseRow({
   onRequested,
 }: {
   label: string;
+  subtitle?: string;
   icon: string;
   accentVar: string;
   items: SearchResult[];
@@ -41,6 +43,7 @@ function ReleaseRow({
         <span aria-hidden>{icon}</span>
         {label}
       </h2>
+      {subtitle && <p className="-mt-1 text-xs text-[var(--muted)]">{subtitle}</p>}
       <div className="grid gap-3 overflow-hidden sm:grid-cols-2">
         {items.map((r) => (
           <MediaCard
@@ -56,7 +59,121 @@ function ReleaseRow({
   );
 }
 
-/** What to show for a category with no "new releases" source. */
+interface DiscoverSection {
+  id: string;
+  title: string;
+  subtitle: string;
+  items: SearchResult[];
+}
+
+const SECTION_ICONS: Record<string, string> = {
+  chart: "🔥",
+  "your-artists": "🎤",
+  trending: "📈",
+};
+
+/** Music / Books lists from /api/discover, fetched the first time the chip
+ *  is picked and kept for the rest of the visit. */
+function DiscoverFeed({
+  type,
+  libraryStatuses,
+  onSelect,
+  onRequested,
+  onLoaded,
+}: {
+  type: "music" | "book";
+  libraryStatuses: Record<string, LibraryStatusValue>;
+  onSelect: (r: SearchResult) => void;
+  onRequested: (r: SearchResult) => void;
+  onLoaded: (items: SearchResult[]) => void;
+}) {
+  const [byType, setByType] = useState<Partial<Record<"music" | "book", DiscoverSection[]>>>({});
+  const sections = byType[type];
+
+  useEffect(() => {
+    if (sections) return;
+    let cancelled = false;
+    void (async () => {
+      let got: DiscoverSection[] = [];
+      try {
+        const res = await fetch(`/api/discover?type=${type}`);
+        const json = res.ok ? await res.json() : {};
+        got = Array.isArray(json.sections) ? json.sections : [];
+      } catch {
+        got = [];
+      }
+      if (cancelled) return;
+      setByType((prev) => ({ ...prev, [type]: got }));
+      const items = got.flatMap((s) => s.items);
+      if (items.length > 0) onLoaded(items);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Fetch once per type; onLoaded is a stable callback from the page.
+  }, [type, sections]);
+
+  const accentVar = type === "music" ? "var(--music)" : "var(--book)";
+
+  if (!sections) {
+    return (
+      <div className="space-y-3" data-testid="discover-loading">
+        <p className="text-center text-sm text-[var(--muted)]">
+          {type === "music" ? "Loading popular albums…" : "Loading trending books…"}
+        </p>
+        <div className="grid gap-3 overflow-hidden sm:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-36 rounded-xl skeleton" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const shown = sections.filter((s) => s.items.length > 0);
+  if (shown.length === 0) return <BrowseHint category={type} />;
+
+  return (
+    <div className="space-y-6" data-testid={`discover-${type}`}>
+      {shown.map((s) => (
+        <ReleaseRow
+          key={s.id}
+          label={s.title}
+          subtitle={s.subtitle}
+          icon={SECTION_ICONS[s.id] ?? "✨"}
+          accentVar={accentVar}
+          items={s.items}
+          libraryStatuses={libraryStatuses}
+          onSelect={onSelect}
+          onRequested={onRequested}
+        />
+      ))}
+    </div>
+  );
+}
+
+function BrowseHint({ category }: { category: MediaType }) {
+  const hint = BROWSE_HINTS[category];
+  if (!hint) return null;
+  return (
+    <div
+      className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]"
+      style={{ background: "var(--card)" }}
+      data-testid="browse-hint"
+    >
+      <p className="text-2xl" aria-hidden>
+        {hint.icon}
+      </p>
+      <h2 className="mt-2 text-sm font-bold uppercase tracking-wide" style={{ color: hint.accentVar }}>
+        {hint.title}
+      </h2>
+      <p className="mt-1 text-sm text-[var(--muted)]">{hint.body}</p>
+    </div>
+  );
+}
+
+/** Shown on the Music / Books tabs when their discovery lists are empty
+ *  (a source is down, or everything on them is already in the library). */
 const BROWSE_HINTS: Partial<Record<MediaType, { icon: string; accentVar: string; title: string; body: string }>> = {
   music: {
     icon: "🎵",
@@ -115,24 +232,17 @@ export default function ReleasesFeed({
     };
   }, []);
 
-  // Music and Books have no "new releases" feed: say what to do instead of
-  // repeating the movie/TV lists (which every chip used to show).
-  const hint = category ? BROWSE_HINTS[category] : undefined;
-  if (hint) {
+  // Music and Books get their own lists (popular albums, trending books)
+  // instead of the movie/TV feed.
+  if (category === "music" || category === "book") {
     return (
-      <div
-        className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]"
-        style={{ background: "var(--card)" }}
-        data-testid="browse-hint"
-      >
-        <p className="text-2xl" aria-hidden>
-          {hint.icon}
-        </p>
-        <h2 className="mt-2 text-sm font-bold uppercase tracking-wide" style={{ color: hint.accentVar }}>
-          {hint.title}
-        </h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">{hint.body}</p>
-      </div>
+      <DiscoverFeed
+        type={category}
+        libraryStatuses={libraryStatuses}
+        onSelect={onSelect}
+        onRequested={onRequested}
+        onLoaded={onLoaded}
+      />
     );
   }
 

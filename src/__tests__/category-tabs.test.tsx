@@ -17,6 +17,9 @@ vi.mock("@/components/MediaCard", () => ({
 const realFetch = globalThis.fetch;
 const movie: SearchResult = { id: "1", mediaType: "movie", title: "A New Movie" };
 const show: SearchResult = { id: "2", mediaType: "tv", title: "A New Show" };
+const album: SearchResult = { id: "rg-1", mediaType: "music", title: "A Chart Album", artistId: "ar-1" };
+const book: SearchResult = { id: "/works/OL1W", mediaType: "book", title: "A Trending Book" };
+let discover: Record<"music" | "book", { id: string; title: string; subtitle: string; items: SearchResult[] }[]>;
 
 class RO {
   observe() {}
@@ -38,7 +41,21 @@ const chip = (name: string) => fireEvent.click(screen.getByRole("button", { name
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", RO);
-  globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ movies: [movie], tv: [show] }))) as typeof fetch;
+  discover = {
+    music: [
+      { id: "chart", title: "Popular new albums", subtitle: "s", items: [album] },
+      { id: "your-artists", title: "New from your artists", subtitle: "s", items: [] },
+    ],
+    book: [{ id: "trending", title: "Trending books", subtitle: "s", items: [book] }],
+  };
+  globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.startsWith("/api/discover")) {
+      const type = new URL(u, "http://x").searchParams.get("type") as "music" | "book";
+      return new Response(JSON.stringify({ sections: discover[type] }));
+    }
+    return new Response(JSON.stringify({ movies: [movie], tv: [show] }));
+  }) as typeof fetch;
 });
 afterEach(() => {
   cleanup();
@@ -69,17 +86,34 @@ describe("category chips filter the home feed", () => {
     expect(titles()).toEqual(["A New Movie", "A New Show"]);
   });
 
-  it("Music and Books show their own guidance, not the movie/TV feed", async () => {
+  it("Music shows popular albums and Books shows trending books, not the movie/TV feed", async () => {
     render(<Home />);
     await screen.findByText("A New Movie");
 
     chip("Music");
-    expect(titles()).toEqual([]);
-    expect(screen.getByText("Find music")).toBeInTheDocument();
+    expect(await screen.findByText("A Chart Album")).toBeInTheDocument();
+    expect(titles()).toEqual(["A Chart Album"]);
+    expect(screen.getByText("Popular new albums")).toBeInTheDocument();
+    // An empty section is left out rather than shown with no cards.
+    expect(screen.queryByText("New from your artists")).not.toBeInTheDocument();
 
     chip("Books");
+    expect(await screen.findByText("A Trending Book")).toBeInTheDocument();
+    expect(titles()).toEqual(["A Trending Book"]);
+  });
+
+  it("falls back to the search hint when a list comes back empty or fails", async () => {
+    discover.music = [{ id: "chart", title: "Popular new albums", subtitle: "s", items: [] }];
+    discover.book = undefined as never; // malformed answer
+    render(<Home />);
+    await screen.findByText("A New Movie");
+
+    chip("Music");
+    expect(await screen.findByText("Find music")).toBeInTheDocument();
     expect(titles()).toEqual([]);
-    expect(screen.getByText("Find books")).toBeInTheDocument();
+
+    chip("Books");
+    expect(await screen.findByText("Find books")).toBeInTheDocument();
   });
 
   it("marks the selected chip as pressed", async () => {

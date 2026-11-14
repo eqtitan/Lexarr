@@ -155,13 +155,15 @@ async function sweepLateArrivals(now: Date): Promise<number> {
       const state = await getMediaState(req, { checkIdentity: true, now });
       if (state.identityMismatch) continue;
 
-      // A stalled title that turns out not to be out yet (a show that
-      // hasn't premiered, a movie still in theaters) isn't stuck: park it
-      // back at "approved" with the reason, where the main loop keeps
-      // watching it. The main loop never looks at stalled rows, so without
-      // this Tier C would fail it after 48h.
-      if (!state.available && state.unreleased && req.status === "stalled") {
-        const moved = await updateRequestIfStatus(req.id, "stalled", {
+      // A stalled or failed title that turns out not to be out yet (a show
+      // that hasn't premiered, a movie still in theaters) isn't stuck: park
+      // it back at "approved" with the reason, where the main loop keeps
+      // watching it and the *arr grabs it on release day. The main loop
+      // never looks at stalled/failed rows, so without this a stalled one
+      // would be failed by Tier C after 48h, and a failed one (given up on
+      // before in-theaters counted as unreleased) would stay failed.
+      if (!state.available && state.unreleased) {
+        const moved = await updateRequestIfStatus(req.id, req.status, {
           status: "approved",
           lastError: unreleasedMessage(state.unreleased),
           lastCheckedAt: now,
@@ -171,7 +173,7 @@ async function sweepLateArrivals(now: Date): Promise<number> {
             data: {
               requestId: req.id,
               event: "approved",
-              detail: JSON.stringify({ reason: "unreleased_from_stalled", releaseDate: state.unreleased.releaseDate }),
+              detail: JSON.stringify({ reason: `unreleased_from_${req.status}`, releaseDate: state.unreleased.releaseDate }),
             },
           });
           lateArrivalCheckedAt.delete(req.id);

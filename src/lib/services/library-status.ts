@@ -134,12 +134,18 @@ async function checkMusic(
       const match = allArtists.find((a) => a.foreignArtistId === lookupId);
       if (!match) continue;
 
-      if (item.releaseType === "single" || item.releaseType === "ep") {
-        artistIdByItem.set(item.id, match.id);
-        itemsNeedingReleaseGroupCheck.push(item);
-      } else {
+      // An artist id passed as the item id (an artist-level result) means
+      // the whole artist is what's monitored.
+      if (!item.artistId) {
         results[`music:${item.id}`] = "monitored";
+        continue;
       }
+      // Requests monitor one release group, not the artist's catalog, so
+      // an album by an artist already in Lidarr only counts as monitored
+      // if that album is. (It used to be marked monitored for any album by
+      // a known artist, which hid albums nobody had asked for.)
+      artistIdByItem.set(item.id, match.id);
+      itemsNeedingReleaseGroupCheck.push(item);
     }
 
     const uniqueArtistIds = [...new Set(artistIdByItem.values())];

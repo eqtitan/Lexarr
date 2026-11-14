@@ -86,7 +86,9 @@ export default function Home() {
         });
         if (res.ok) {
           const data = await res.json();
-          setLibraryStatuses(data.statuses || {});
+          // Merge: the feed loads Movies/TV, Music and Books lists
+          // separately, and a new search clears the map before calling this.
+          setLibraryStatuses((prev) => ({ ...prev, ...(data.statuses || {}) }));
         }
       } catch {
         // Library status is enhancement, not critical

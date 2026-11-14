@@ -81,6 +81,25 @@ export const releasesCache = new TTLCache(24 * 60 * 60 * 1000, 5);
 // appearing in the feed within a minute, not up to a day later.
 export const releasesFilteredCache = new TTLCache(60 * 1000, 5);
 
+// Next.js bundles instrumentation.ts and the API routes separately, so a
+// plain module-level cache exists once per bundle. Caches that the
+// background refresh (instrumentation) fills for the routes to read must
+// live on globalThis to be shared.
+const shared = globalThis as typeof globalThis & {
+  __lexarrDiscoverCache?: TTLCache;
+  __lexarrMbMatchCache?: TTLCache<unknown>;
+};
+
+// Music/Books discovery lists (Apple chart, Lidarr calendar, OpenLibrary
+// trending): 24h raw (shared, see above), 60s after library filtering
+// (route only), the same split as releases.
+export const discoverCache = (shared.__lexarrDiscoverCache ??= new TTLCache(24 * 60 * 60 * 1000, 10));
+export const discoverFilteredCache = new TTLCache(60 * 1000, 10);
+
+// Chart album → MusicBrainz match (null = MusicBrainz had no match). 7 days:
+// the chart turns over slowly, so the daily refresh is mostly cache hits.
+export const mbMatchCache = (shared.__lexarrMbMatchCache ??= new TTLCache<unknown>(7 * 24 * 60 * 60 * 1000, 500));
+
 // Artist listener count cache: 24h TTL (Last.fm popularity moves slowly
 // enough that day-old data is fine; we cache nulls as well to avoid
 // re-fetching for artists Last.fm doesn't know about).

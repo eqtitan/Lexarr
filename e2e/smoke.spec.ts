@@ -108,11 +108,13 @@ test("category chips filter the home page feed", async ({ page }) => {
   await expect(page.getByText("Stub New Movie")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Music", exact: true }).click();
-  await expect(page.getByText("Find music")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Popular new albums" })).toBeVisible();
+  await expect(page.getByText("Stub Chart Album")).toBeVisible();
   await expect(page.getByText("Stub New Movie")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Books", exact: true }).click();
-  await expect(page.getByText("Find books")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trending books" })).toBeVisible();
+  await expect(page.getByText("Stub Trending Book")).toBeVisible();
 
   await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page.getByText("Stub New Movie")).toBeVisible();

@@ -387,6 +387,27 @@ export async function getWantedCutoff(pageSize = 20) {
 export async function getCalendar() {
   return api("/api/v1/calendar");
 }
+
+export interface LidarrCalendarAlbum {
+  title: string;
+  foreignAlbumId: string;
+  albumType?: string;
+  releaseDate?: string;
+  monitored: boolean;
+  artist?: { artistName: string; foreignArtistId: string };
+}
+
+/** Albums by artists in Lidarr releasing between `start` and `end`,
+ *  monitored or not. */
+export async function getCalendarRange(start: Date, end: Date): Promise<LidarrCalendarAlbum[]> {
+  const q = new URLSearchParams({
+    start: start.toISOString(),
+    end: end.toISOString(),
+    unmonitored: "true",
+    includeArtist: "true",
+  });
+  return api(`/api/v1/calendar?${q}`);
+}
 export async function getBlocklist(pageSize = 10) {
   return api(`/api/v1/blocklist?pageSize=${pageSize}`);
 }
