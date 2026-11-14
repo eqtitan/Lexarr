@@ -101,16 +101,19 @@ export async function register() {
     // Fill the Music / Books discovery lists in the background (matching the
     // album chart to MusicBrainz takes ~30s at its 1 request/second limit),
     // then refresh them twice a day, so opening the tab never waits on it.
+    // If a source was down, try again in 15 minutes instead.
     const DISCOVER_REFRESH_MS = 12 * 60 * 60 * 1000;
+    const DISCOVER_RETRY_MS = 15 * 60 * 1000;
     const refreshDiscover = async () => {
+      let complete = false;
       try {
         const { refreshDiscoverPools } = await import("./lib/services/discover");
-        await refreshDiscoverPools();
+        complete = await refreshDiscoverPools();
       } catch (err: unknown) {
         const { log } = await import("./lib/log");
         log.warn("discover refresh error", { err });
       }
-      setTimeout(() => void refreshDiscover(), DISCOVER_REFRESH_MS);
+      setTimeout(() => void refreshDiscover(), complete ? DISCOVER_REFRESH_MS : DISCOVER_RETRY_MS);
     };
     setTimeout(() => void refreshDiscover(), 30_000);
   }

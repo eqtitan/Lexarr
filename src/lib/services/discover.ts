@@ -43,8 +43,13 @@ const appleChartUrl = () => {
   const stub = env().DISCOVER_STUB_BASE;
   return stub
     ? `${stub}/apple/api/v2/us/music/most-played/${CHART_SIZE}/albums.json`
-    : `https://rss.applemarketingtools.com/api/v2/us/music/most-played/${CHART_SIZE}/albums.json`;
+    : // rss.applemarketingtools.com 301s here; going direct saves a hop.
+      `https://rss.marketingtools.apple.com/api/v2/us/music/most-played/${CHART_SIZE}/albums.json`;
 };
+/** Some connections to Apple's feed hang until the timeout (about 1 in 5
+ *  from the dev server, curl and Node alike), so try a few times with a short wait. */
+const APPLE_ATTEMPTS = 3;
+const APPLE_TIMEOUT_MS = 8_000;
 const openLibraryBase = () => {
   const stub = env().DISCOVER_STUB_BASE;
   return stub ? `${stub}/openlibrary` : "https://openlibrary.org";
@@ -60,9 +65,18 @@ interface AppleChartEntry {
 }
 
 export async function fetchAppleChart(): Promise<{ artist: string; title: string }[]> {
-  const res = await fetch(appleChartUrl(), { signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error(`Apple chart HTTP ${res.status}`);
-  const json = (await res.json()) as { feed?: { results?: AppleChartEntry[] } };
+  let json: { feed?: { results?: AppleChartEntry[] } };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(appleChartUrl(), { signal: AbortSignal.timeout(APPLE_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`Apple chart HTTP ${res.status}`);
+      json = await res.json();
+      break;
+    } catch (err: unknown) {
+      if (attempt >= APPLE_ATTEMPTS) throw err;
+      log.debug("discover: Apple chart attempt failed, retrying", { attempt, err });
+    }
+  }
   return (json.feed?.results ?? [])
     .filter((e) => e.artistName && e.name)
     .map((e) => ({ artist: e.artistName!, title: e.name! }));
@@ -206,10 +220,19 @@ export function getDiscoverPool(type: DiscoverType): Promise<DiscoverSection[]> 
  *  every 12h) so nobody waits ~30s for the chart to be matched. The old
  *  lists keep serving until the new ones are ready, and a failed rebuild
  *  leaves them in place. */
-export async function refreshDiscoverPools(): Promise<void> {
+export async function refreshDiscoverPools(): Promise<boolean> {
+  let complete = true;
   for (const type of ["book", "music"] as const) {
-    await fill(type).catch((err: unknown) => log.warn("discover: background refresh failed", { type, err }));
+    const sections = await fill(type).catch((err: unknown) => {
+      log.warn("discover: background refresh failed", { type, err });
+      return [] as DiscoverSection[];
+    });
+    // The chart and trending lists are never legitimately empty ("new from
+    // your artists" can be), so an empty one means its source failed.
+    const main = sections.find((s) => s.id === (type === "music" ? "chart" : "trending"));
+    if (!main || main.items.length === 0) complete = false;
   }
+  return complete;
 }
 
 function fill(type: DiscoverType): Promise<DiscoverSection[]> {

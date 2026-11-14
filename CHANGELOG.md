@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.26.1] — 2026-11-14
+
+### Fixed
+- **Music tab empty on the dev server.** About 1 in 5 connections from the dev server to Apple's chart feed hang until the timeout (curl and Node alike), and the one try at startup hit one, so "Popular new albums" stayed empty. The chart is now fetched from its direct address (skipping a 301), with an 8s timeout and up to 3 tries, and if the chart or trending list still comes back empty the background refresh tries again in 15 minutes instead of 12 hours.
+
 ## [0.26.0] — 2026-11-13
 
 ### Added

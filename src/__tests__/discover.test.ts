@@ -68,7 +68,7 @@ beforeEach(async () => {
   getLibraryStatuses.mockResolvedValue({});
   getCalendarRange.mockResolvedValue([]);
   handler = (url) => {
-    if (url.hostname === "rss.applemarketingtools.com") return json(CHART);
+    if (url.hostname === "rss.marketingtools.apple.com") return json(CHART);
     if (url.hostname === "musicbrainz.org") return musicbrainz(url);
     if (url.hostname === "openlibrary.org") {
       return json({
@@ -112,6 +112,21 @@ describe("chart albums", () => {
     });
   });
 
+  it("tries the Apple chart up to 3 times (some connections to it hang)", async () => {
+    const base = handler;
+    let appleCalls = 0;
+    handler = (url) => {
+      if (url.hostname === "rss.marketingtools.apple.com" && ++appleCalls < 3) return json({}, 500);
+      return base(url);
+    };
+    expect((await svc.chartAlbums()).map((a) => a.id)).toEqual(["rg-fresh", "rg-big"]);
+    expect(appleCalls).toBe(3);
+
+    appleCalls = -10; // every attempt fails
+    await expect(svc.fetchAppleChart()).rejects.toThrow("Apple chart HTTP 500");
+    expect(appleCalls).toBe(-7);
+  });
+
   it("remembers matches and misses, so the next refresh skips MusicBrainz", async () => {
     await svc.chartAlbums();
     const first = calls.filter((h) => h === "musicbrainz.org").length;
@@ -143,7 +158,7 @@ describe("chart albums", () => {
   it("falls back to the title before a colon for editions", async () => {
     const base = handler;
     handler = (url) => {
-      if (url.hostname === "rss.applemarketingtools.com") {
+      if (url.hostname === "rss.marketingtools.apple.com") {
         return json({ feed: { results: [{ artistName: "Lil Baby", name: "FRESH: The Encore" }] } });
       }
       return base(url);
@@ -243,6 +258,16 @@ describe("GET /api/discover", () => {
     handler = () => json({}, 500);
     await svc.refreshDiscoverPools();
     expect((await svc.getDiscoverPool("book"))[0].items.map((i) => i.id)).toEqual(["/works/OL7W"]);
+  });
+
+  it("background refresh reports whether the chart and trending lists came back (to retry sooner)", async () => {
+    expect(await svc.refreshDiscoverPools()).toBe(true);
+    const base = handler;
+    handler = (url) => (url.hostname === "rss.marketingtools.apple.com" ? json({}, 500) : base(url));
+    getCalendarRange.mockResolvedValue([
+      { title: "Mine", foreignAlbumId: "a1", albumType: "Album", releaseDate: "2026-11-01", monitored: false, artist: { artistName: "X", foreignArtistId: "ar-x" } },
+    ]);
+    expect(await svc.refreshDiscoverPools()).toBe(false);
   });
 
   it("keeps the raw lists for a day: a second load doesn't refetch the sources", async () => {
