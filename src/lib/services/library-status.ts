@@ -126,7 +126,6 @@ async function checkMusic(
   try {
     const allArtists = await lidarr.getAllArtistsCached();
 
-    const artistIdByItem = new Map<string, number>();
     const itemsNeedingReleaseGroupCheck: StatusItem[] = [];
 
     for (const item of items) {
@@ -144,34 +143,23 @@ async function checkMusic(
       // an album by an artist already in Lidarr only counts as monitored
       // if that album is. (It used to be marked monitored for any album by
       // a known artist, which hid albums nobody had asked for.)
-      artistIdByItem.set(item.id, match.id);
       itemsNeedingReleaseGroupCheck.push(item);
     }
 
-    const uniqueArtistIds = [...new Set(artistIdByItem.values())];
-    const albumLists = await Promise.all(
-      uniqueArtistIds.map((id) =>
-        lidarr.getAlbumsForArtist(id).catch((err: unknown) => {
+    // One small lookup per album (~5 ms each), not the artist's whole album
+    // list: that took 8 s for a big catalog.
+    const albums = await Promise.all(
+      itemsNeedingReleaseGroupCheck.map((item) =>
+        lidarr.findLibraryAlbum(item.id).catch((err: unknown) => {
           log.debug("library-status: Lidarr album lookup failed", { err });
-          return [];
+          return null;
         }),
       ),
     );
-    const albumsByArtist = new Map<
-      number,
-      Awaited<ReturnType<typeof lidarr.getAlbumsForArtist>>
-    >();
-    uniqueArtistIds.forEach((id, i) => albumsByArtist.set(id, albumLists[i]));
-
-    for (const item of itemsNeedingReleaseGroupCheck) {
-      const artistId = artistIdByItem.get(item.id);
-      if (artistId == null) continue;
-      const albums = albumsByArtist.get(artistId) || [];
-      const album = albums.find((a) => a.foreignAlbumId === item.id);
-      if (album) {
-        results[`music:${item.id}`] = album.monitored ? "monitored" : null;
-      }
-    }
+    itemsNeedingReleaseGroupCheck.forEach((item, i) => {
+      const album = albums[i];
+      if (album) results[`music:${item.id}`] = album.monitored ? "monitored" : null;
+    });
   } catch (err) {
     log.debug("library-status: Lidarr unavailable", { err });
     // Lidarr unavailable — skip

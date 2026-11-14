@@ -23,10 +23,10 @@ vi.mock("@/lib/arr/sonarr", () => ({
 }));
 
 const getAllArtistsCached = vi.fn();
-const getAlbumsForArtist = vi.fn();
+const findLibraryAlbum = vi.fn();
 vi.mock("@/lib/arr/lidarr", () => ({
   getAllArtistsCached: (...args: unknown[]) => getAllArtistsCached(...args),
-  getAlbumsForArtist: (...args: unknown[]) => getAlbumsForArtist(...args),
+  findLibraryAlbum: (...args: unknown[]) => findLibraryAlbum(...args),
 }));
 
 beforeEach(() => {
@@ -116,10 +116,11 @@ describe("getLibraryStatuses", () => {
 
   it("checks albums one by one: an album by a Lidarr artist is only monitored if that album is", async () => {
     getAllArtistsCached.mockResolvedValue([{ id: 7, foreignArtistId: "ar-1" }]);
-    getAlbumsForArtist.mockResolvedValue([
-      { id: 1, foreignAlbumId: "rg-wanted", monitored: true, artistId: 7, title: "Wanted" },
-      { id: 2, foreignAlbumId: "rg-unmonitored", monitored: false, artistId: 7, title: "Not wanted" },
-    ]);
+    const library: Record<string, { id: number; foreignAlbumId: string; monitored: boolean; artistId: number; title: string }> = {
+      "rg-wanted": { id: 1, foreignAlbumId: "rg-wanted", monitored: true, artistId: 7, title: "Wanted" },
+      "rg-unmonitored": { id: 2, foreignAlbumId: "rg-unmonitored", monitored: false, artistId: 7, title: "Not wanted" },
+    };
+    findLibraryAlbum.mockImplementation(async (id: string) => library[id] ?? null);
     const { getLibraryStatuses } = await import("@/lib/services/library-status");
     const result = await getLibraryStatuses([
       { id: "rg-wanted", mediaType: "music", artistId: "ar-1", releaseType: "album" },
@@ -131,6 +132,8 @@ describe("getLibraryStatuses", () => {
     expect(result["music:rg-unmonitored"]).toBeNull();
     expect(result["music:rg-new"]).toBeNull();
     expect(result["music:ar-1"]).toBe("monitored");
-    expect(getAlbumsForArtist).toHaveBeenCalledTimes(1);
+    // One small lookup per album (not the artist's whole catalog), and none
+    // for the artist-level item.
+    expect(findLibraryAlbum).toHaveBeenCalledTimes(3);
   });
 });

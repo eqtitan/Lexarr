@@ -156,6 +156,13 @@ export async function getAlbumsForArtist(artistId: number): Promise<LidarrAlbum[
   return api(`/api/v1/album?artistId=${artistId}`);
 }
 
+/** The library's copy of an album by MusicBrainz release-group id, or null
+ *  if Lidarr doesn't have it. Fast (indexed), unlike the artist album list. */
+export async function findLibraryAlbum(foreignAlbumId: string): Promise<LidarrAlbum | null> {
+  const found: LidarrAlbum[] = await api(`/api/v1/album?foreignAlbumId=${encodeURIComponent(foreignAlbumId)}`);
+  return found[0] ?? null;
+}
+
 /** Look up an album (release-group) by its MusicBrainz release-group ID */
 export async function lookupAlbumByForeignId(
   releaseGroupId: string,

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.26.2] — 2026-11-14
+
+### Fixed
+- **Music tab took 5–10 s about once a minute.** The per-album library check (0.26.0) fetched each Lidarr artist's whole album list, which takes 8 s for a big catalog, and the "New from your artists" albums are all by Lidarr artists. It now asks Lidarr for just that album by its MusicBrainz id (~5 ms). Music search results for singles and EPs used the same slow path and get faster too.
+
 ## [0.26.1] — 2026-11-14
 
 ### Fixed
