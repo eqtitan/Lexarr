@@ -22,6 +22,9 @@ export default function Home() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  // The category chip picked in the search bar, kept here so the feed shown
+  // with an empty search box follows it too (it used to ignore the chips).
+  const [category, setCategory] = useState<MediaType | null>(null);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(
     null,
   );
@@ -160,7 +163,7 @@ export default function Home() {
         </p>
       </div>
 
-      <SearchBar onSearch={handleSearch} isAdmin={isAdmin} />
+      <SearchBar onSearch={handleSearch} onFilterChange={setCategory} isAdmin={isAdmin} />
 
       {loading && (
         <div className="space-y-3">
@@ -208,6 +211,7 @@ export default function Home() {
 
       {!searched && (
         <ReleasesFeed
+          category={category}
           libraryStatuses={libraryStatuses}
           onSelect={setSelectedResult}
           onRequested={markRequested}

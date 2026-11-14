@@ -93,3 +93,28 @@ test("health endpoints: liveness up, readiness sees the stub *arr apps", async (
   expect(ready.status()).toBe(200);
   expect((await ready.json()).ok).toBe(true);
 });
+
+test("category chips filter the home page feed", async ({ page }) => {
+  await login(page, "alice", "alice-pass-123");
+  await expect(page.getByText("Stub New Movie")).toBeVisible();
+  await expect(page.getByText("Stub New Show")).toBeVisible();
+
+  await page.getByRole("button", { name: "Movies", exact: true }).click();
+  await expect(page.getByText("Stub New Movie")).toBeVisible();
+  await expect(page.getByText("Stub New Show")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "TV", exact: true }).click();
+  await expect(page.getByText("Stub New Show")).toBeVisible();
+  await expect(page.getByText("Stub New Movie")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Music", exact: true }).click();
+  await expect(page.getByText("Find music")).toBeVisible();
+  await expect(page.getByText("Stub New Movie")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Books", exact: true }).click();
+  await expect(page.getByText("Find books")).toBeVisible();
+
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page.getByText("Stub New Movie")).toBeVisible();
+  await expect(page.getByText("Stub New Show")).toBeVisible();
+});

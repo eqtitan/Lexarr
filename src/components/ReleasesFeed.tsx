@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MediaCard from "@/components/MediaCard";
-import type { SearchResult, LibraryStatusValue } from "@/types";
+import type { SearchResult, LibraryStatusValue, MediaType } from "@/types";
 
 interface ReleasesResponse {
   movies: SearchResult[];
@@ -56,12 +56,31 @@ function ReleaseRow({
   );
 }
 
+/** What to show for a category with no "new releases" source. */
+const BROWSE_HINTS: Partial<Record<MediaType, { icon: string; accentVar: string; title: string; body: string }>> = {
+  music: {
+    icon: "🎵",
+    accentVar: "var(--music)",
+    title: "Find music",
+    body: "Search above for an artist, album, EP or single. Pick Albums, EPs or Singles to narrow it down.",
+  },
+  book: {
+    icon: "📚",
+    accentVar: "var(--book)",
+    title: "Find books",
+    body: "Search above for a title or an author.",
+  },
+};
+
 export default function ReleasesFeed({
+  category = null,
   libraryStatuses,
   onSelect,
   onRequested,
   onLoaded,
 }: {
+  /** The category chip picked in the search bar; null = All. */
+  category?: MediaType | null;
   libraryStatuses: Record<string, LibraryStatusValue>;
   onSelect: (r: SearchResult) => void;
   onRequested: (r: SearchResult) => void;
@@ -96,6 +115,30 @@ export default function ReleasesFeed({
     };
   }, []);
 
+  // Music and Books have no "new releases" feed: say what to do instead of
+  // repeating the movie/TV lists (which every chip used to show).
+  const hint = category ? BROWSE_HINTS[category] : undefined;
+  if (hint) {
+    return (
+      <div
+        className="rounded-xl p-6 text-center ring-1 ring-[var(--border)]"
+        style={{ background: "var(--card)" }}
+        data-testid="browse-hint"
+      >
+        <p className="text-2xl" aria-hidden>
+          {hint.icon}
+        </p>
+        <h2 className="mt-2 text-sm font-bold uppercase tracking-wide" style={{ color: hint.accentVar }}>
+          {hint.title}
+        </h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">{hint.body}</p>
+      </div>
+    );
+  }
+
+  const showMovies = category === null || category === "movie";
+  const showTv = category === null || category === "tv";
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -111,7 +154,9 @@ export default function ReleasesFeed({
     );
   }
 
-  if (!data || (data.movies.length === 0 && data.tv.length === 0)) {
+  const movies = showMovies ? (data?.movies ?? []) : [];
+  const tv = showTv ? (data?.tv ?? []) : [];
+  if (movies.length === 0 && tv.length === 0) {
     return null;
   }
 
@@ -125,7 +170,7 @@ export default function ReleasesFeed({
         label="New Movies"
         icon="🎬"
         accentVar="var(--movie)"
-        items={data.movies}
+        items={movies}
         libraryStatuses={libraryStatuses}
         onSelect={onSelect}
         onRequested={onRequested}
@@ -134,7 +179,7 @@ export default function ReleasesFeed({
         label="New TV Shows"
         icon="📺"
         accentVar="var(--tv)"
-        items={data.tv}
+        items={tv}
         libraryStatuses={libraryStatuses}
         onSelect={onSelect}
         onRequested={onRequested}

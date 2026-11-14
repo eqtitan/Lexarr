@@ -56,6 +56,20 @@ function tmdb(req, res) {
         : [],
     });
   }
+  // New Releases feed on the home page (one movie, one show, dated inside
+  // its 6-month window) so the category chips have something to filter.
+  if (url.pathname === "/discover/movie" || url.pathname === "/discover/tv") {
+    const recent = new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10);
+    const item =
+      url.pathname === "/discover/movie"
+        ? { id: 900001, title: "Stub New Movie", release_date: recent }
+        : { id: 900002, name: "Stub New Show", first_air_date: recent };
+    return send(res, 200, {
+      page: 1,
+      total_pages: 1,
+      results: [{ ...item, poster_path: "/stub.jpg", overview: "", vote_average: 7 }],
+    });
+  }
   if (url.pathname === `/movie/${DUNE.id}`) {
     return send(res, 200, {
       id: DUNE.id,

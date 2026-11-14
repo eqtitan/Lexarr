@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.25.0] — 2026-11-13
+
+### Fixed
+- **Category chips on the home page now change what's shown.** With an empty search box every chip (All / Movies / TV / Music / Books) showed the same New Movies + New TV feed, because the chips only filtered search results. Now Movies shows only new movies, TV only new TV, All both, and Music / Books show a short "what to search for" card instead of the movie/TV lists (there's no new-releases source for them yet). Chips expose `aria-pressed`.
+
+### Tests
+- `category-tabs.test.tsx`: the first React component test, clicking the chips. Mutation-checked: dropping the chip → feed link fails 2.
+- e2e: the stub TMDB server serves `/discover/movie|tv`, and a smoke test clicks every chip.
+
 ## [0.24.0] — 2026-11-13
 
 ### Fixed

@@ -21,12 +21,16 @@ const MUSIC_SUB_FILTERS: { value: MusicSubFilter; label: string }[] = [
 
 export default function SearchBar({
   onSearch,
+  onFilterChange,
 }: {
   onSearch: (
     query: string,
     filter: MediaType | null,
     sub: MusicSubFilter | null,
   ) => void;
+  /** Fires whenever a category chip is picked, search box empty or not, so
+   *  the page can filter what it shows when nothing is being searched. */
+  onFilterChange?: (filter: MediaType | null) => void;
   isAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -63,9 +67,10 @@ export default function SearchBar({
   const handleFilter = useCallback(
     (f: MediaType | "all") => {
       setActiveFilter(f);
+      onFilterChange?.(f === "all" ? null : f);
       if (query.length >= 2) runSearch(query, f, activeSub);
     },
-    [query, activeSub, runSearch],
+    [query, activeSub, runSearch, onFilterChange],
   );
 
   const handleSub = useCallback(
@@ -139,6 +144,7 @@ export default function SearchBar({
             key={f.value}
             ref={f.value === "music" ? musicButtonRef : undefined}
             onClick={() => handleFilter(f.value)}
+            aria-pressed={activeFilter === f.value}
             className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
             style={{
               background: activeFilter === f.value ? f.color : "var(--card)",
