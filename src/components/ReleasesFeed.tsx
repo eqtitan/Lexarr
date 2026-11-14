@@ -179,7 +179,7 @@ const BROWSE_HINTS: Partial<Record<MediaType, { icon: string; accentVar: string;
     icon: "🎵",
     accentVar: "var(--music)",
     title: "Find music",
-    body: "Search above for an artist, album, EP or single. Pick Albums, EPs or Singles to narrow it down.",
+    body: "Search above for an artist, album, EP or single. Albums, EPs and Singles chips appear once you start typing.",
   },
   book: {
     icon: "📚",

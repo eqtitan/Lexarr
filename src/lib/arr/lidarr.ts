@@ -151,11 +151,6 @@ interface LidarrAlbum {
   albumType?: string;
 }
 
-/** Fetch all albums for an artist */
-export async function getAlbumsForArtist(artistId: number): Promise<LidarrAlbum[]> {
-  return api(`/api/v1/album?artistId=${artistId}`);
-}
-
 /** The library's copy of an album by MusicBrainz release-group id, or null
  *  if Lidarr doesn't have it. Fast (indexed), unlike the artist album list. */
 export async function findLibraryAlbum(foreignAlbumId: string): Promise<LidarrAlbum | null> {
@@ -316,9 +311,10 @@ export async function addSingleReleaseGroup(
   let matchedAlbum: LidarrAlbum | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const albums = await getAlbumsForArtist(artistId);
-      matchedAlbum =
-        albums.find((a) => a.foreignAlbumId === releaseGroupId) || null;
+      // Direct lookup by release-group id, not the whole artist album
+      // list: that took 8 s for a big catalog.
+      const album = await findLibraryAlbum(releaseGroupId);
+      matchedAlbum = album && album.artistId === artistId ? album : null;
       if (matchedAlbum) break;
     } catch (err: unknown) {
       if (err instanceof ArrApiError && err.isNetworkError) {

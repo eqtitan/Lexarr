@@ -98,7 +98,7 @@ describe("addSingleReleaseGroup passes qualityProfileId through to Lidarr", () =
         return json({ id: 55 }, 201);
       }
       if (url.endsWith("/api/v1/artist")) return json([]); // getAllArtistsCached
-      if (url.includes("/api/v1/album?artistId=55")) {
+      if (url.includes("/api/v1/album?foreignAlbumId=release-group-1")) {
         return json([
           { id: 900, foreignAlbumId: "release-group-1", title: "X", monitored: false, artistId: 55 },
         ]);

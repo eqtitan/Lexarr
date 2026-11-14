@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { useApi } from "@/lib/use-api";
 import PipelineTimeline from "@/components/dashboard/PipelineTimeline";
 import type { PipelineEventDTO } from "@/types/dashboard";
+import { deriveBadge } from "@/lib/request-badge";
 
 interface RequestItem {
   id: string;
@@ -13,6 +14,8 @@ interface RequestItem {
   posterPath?: string;
   status: string;
   lastError?: string | null;
+  /** Admin's reason, shown on a denied or cancelled request */
+  adminNote?: string | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -25,16 +28,7 @@ const statusColors: Record<string, string> = {
   denied: "var(--danger)",
   failed: "var(--danger)",
   stalled: "var(--warning)",
-};
-
-const statusLabels: Record<string, string> = {
-  pending: "Pending",
-  approved: "Approved",
-  downloading: "Downloading",
-  available: "Available",
-  denied: "Denied",
-  failed: "Failed",
-  stalled: "Stalled",
+  cancelled: "var(--muted)",
 };
 
 const typeLabels: Record<string, string> = {
@@ -43,53 +37,6 @@ const typeLabels: Record<string, string> = {
   music: "Music",
   book: "Book",
 };
-
-/**
- * Derive a short, user-friendly badge label for the request pill.
- * When the poller has surfaced a reason, prefer it over the generic status word
- * so users see "Not Found", "Unreleased", etc. instead of "Downloading" forever.
- */
-function deriveBadge(req: RequestItem): { label: string; tooltip: string } {
-  const err = (req.lastError || "").trim();
-  const lower = err.toLowerCase();
-
-  // Stalled — broken down by reason
-  if (req.status === "stalled") {
-    if (lower.includes("no releases found") || lower.includes("indexers returned nothing")) {
-      return { label: "Not Found", tooltip: err };
-    }
-    if (lower.includes("partial")) {
-      return { label: "Partial — no more sources", tooltip: err };
-    }
-    if (lower.includes("no progress")) {
-      return { label: "Stalled", tooltip: err };
-    }
-    return { label: "Stalled", tooltip: err || "Stalled — no progress detected" };
-  }
-
-  // Failed — includes arrId drift + max-retries
-  if (req.status === "failed") {
-    if (lower.includes("tracker drift") || lower.includes("arrid")) {
-      return { label: "Tracker drift — re-request", tooltip: err };
-    }
-    if (lower.includes("not yet released")) {
-      return { label: "Unreleased", tooltip: err };
-    }
-    return { label: "Not Found", tooltip: err || "Could not be delivered" };
-  }
-
-  // Approved but carrying a diagnostic note (e.g. "Awaiting release")
-  if (req.status === "approved" && err) {
-    if (lower.includes("awaiting release") || lower.includes("not yet released")) {
-      return { label: "Unreleased", tooltip: err };
-    }
-  }
-
-  return {
-    label: statusLabels[req.status] || req.status,
-    tooltip: err || statusLabels[req.status] || req.status,
-  };
-}
 
 function buildJellyfinLink(jellyfinUrl: string, title: string): string {
   return `${jellyfinUrl}/web/index.html#!/search.html?query=${encodeURIComponent(title)}`;
@@ -235,6 +182,11 @@ export default function RequestsPage() {
                     </span>
                   )}
                 </p>
+                {(req.status === "denied" || req.status === "cancelled") && (
+                  <p className="mt-1 truncate text-xs text-[var(--muted)]" title={badge.tooltip}>
+                    {badge.tooltip}
+                  </p>
+                )}
                 {isProblem && req.lastError && (
                   <p
                     className="mt-1 truncate text-xs"

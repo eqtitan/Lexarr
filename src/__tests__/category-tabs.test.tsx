@@ -116,6 +116,19 @@ describe("category chips filter the home feed", () => {
     expect(await screen.findByText("Find books")).toBeInTheDocument();
   });
 
+  it("shows the Albums/EPs/Singles chips only while searching music", async () => {
+    render(<Home />);
+    await screen.findByText("A New Movie");
+    chip("Music");
+    expect(screen.queryByRole("button", { name: "Singles" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Search movies/), { target: { value: "radiohead" } });
+    expect(screen.getByRole("button", { name: "Singles" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Search movies/), { target: { value: "" } });
+    expect(screen.queryByRole("button", { name: "Singles" })).not.toBeInTheDocument();
+  });
+
   it("marks the selected chip as pressed", async () => {
     render(<Home />);
     await screen.findByText("A New Movie");

@@ -164,7 +164,9 @@ export default function SearchBar({
           feel like siblings. The outer relative container reserves
           the sub-row's vertical space so the results grid below
           doesn't jump when sub-row appears. */}
-      {activeFilter === "music" && (
+      {/* Only while searching: the sub-chips narrow search results, and
+          the discovery lists shown with an empty box ignore them. */}
+      {activeFilter === "music" && query.trim().length >= 2 && (
         <div className="relative h-9">
           <div
             className="absolute top-0 flex gap-3 whitespace-nowrap"

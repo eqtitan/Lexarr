@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.26.3] — 2026-11-14
+
+### Changed
+- **Requesting a single or EP is faster.** After adding the artist, Lexarr found the requested release in Lidarr by reading the artist's whole album list (8 s for a big catalog, up to 4 tries). It now asks Lidarr for that one release by its MusicBrainz id, like the library check in 0.26.2.
+- **My Requests shows why a request was closed.** A cancelled request now reads **Cancelled** (it showed the raw status word, with no colour), and cancelled or denied requests show the admin's note under the title, falling back to "Cancelled by an admin". A leftover poller error such as "No releases found" is no longer shown as the reason.
+
+### Fixed
+- **Albums / EPs / Singles chips showed on the Music tab with an empty search box,** where they did nothing: the discovery lists don't use them. They now appear once you start typing.
+
 ## [0.26.2] — 2026-11-14
 
 ### Fixed
