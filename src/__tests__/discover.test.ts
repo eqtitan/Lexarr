@@ -15,6 +15,12 @@ vi.mock("@/lib/rate-limit", () => ({
 const getCalendarRange = vi.fn();
 vi.mock("@/lib/arr/lidarr", () => ({ getCalendarRange: (...a: unknown[]) => getCalendarRange(...a) }));
 
+const getLibrary = vi.fn();
+vi.mock("@/lib/arr/lazylibrarian", () => ({ getLibrary: (...a: unknown[]) => getLibrary(...a) }));
+
+const auth = vi.fn();
+vi.mock("@/lib/auth/config", () => ({ auth: (...a: unknown[]) => auth(...a) }));
+
 const getLibraryStatuses = vi.fn();
 vi.mock("@/lib/services/library-status", () => ({
   getLibraryStatuses: (...a: unknown[]) => getLibraryStatuses(...a),
@@ -60,6 +66,23 @@ function musicbrainz(url: URL): Response {
   return json({ "release-groups": [] });
 }
 
+/** OpenLibrary author search stub: three works per author, one by someone
+ *  else and one without a cover. */
+function olAuthorSearch(url: URL): Response {
+  const author = url.searchParams.get("author") ?? "";
+  const slug = author.replace(/\W/g, "");
+  return json({
+    docs: [
+      { key: `/works/${slug}1`, title: `${author} One`, author_name: [author], cover_i: 11, first_publish_year: 2011 },
+      { key: `/works/${slug}X`, title: "Study Guide", author_name: ["Someone Else"], cover_i: 12 },
+      { key: `/works/${slug}2`, title: `${author} Two`, author_name: [author] },
+      { key: `/works/${slug}3`, title: `${author} Three`, author_name: [author], cover_i: 13 },
+      { key: `/works/${slug}4`, title: `${author} Four`, author_name: [author], cover_i: 14 },
+      { key: `/works/${slug}5`, title: `${author} Five`, author_name: [author], cover_i: 15 },
+    ],
+  });
+}
+
 let svc: typeof import("@/lib/services/discover");
 
 beforeEach(async () => {
@@ -67,9 +90,12 @@ beforeEach(async () => {
   calls.length = 0;
   getLibraryStatuses.mockResolvedValue({});
   getCalendarRange.mockResolvedValue([]);
+  getLibrary.mockResolvedValue([]);
+  auth.mockResolvedValue(null);
   handler = (url) => {
     if (url.hostname === "rss.marketingtools.apple.com") return json(CHART);
     if (url.hostname === "musicbrainz.org") return musicbrainz(url);
+    if (url.hostname === "openlibrary.org" && url.pathname === "/search.json") return olAuthorSearch(url);
     if (url.hostname === "openlibrary.org") {
       return json({
         works: [
@@ -177,19 +203,99 @@ describe("chart albums", () => {
   });
 });
 
-describe("new from your artists", () => {
-  it("lists albums and EPs by Lidarr artists, newest first, skipping singles", async () => {
+describe("from your artists (Lidarr calendar)", () => {
+  const cal = (title: string, id: string, type: string, date: string, monitored = false) => ({
+    title,
+    foreignAlbumId: id,
+    albumType: type,
+    releaseDate: date,
+    monitored,
+    artist: { artistName: "X", foreignArtistId: "ar-x" },
+  });
+
+  it("splits albums and EPs into recent (newest first) and upcoming (soonest first), skipping singles", async () => {
     getCalendarRange.mockResolvedValue([
-      { title: "Old", foreignAlbumId: "a1", albumType: "Album", releaseDate: "2026-10-01T00:00:00Z", monitored: false, artist: { artistName: "X", foreignArtistId: "ar-x" } },
-      { title: "Single", foreignAlbumId: "a2", albumType: "Single", releaseDate: "2026-11-01T00:00:00Z", monitored: false, artist: { artistName: "X", foreignArtistId: "ar-x" } },
-      { title: "New EP", foreignAlbumId: "a3", albumType: "EP", releaseDate: "2026-11-10T00:00:00Z", monitored: true, artist: { artistName: "Y", foreignArtistId: "ar-y" } },
+      cal("Old", "a1", "Album", "2026-10-01T00:00:00Z"),
+      cal("Single", "a2", "Single", "2026-11-01T00:00:00Z"),
+      cal("New EP", "a3", "EP", "2026-11-10T00:00:00Z", true),
+      cal("Today", "a4", "Album", "2026-11-13T00:00:00Z"),
+      cal("Far Off", "a5", "Album", "2027-01-20T00:00:00Z", true),
+      cal("Next Week", "a6", "EP", "2026-11-20T00:00:00Z", true),
     ]);
-    const list = await svc.yourArtistsAlbums(new Date("2026-11-13T00:00:00Z"));
-    expect(list.map((a) => a.title)).toEqual(["New EP", "Old"]);
-    expect(list[0]).toMatchObject({ id: "a3", artistId: "ar-y", releaseType: "ep", releaseDate: "2026-11-10" });
+    const { recent, upcoming } = await svc.artistCalendar(new Date("2026-11-13T12:00:00Z"));
+    expect(recent.map((a) => a.title)).toEqual(["Today", "New EP", "Old"]);
+    expect(upcoming.map((a) => a.title)).toEqual(["Next Week", "Far Off"]);
+    expect(recent[1]).toMatchObject({ id: "a3", artistId: "ar-x", releaseType: "ep", releaseDate: "2026-11-10" });
     const [start, end] = getCalendarRange.mock.calls[0] as [Date, Date];
     expect(start.toISOString().slice(0, 10)).toBe("2026-09-14");
-    expect(end.toISOString().slice(0, 10)).toBe("2026-12-13");
+    expect(end.toISOString().slice(0, 10)).toBe("2027-02-11");
+  });
+});
+
+describe("from authors you follow", () => {
+  it("uses Active LazyLibrarian authors (and ones with books), most books first", async () => {
+    getLibrary.mockResolvedValue([
+      { AuthorName: "Paused Nobody", Status: "Paused", HaveBooks: "0", TotalBooks: "40" },
+      { AuthorName: "Big Active", Status: "Active", HaveBooks: "0", TotalBooks: "200" },
+      { AuthorName: "Has One", Status: "Paused", HaveBooks: "1", TotalBooks: "3" },
+      { AuthorName: "Small Active", Status: "Active", HaveBooks: "0", TotalBooks: "9" },
+    ]);
+    expect(await svc.followedAuthors()).toEqual(["Has One", "Big Active", "Small Active"]);
+  });
+
+  it("takes each author's top works with covers, by that author, in turns", async () => {
+    getLibrary.mockResolvedValue([
+      { AuthorName: "Ann Author", Status: "Active", HaveBooks: "2", TotalBooks: "10" },
+      { AuthorName: "Bob Writer", Status: "Active", HaveBooks: "1", TotalBooks: "10" },
+    ]);
+    const books = await svc.authorBooks();
+    expect(books.map((b) => b.title)).toEqual([
+      "Ann Author One",
+      "Bob Writer One",
+      "Ann Author Three",
+      "Bob Writer Three",
+      "Ann Author Four",
+      "Bob Writer Four",
+    ]);
+    expect(books[0]).toMatchObject({
+      id: "/works/AnnAuthor1",
+      mediaType: "book",
+      artist: "Ann Author",
+      year: "2011",
+      posterUrl: "https://covers.openlibrary.org/b/id/11-M.jpg",
+    });
+  });
+
+  it("asks for English editions and keeps one work per book title", async () => {
+    getLibrary.mockResolvedValue([{ AuthorName: "Marcus Aurelius", Status: "Active" }]);
+    const base = handler;
+    let lang: string | null = null;
+    handler = (url) => {
+      if (url.pathname !== "/search.json") return base(url);
+      lang = url.searchParams.get("language");
+      const w = (key: string, title: string) => ({ key: `/works/${key}`, title, author_name: ["Marcus Aurelius"], cover_i: 1 });
+      return json({
+        docs: [
+          w("M1", "Meditations"),
+          w("M2", "Meditations"),
+          w("M3", "The Meditations"),
+          w("M4", "The Meditations of Marcus Aurelius"),
+          w("M5", "Letters"),
+        ],
+      });
+    };
+    expect((await svc.authorBooks()).map((b) => b.id)).toEqual(["/works/M1", "/works/M5"]);
+    expect(lang).toBe("eng");
+  });
+
+  it("skips an author whose search fails and keeps the rest", async () => {
+    getLibrary.mockResolvedValue([
+      { AuthorName: "Ann Author", Status: "Active" },
+      { AuthorName: "Bob Writer", Status: "Active" },
+    ]);
+    const base = handler;
+    handler = (url) => (url.searchParams.get("author") === "Ann Author" ? json({}, 500) : base(url));
+    expect((await svc.authorBooks()).map((b) => b.artist)).toEqual(["Bob Writer", "Bob Writer", "Bob Writer"]);
   });
 });
 
@@ -225,12 +331,59 @@ describe("GET /api/discover", () => {
     getLibraryStatuses.mockResolvedValue({ "music:rg-big": "monitored" });
     const { GET } = await import("@/app/api/discover/route");
     const data = await (await GET(req("music"))).json();
-    expect(data.sections.map((s: { id: string }) => s.id)).toEqual(["chart", "your-artists"]);
+    expect(data.sections.map((s: { id: string }) => s.id)).toEqual(["chart", "your-artists", "coming-soon"]);
     expect(data.sections[0].items.map((i: { id: string }) => i.id)).toEqual(["rg-fresh"]);
     // Music items carry their artist id so the per-album Lidarr check works.
     expect(getLibraryStatuses.mock.calls[0][0]).toContainEqual(
       expect.objectContaining({ id: "rg-fresh", artistId: "ar-rg-fresh" }),
     );
+  });
+
+  it("keeps monitored albums in the coming-soon calendar, but hides them from the other lists", async () => {
+    const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+    const past = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    getCalendarRange.mockResolvedValue([
+      { title: "Soon", foreignAlbumId: "soon", albumType: "Album", releaseDate: soon, monitored: true, artist: { artistName: "X", foreignArtistId: "ar-x" } },
+      { title: "Got It", foreignAlbumId: "got", albumType: "Album", releaseDate: past, monitored: true, artist: { artistName: "X", foreignArtistId: "ar-x" } },
+    ]);
+    getLibraryStatuses.mockResolvedValue({ "music:soon": "monitored", "music:got": "monitored" });
+    const { GET } = await import("@/app/api/discover/route");
+    const data = await (await GET(req("music"))).json();
+    const byId = Object.fromEntries(data.sections.map((s: { id: string; items: { id: string }[] }) => [s.id, s.items.map((i) => i.id)]));
+    expect(byId["coming-soon"]).toEqual(["soon"]);
+    expect(byId["your-artists"]).toEqual([]);
+    expect(typeof data.builtAt).toBe("string");
+  });
+
+  it("returns the book sections, author books included", async () => {
+    getLibrary.mockResolvedValue([{ AuthorName: "Ann Author", Status: "Active" }]);
+    const { GET } = await import("@/app/api/discover/route");
+    const data = await (await GET(req("book"))).json();
+    expect(data.sections.map((s: { id: string }) => s.id)).toEqual(["trending", "your-authors"]);
+    expect(data.sections[1].items.map((i: { id: string }) => i.id)).toEqual([
+      "/works/AnnAuthor1",
+      "/works/AnnAuthor3",
+      "/works/AnnAuthor4",
+    ]);
+  });
+
+  it("POST rebuilds the lists for an admin and is refused for everyone else", async () => {
+    const { GET, POST } = await import("@/app/api/discover/route");
+    expect((await POST()).status).toBe(403);
+    auth.mockResolvedValue({ user: { role: "user" } });
+    expect((await POST()).status).toBe(403);
+
+    await GET(req("book"));
+    handler = (url) =>
+      url.hostname === "openlibrary.org" && url.pathname !== "/search.json"
+        ? json({ works: [{ key: "/works/OL8W", title: "Fresh Pick" }] })
+        : json({}, 500);
+    auth.mockResolvedValue({ user: { role: "admin" } });
+    const res = await POST();
+    expect(res.status).toBe(200);
+    // The filtered 60s cache is dropped too, so the new list shows at once.
+    const again = await (await GET(req("book"))).json();
+    expect(again.sections[0].items.map((i: { id: string }) => i.id)).toEqual(["/works/OL8W"]);
   });
 
   it("returns empty sections (not an error) when every source is down, and doesn't cache them", async () => {

@@ -8,10 +8,15 @@
  *     requests the same way. Albums MusicBrainz can't match are dropped,
  *     never guessed.
  *   - "New from your artists": albums by artists already in Lidarr that
- *     came out in the last 60 days or are due in the next 30.
+ *     came out in the last 60 days and nobody has asked for yet.
+ *   - "Coming soon from your artists": albums and EPs those artists have
+ *     due in the next 90 days. Shown even when Lidarr already monitors
+ *     them (with their status badge), so it works as a calendar.
  * Books:
  *   - "Trending books": OpenLibrary's weekly trending works. Same OL work
  *     keys book search uses.
+ *   - "From authors you follow": the most-read OpenLibrary works by the
+ *     authors marked Active (or with books) in LazyLibrarian.
  *
  * Every source is best-effort: a failure gives an empty section (the page
  * then shows its "search for it" hint) and is not cached, so the next load
@@ -22,15 +27,19 @@ import { log } from "@/lib/log";
 import { discoverCache, mbMatchCache } from "@/lib/cache";
 import { findAlbumReleaseGroup } from "@/lib/search/musicbrainz";
 import * as lidarr from "@/lib/arr/lidarr";
+import * as lazylibrarian from "@/lib/arr/lazylibrarian";
 import type { SearchResult } from "@/types";
 
 export type DiscoverType = "music" | "book";
 
 export interface DiscoverSection {
-  id: "chart" | "your-artists" | "trending";
+  id: "chart" | "your-artists" | "coming-soon" | "trending" | "your-authors";
   title: string;
   subtitle: string;
   items: SearchResult[];
+  /** Show items even if they're already in the library or requested (the
+   *  route normally hides those). */
+  keepOwned?: boolean;
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -119,25 +128,49 @@ export async function chartAlbums(): Promise<SearchResult[]> {
   return out;
 }
 
-// ── Music: new from artists already in Lidarr ───────────────────────
+// ── Music: from artists already in Lidarr ───────────────────────────
 
-export async function yourArtistsAlbums(now = new Date()): Promise<SearchResult[]> {
-  const albums = await lidarr.getCalendarRange(new Date(now.getTime() - 60 * DAY), new Date(now.getTime() + 30 * DAY));
-  return albums
-    .filter((a) => a.foreignAlbumId && a.artist?.foreignArtistId && /^(album|ep)$/i.test(a.albumType ?? ""))
-    .sort((a, b) => (b.releaseDate ?? "").localeCompare(a.releaseDate ?? ""))
-    .map((a) => ({
-      id: a.foreignAlbumId,
-      mediaType: "music" as const,
-      title: a.title,
-      year: a.releaseDate?.slice(0, 4),
-      releaseDate: a.releaseDate?.slice(0, 10),
-      overview: `${/^ep$/i.test(a.albumType ?? "") ? "EP" : "Album"} by ${a.artist!.artistName}`,
-      posterUrl: `https://coverartarchive.org/release-group/${a.foreignAlbumId}/front-250`,
-      artist: a.artist!.artistName,
-      artistId: a.artist!.foreignArtistId,
-      releaseType: /^ep$/i.test(a.albumType ?? "") ? ("ep" as const) : ("album" as const),
-    }));
+const RECENT_DAYS = 60;
+const UPCOMING_DAYS = 90;
+
+function calendarResult(a: lidarr.LidarrCalendarAlbum): SearchResult {
+  const ep = /^ep$/i.test(a.albumType ?? "");
+  return {
+    id: a.foreignAlbumId,
+    mediaType: "music",
+    title: a.title,
+    year: a.releaseDate?.slice(0, 4),
+    releaseDate: a.releaseDate?.slice(0, 10),
+    overview: `${ep ? "EP" : "Album"} by ${a.artist!.artistName}`,
+    posterUrl: `https://coverartarchive.org/release-group/${a.foreignAlbumId}/front-250`,
+    artist: a.artist!.artistName,
+    artistId: a.artist!.foreignArtistId,
+    releaseType: ep ? "ep" : "album",
+  };
+}
+
+/** Albums and EPs by Lidarr artists from the last 60 days (newest first)
+ *  and the next 90 (soonest first), from one Lidarr calendar call. */
+export async function artistCalendar(now = new Date()): Promise<{ recent: SearchResult[]; upcoming: SearchResult[] }> {
+  const albums = await lidarr.getCalendarRange(
+    new Date(now.getTime() - RECENT_DAYS * DAY),
+    new Date(now.getTime() + UPCOMING_DAYS * DAY),
+  );
+  const usable = albums.filter(
+    (a) => a.foreignAlbumId && a.releaseDate && a.artist?.foreignArtistId && /^(album|ep)$/i.test(a.albumType ?? ""),
+  );
+  const today = now.toISOString().slice(0, 10);
+  const isPast = (a: lidarr.LidarrCalendarAlbum) => a.releaseDate!.slice(0, 10) <= today;
+  return {
+    recent: usable
+      .filter(isPast)
+      .sort((x, y) => y.releaseDate!.localeCompare(x.releaseDate!))
+      .map(calendarResult),
+    upcoming: usable
+      .filter((a) => !isPast(a))
+      .sort((x, y) => x.releaseDate!.localeCompare(y.releaseDate!))
+      .map(calendarResult),
+  };
 }
 
 // ── Books: OpenLibrary trending ─────────────────────────────────────
@@ -169,6 +202,98 @@ export async function trendingBooks(): Promise<SearchResult[]> {
     }));
 }
 
+// ── Books: popular works by authors you follow ──────────────────────
+
+const MAX_AUTHORS = 10;
+const BOOKS_PER_AUTHOR = 3;
+const OL_GAP_MS = 300;
+
+interface LlAuthor {
+  AuthorName?: string;
+  Status?: string;
+  HaveBooks?: string | number;
+  TotalBooks?: string | number;
+}
+
+/** The authors LazyLibrarian follows (Active) or has books by, most books
+ *  first. */
+export async function followedAuthors(): Promise<string[]> {
+  const index = (await lazylibrarian.getLibrary()) as LlAuthor[];
+  return index
+    .filter((a) => a.AuthorName && (a.Status === "Active" || Number(a.HaveBooks) > 0))
+    .sort((x, y) => Number(y.HaveBooks) - Number(x.HaveBooks) || Number(y.TotalBooks) - Number(x.TotalBooks))
+    .slice(0, MAX_AUTHORS)
+    .map((a) => a.AuthorName!);
+}
+
+/** Each followed author's most-read OpenLibrary works (with covers), taken
+ *  in turns so one prolific author doesn't fill the row. */
+export async function authorBooks(): Promise<SearchResult[]> {
+  const authors = await followedAuthors();
+  const perAuthor: SearchResult[][] = [];
+  for (const [i, name] of authors.entries()) {
+    if (i > 0) await sleep(OL_GAP_MS);
+    try {
+      const qs = new URLSearchParams({
+        author: name,
+        language: "eng",
+        sort: "readinglog",
+        limit: "8",
+        fields: "key,title,author_name,cover_i,first_publish_year",
+      });
+      const res = await fetch(`${openLibraryBase()}/search.json?${qs}`, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`OpenLibrary search HTTP ${res.status}`);
+      const docs = ((await res.json()) as { docs?: OlTrendingWork[] }).docs ?? [];
+      const lower = name.toLowerCase();
+      // OpenLibrary has many works for one book ("Meditations" several
+      // times, "The Meditations of Marcus Aurelius"): keep the first of
+      // each title, treating a longer title that starts with a kept one as
+      // the same book.
+      const kept: string[] = [];
+      const isNewTitle = (title: string) => {
+        const t = title.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]/g, "");
+        if (!t || kept.some((k) => t.startsWith(k))) return false;
+        kept.push(t);
+        return true;
+      };
+      perAuthor.push(
+        docs
+          .filter(
+            (w) =>
+              w.key?.startsWith("/works/") &&
+              w.title &&
+              w.cover_i &&
+              (w.author_name ?? []).some((n) => n.toLowerCase() === lower) &&
+              isNewTitle(w.title),
+          )
+          .slice(0, BOOKS_PER_AUTHOR)
+          .map((w) => ({
+            id: w.key!,
+            mediaType: "book" as const,
+            title: w.title!,
+            year: w.first_publish_year ? String(w.first_publish_year) : undefined,
+            posterUrl: `https://covers.openlibrary.org/b/id/${w.cover_i}-M.jpg`,
+            artist: name,
+          })),
+      );
+    } catch (err: unknown) {
+      log.debug("discover: OpenLibrary author search failed", { author: name, err });
+    }
+  }
+  const out: SearchResult[] = [];
+  const seen = new Set<string>();
+  for (let round = 0; round < BOOKS_PER_AUTHOR; round++) {
+    for (const list of perAuthor) {
+      const w = list[round];
+      if (w && !seen.has(w.id)) {
+        seen.add(w.id);
+        out.push(w);
+      }
+    }
+  }
+  return out;
+}
+
 // ── Raw pools (24h cache, one fill at a time) ───────────────────────
 
 // On globalThis so the background refresh (instrumentation bundle) and the
@@ -190,22 +315,32 @@ async function settle(label: string, p: Promise<SearchResult[]>): Promise<Search
 
 async function build(type: DiscoverType): Promise<DiscoverSection[]> {
   if (type === "book") {
+    const [trending, authors] = await Promise.all([
+      settle("OpenLibrary trending", trendingBooks()),
+      settle("author books", authorBooks()),
+    ]);
     return [
-      {
-        id: "trending",
-        title: "Trending books",
-        subtitle: "Most read on OpenLibrary this week",
-        items: await settle("OpenLibrary trending", trendingBooks()),
-      },
+      { id: "trending", title: "Trending books", subtitle: "Most read on OpenLibrary this week", items: trending },
+      { id: "your-authors", title: "From authors you follow", subtitle: "Popular books by authors in LazyLibrarian", items: authors },
     ];
   }
-  const [chart, mine] = await Promise.all([
+  const [chart, calendar] = await Promise.all([
     settle("Apple chart", chartAlbums()),
-    settle("Lidarr calendar", yourArtistsAlbums()),
+    artistCalendar().catch((err: unknown) => {
+      log.warn("discover: Lidarr calendar failed", { err });
+      return { recent: [] as SearchResult[], upcoming: [] as SearchResult[] };
+    }),
   ]);
   return [
     { id: "chart", title: "Popular new albums", subtitle: "Most played in the US on Apple Music", items: chart },
-    { id: "your-artists", title: "New from your artists", subtitle: "From artists already in your library", items: mine },
+    { id: "your-artists", title: "New from your artists", subtitle: "Out in the last 60 days, not requested yet", items: calendar.recent },
+    {
+      id: "coming-soon",
+      title: "Coming soon from your artists",
+      subtitle: "Due in the next 90 days",
+      items: calendar.upcoming,
+      keepOwned: true,
+    },
   ];
 }
 
@@ -214,6 +349,11 @@ export function getDiscoverPool(type: DiscoverType): Promise<DiscoverSection[]> 
   const cached = discoverCache.get(`discover:${type}`) as DiscoverSection[] | undefined;
   if (cached) return Promise.resolve(cached);
   return fill(type);
+}
+
+/** When the cached lists were built (ISO), or null if they aren't cached. */
+export function discoverBuiltAt(type: DiscoverType): string | null {
+  return (discoverCache.get(`discover:${type}:at`) as string | undefined) ?? null;
 }
 
 /** Rebuild both pools in the background (instrumentation.ts, at startup and
@@ -240,7 +380,10 @@ function fill(type: DiscoverType): Promise<DiscoverSection[]> {
   if (running) return running;
   const p = build(type)
     .then((sections) => {
-      if (sections.some((s) => s.items.length > 0)) discoverCache.set(`discover:${type}`, sections);
+      if (sections.some((s) => s.items.length > 0)) {
+        discoverCache.set(`discover:${type}`, sections);
+        discoverCache.set(`discover:${type}:at`, new Date().toISOString());
+      }
       return sections;
     })
     .finally(() => inFlight.delete(type));

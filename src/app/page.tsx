@@ -213,6 +213,7 @@ export default function Home() {
 
       {!searched && (
         <ReleasesFeed
+          isAdmin={isAdmin}
           category={category}
           libraryStatuses={libraryStatuses}
           onSelect={setSelectedResult}

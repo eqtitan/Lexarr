@@ -23,6 +23,13 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "next-auth"
         update-types: ["version-update:semver-major"]
+      # Types must match the Node the image runs (node:22-alpine); move with
+      # the planned Node major, not ahead of it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 needs typescript-eslint support first (8.x peers <7).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

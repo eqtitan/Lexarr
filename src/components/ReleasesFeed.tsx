@@ -69,49 +69,90 @@ interface DiscoverSection {
 const SECTION_ICONS: Record<string, string> = {
   chart: "🔥",
   "your-artists": "🎤",
+  "coming-soon": "📅",
   trending: "📈",
+  "your-authors": "✍️",
 };
+
+interface DiscoverData {
+  sections: DiscoverSection[];
+  builtAt: string | null;
+}
+
+/** "just now", "5 min ago", "3 h ago", "2 days ago" */
+export function updatedAgo(iso: string, now = Date.now()): string {
+  const mins = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}
+
+async function loadDiscover(type: "music" | "book"): Promise<DiscoverData> {
+  try {
+    const res = await fetch(`/api/discover?type=${type}`);
+    const json = res.ok ? await res.json() : {};
+    return {
+      sections: Array.isArray(json.sections) ? json.sections : [],
+      builtAt: typeof json.builtAt === "string" ? json.builtAt : null,
+    };
+  } catch {
+    return { sections: [], builtAt: null };
+  }
+}
 
 /** Music / Books lists from /api/discover, fetched the first time the chip
  *  is picked and kept for the rest of the visit. */
 function DiscoverFeed({
   type,
+  isAdmin = false,
   libraryStatuses,
   onSelect,
   onRequested,
   onLoaded,
 }: {
   type: "music" | "book";
+  isAdmin?: boolean;
   libraryStatuses: Record<string, LibraryStatusValue>;
   onSelect: (r: SearchResult) => void;
   onRequested: (r: SearchResult) => void;
   onLoaded: (items: SearchResult[]) => void;
 }) {
-  const [byType, setByType] = useState<Partial<Record<"music" | "book", DiscoverSection[]>>>({});
-  const sections = byType[type];
+  const [byType, setByType] = useState<Partial<Record<"music" | "book", DiscoverData>>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const data = byType[type];
+  const sections = data?.sections;
 
   useEffect(() => {
-    if (sections) return;
+    if (data) return;
     let cancelled = false;
     void (async () => {
-      let got: DiscoverSection[] = [];
-      try {
-        const res = await fetch(`/api/discover?type=${type}`);
-        const json = res.ok ? await res.json() : {};
-        got = Array.isArray(json.sections) ? json.sections : [];
-      } catch {
-        got = [];
-      }
+      const got = await loadDiscover(type);
       if (cancelled) return;
       setByType((prev) => ({ ...prev, [type]: got }));
-      const items = got.flatMap((s) => s.items);
+      const items = got.sections.flatMap((s) => s.items);
       if (items.length > 0) onLoaded(items);
     })();
     return () => {
       cancelled = true;
     };
     // Fetch once per type; onLoaded is a stable callback from the page.
-  }, [type, sections]);
+  }, [type, data]);
+
+  /** Admin: rebuild both lists now, then reload the one on screen. */
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/api/discover", { method: "POST" });
+      const got = await loadDiscover(type);
+      setByType({ [type]: got });
+      const items = got.sections.flatMap((s) => s.items);
+      if (items.length > 0) onLoaded(items);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const accentVar = type === "music" ? "var(--music)" : "var(--book)";
 
@@ -131,10 +172,33 @@ function DiscoverFeed({
   }
 
   const shown = sections.filter((s) => s.items.length > 0);
-  if (shown.length === 0) return <BrowseHint category={type} />;
+  const status = (data?.builtAt || isAdmin) && (
+    <p className="flex items-center justify-center gap-2 text-xs text-[var(--muted)]" data-testid="discover-updated">
+      {data?.builtAt && <span>Updated {updatedAgo(data.builtAt)}</span>}
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          className="rounded-md px-2 py-0.5 ring-1 ring-[var(--border)] hover:text-[var(--foreground)] disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing…" : "Refresh now"}
+        </button>
+      )}
+    </p>
+  );
+  if (shown.length === 0) {
+    return (
+      <div className="space-y-3">
+        <BrowseHint category={type} />
+        {isAdmin && status}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6" data-testid={`discover-${type}`}>
+      {status}
       {shown.map((s) => (
         <ReleaseRow
           key={s.id}
@@ -191,6 +255,7 @@ const BROWSE_HINTS: Partial<Record<MediaType, { icon: string; accentVar: string;
 
 export default function ReleasesFeed({
   category = null,
+  isAdmin = false,
   libraryStatuses,
   onSelect,
   onRequested,
@@ -198,6 +263,8 @@ export default function ReleasesFeed({
 }: {
   /** The category chip picked in the search bar; null = All. */
   category?: MediaType | null;
+  /** Shows the "Refresh now" button on the Music / Books lists. */
+  isAdmin?: boolean;
   libraryStatuses: Record<string, LibraryStatusValue>;
   onSelect: (r: SearchResult) => void;
   onRequested: (r: SearchResult) => void;
@@ -238,6 +305,7 @@ export default function ReleasesFeed({
     return (
       <DiscoverFeed
         type={category}
+        isAdmin={isAdmin}
         libraryStatuses={libraryStatuses}
         onSelect={onSelect}
         onRequested={onRequested}

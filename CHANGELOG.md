@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.27.0] — 2026-11-14
+
+### Added
+- **Books: "From authors you follow".** The most-read OpenLibrary books (English editions, one per title, with covers) by the authors marked Active in LazyLibrarian or with books there, up to 10 authors and 3 books each, taken in turns. Requested books are hidden like the other lists.
+- **Music: "Coming soon from your artists".** Albums and EPs by Lidarr artists due in the next 90 days, soonest first. Unlike the other lists it keeps albums Lidarr already monitors (with their badge), so it works as a release calendar; the row is hidden while nothing is scheduled.
+- **"Updated 3 h ago" on the Music / Books lists, and a "Refresh now" button for admins** (`POST /api/discover`, admin only) that rebuilds both lists at once instead of waiting for the 12-hour refresh.
+
+### Changed
+- **"New from your artists" covers only the last 60 days** (upcoming albums moved to the new row).
+- **Dev dependencies:** lint-staged 17; `@types/eslint__js` removed (`@eslint/js` ships its own types); `minimatch` overridden to ^11.0.1 for a dev-only DoS advisory. Dependabot now skips `@types/node` majors (types follow the image's Node 22) and TypeScript majors (typescript-eslint doesn't support 7 yet).
+
 ## [0.26.3] — 2026-11-14
 
 ### Changed
