@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
 import type { PipelineEventDTO } from "@/types/dashboard";
+import { userFacingError } from "@/lib/user-facing-error";
 
 /**
  * Return the PipelineEvent history for a single request.
@@ -46,9 +47,24 @@ export async function GET(
   const dto: PipelineEventDTO[] = events.map((e) => ({
     id: e.id,
     event: e.event,
-    detail: e.detail,
+    detail: role === "admin" ? e.detail : safeDetail(e.detail),
     createdAt: e.createdAt.toISOString(),
   }));
 
   return NextResponse.json({ events: dto });
+}
+
+/** Event details can hold raw *arr or database errors ("error", "raw").
+ *  The request's owner sees a plain-English version; admins see it all. */
+function safeDetail(detail: string | null): string | null {
+  if (!detail) return detail;
+  try {
+    const parsed = JSON.parse(detail) as Record<string, unknown>;
+    for (const key of ["error", "raw"]) {
+      if (typeof parsed[key] === "string") parsed[key] = userFacingError(parsed[key] as string);
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return userFacingError(detail);
+  }
 }

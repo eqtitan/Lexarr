@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/config";
 import { env } from "@/lib/env";
 import { detailCache } from "@/lib/cache";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
@@ -43,6 +44,12 @@ export async function GET(req: NextRequest) {
         },
       },
     );
+  }
+
+  // Signed-in users only: these call TMDB/MusicBrainz/OpenLibrary with
+  // the server's keys and hint at what is in the library.
+  if (!(await auth())?.user?.id) {
+    return NextResponse.json({ error: "Sign in to continue" }, { status: 401 });
   }
 
   const type = req.nextUrl.searchParams.get("type");

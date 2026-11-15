@@ -57,6 +57,9 @@ const envSchema = z.object({
   // Number of reverse-proxy hops to trust for rate-limiting's
   // X-Forwarded-For lookup. See src/lib/rate-limit.ts and .env.example.
   TRUSTED_PROXY_HOPS: z.string().optional(),
+  // Set to "1" by the Dockerfile, which preloads scripts/client-ip-preload.cjs
+  // to stamp the real TCP peer address on each request. See rate-limit.ts.
+  LEXARR_CLIENT_IP_HEADER: z.string().optional(),
   // Per-route ceiling across all clients (multiple of the per-client
   // limit) when TRUSTED_PROXY_HOPS is 0. See src/lib/rate-limit.ts.
   RATE_LIMIT_CEILING_MULTIPLIER: z.string().optional(),

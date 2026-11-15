@@ -12,6 +12,7 @@ import { searchCache } from "@/lib/cache";
 import * as radarr from "@/lib/arr/radarr";
 import * as sonarr from "@/lib/arr/sonarr";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
+import { userFacingError } from "@/lib/user-facing-error";
 
 // P-03: narrow client type so checkDuplicate can be called inside a
 // $transaction without losing the Request model's type. The transaction
@@ -318,7 +319,7 @@ export async function sendToArrAndUpdateStatus(
 
     const moved = await updateRequestIfStatus(request.id, "approved", {
       status: "failed",
-      lastError: arrError,
+      lastError: userFacingError(arrError),
     });
 
     if (moved) {

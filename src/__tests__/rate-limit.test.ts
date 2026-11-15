@@ -170,6 +170,36 @@ describe("per-route ceiling (no trusted proxy)", () => {
       process.env.TRUSTED_PROXY_HOPS = original;
     }
   });
+
+  it("is skipped for real addresses (the client-IP hook), so one flood can't lock everyone out", async () => {
+    // No trusted proxy, but keys carry real peer addresses: 12 distinct
+    // clients all get through even though the ceiling would be 8.
+    for (let i = 0; i < 12; i++) {
+      expect((await checkRateLimit(`auth:192.168.1.${i}`, config)).allowed).toBe(true);
+    }
+  });
+});
+
+describe("getClientIp with the client-IP hook (LEXARR_CLIENT_IP_HEADER=1)", () => {
+  const original = process.env.LEXARR_CLIENT_IP_HEADER;
+  afterEach(() => {
+    process.env.LEXARR_CLIENT_IP_HEADER = original;
+  });
+
+  it("uses the stamped peer address and ignores client-sent forwarding headers", () => {
+    process.env.LEXARR_CLIENT_IP_HEADER = "1";
+    const headers = new Headers({
+      "x-lexarr-client-ip": "::ffff:192.168.1.50",
+      "x-forwarded-for": "6.6.6.6",
+      "user-agent": "rotating-agent-1",
+    });
+    expect(getClientIp(headers)).toBe("192.168.1.50");
+  });
+
+  it("ignores the header unless the image says the hook is loaded", () => {
+    delete process.env.LEXARR_CLIENT_IP_HEADER;
+    expect(getClientIp(new Headers({ "x-lexarr-client-ip": "192.168.1.50" }))).toBe("unknown");
+  });
 });
 
 describe("getClientIp", () => {

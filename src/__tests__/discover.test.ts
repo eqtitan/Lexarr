@@ -91,7 +91,7 @@ beforeEach(async () => {
   getLibraryStatuses.mockResolvedValue({});
   getCalendarRange.mockResolvedValue([]);
   getLibrary.mockResolvedValue([]);
-  auth.mockResolvedValue(null);
+  auth.mockResolvedValue({ user: { id: "u1", role: "user" } });
   handler = (url) => {
     if (url.hostname === "rss.marketingtools.apple.com") return json(CHART);
     if (url.hostname === "musicbrainz.org") return musicbrainz(url);
@@ -321,6 +321,15 @@ describe("GET /api/discover", () => {
       nextUrl: new URL(`http://x/api/discover${type ? `?type=${type}` : ""}`),
     }) as unknown as NextRequest;
 
+  it("refuses visitors who aren't signed in, before doing any work", async () => {
+    auth.mockResolvedValue(null);
+    const { GET } = await import("@/app/api/discover/route");
+    const res = await GET(req("music"));
+    expect(res.status).toBe(401);
+    expect(calls).toEqual([]);
+    expect(getLibraryStatuses).not.toHaveBeenCalled();
+  });
+
   it("rejects an unknown type", async () => {
     const { GET } = await import("@/app/api/discover/route");
     expect((await GET(req("movie"))).status).toBe(400);
@@ -370,7 +379,7 @@ describe("GET /api/discover", () => {
   it("POST rebuilds the lists for an admin and is refused for everyone else", async () => {
     const { GET, POST } = await import("@/app/api/discover/route");
     expect((await POST()).status).toBe(403);
-    auth.mockResolvedValue({ user: { role: "user" } });
+    auth.mockResolvedValue({ user: { id: "u2", role: "user" } });
     expect((await POST()).status).toBe(403);
 
     await GET(req("book"));
@@ -378,7 +387,7 @@ describe("GET /api/discover", () => {
       url.hostname === "openlibrary.org" && url.pathname !== "/search.json"
         ? json({ works: [{ key: "/works/OL8W", title: "Fresh Pick" }] })
         : json({}, 500);
-    auth.mockResolvedValue({ user: { role: "admin" } });
+    auth.mockResolvedValue({ user: { id: "a1", role: "admin" } });
     const res = await POST();
     expect(res.status).toBe(200);
     // The filtered 60s cache is dropped too, so the new list shows at once.

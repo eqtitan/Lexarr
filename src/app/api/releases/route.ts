@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/config";
 import { log } from "@/lib/log";
 import { discoverRecentMovies, discoverRecentTv } from "@/lib/search/tmdb";
 import { getLibraryStatuses } from "@/lib/services/library-status";
@@ -50,6 +51,12 @@ export async function GET(req: NextRequest) {
       { error: "Too many requests. Try again shortly." },
       { status: 429, headers: { "Retry-After": String(Math.ceil((rateCheck.resetAt - Date.now()) / 1000)) } },
     );
+  }
+
+  // Signed-in users only: these call TMDB/MusicBrainz/OpenLibrary with
+  // the server's keys and hint at what is in the library.
+  if (!(await auth())?.user?.id) {
+    return NextResponse.json({ error: "Sign in to continue" }, { status: 401 });
   }
 
   const cachedFiltered = releasesFilteredCache.get(CACHE_KEY) as

@@ -10,6 +10,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { NextRequest } from "next/server";
 
+// These routes need a signed-in user (0.28.0); signed in unless a test says otherwise.
+const authMock = vi.hoisted(() => vi.fn(async (): Promise<{ user: { id: string; role: string } } | null> => ({ user: { id: "u1", role: "user" } })));
+vi.mock("@/lib/auth/config", () => ({ auth: authMock }));
 vi.mock("@/lib/cache", () => ({
   detailCache: {
     get: vi.fn(),

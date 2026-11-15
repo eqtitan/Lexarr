@@ -21,4 +21,6 @@ test-results
 coverage
 src/__tests__
 scripts
+# ...except the client-IP hook the runtime image preloads (see Dockerfile).
+!scripts/client-ip-preload.cjs
 *.md

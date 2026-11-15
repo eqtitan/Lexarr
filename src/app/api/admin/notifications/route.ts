@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
 import { logAudit } from "@/lib/audit";
+import { isWebhookUrl, WEBHOOK_URL_ERROR } from "@/lib/webhook-url";
 
 // GET: List all notification channels
 export async function GET() {
@@ -41,6 +42,10 @@ export async function POST(req: NextRequest) {
       { error: "Missing required fields (name, type, webhookUrl)" },
       { status: 400 },
     );
+  }
+
+  if (!isWebhookUrl(webhookUrl)) {
+    return NextResponse.json({ error: WEBHOOK_URL_ERROR }, { status: 400 });
   }
 
   if (!["discord", "slack", "webhook"].includes(type)) {
@@ -92,7 +97,12 @@ export async function PATCH(req: NextRequest) {
 
   const data: Record<string, unknown> = {};
   if (updates.name !== undefined) data.name = updates.name;
-  if (updates.webhookUrl !== undefined) data.webhookUrl = updates.webhookUrl;
+  if (updates.webhookUrl !== undefined) {
+    if (!isWebhookUrl(updates.webhookUrl)) {
+      return NextResponse.json({ error: WEBHOOK_URL_ERROR }, { status: 400 });
+    }
+    data.webhookUrl = updates.webhookUrl;
+  }
   if (updates.events !== undefined) data.events = updates.events;
   if (updates.enabled !== undefined) data.enabled = updates.enabled;
 

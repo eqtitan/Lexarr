@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth/config";
+import { userFacingError } from "@/lib/user-facing-error";
 
 export async function GET() {
   const session = await auth();
@@ -17,5 +18,10 @@ export async function GET() {
     orderBy: { updatedAt: "desc" },
     take: 50,
   });
-  return NextResponse.json({ requests });
+  // Reasons saved before 0.28.0 can hold raw *arr or database errors;
+  // non-admins get the plain-English version.
+  return NextResponse.json({
+    requests:
+      role === "admin" ? requests : requests.map((r) => ({ ...r, lastError: userFacingError(r.lastError) })),
+  });
 }

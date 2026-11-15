@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { authenticateJellyfin } from "@/lib/auth/jellyfin";
 import { getPlexUser, isPlexEnabled } from "@/lib/auth/plex";
 import bcrypt from "bcryptjs";
+import { clearFailures, isLockedOut, recordFailure } from "@/lib/login-lockout";
 
 // Constant hash to compare against when no user/password row exists, so the
 // "no such user" path takes roughly the same time as a real wrong-password
@@ -80,6 +81,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // lookup. Credential input can be either username or email — try name
         // first, then email. Can't OR with findUnique, so two queries.
         const username = credentials.username as string;
+        if (await isLockedOut(username)) {
+          log.warn("auth: login refused, too many failures for this account", { provider: "credentials" });
+          return null;
+        }
         const user =
           (await prisma.user.findUnique({ where: { name: username } })) ??
           (await prisma.user.findUnique({ where: { email: username } }));
@@ -92,7 +97,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           credentials.password as string,
           user?.password ?? DUMMY_PASSWORD_HASH,
         );
-        if (!user?.password || !valid) return null;
+        if (!user?.password || !valid) {
+          await recordFailure(username);
+          return null;
+        }
+        await clearFailures(username);
         return {
           id: user.id,
           name: user.name,
@@ -111,11 +120,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
+        // Same per-account lockout as Lexarr accounts, kept separately (a
+        // "jf:" prefix) so it also protects Jellyfin passwords from being
+        // guessed through Lexarr.
+        const lockName = `jf:${credentials.username as string}`;
+        if (await isLockedOut(lockName)) {
+          log.warn("auth: login refused, too many failures for this account", { provider: "jellyfin" });
+          return null;
+        }
         const jfUser = await authenticateJellyfin(
           credentials.username as string,
           credentials.password as string,
         );
-        if (!jfUser) return null;
+        if (!jfUser) {
+          await recordFailure(lockName);
+          return null;
+        }
+        await clearFailures(lockName);
 
         // See the Plex provider above — count() + upsert() must be atomic.
         const user = await prisma.$transaction(async (tx) => {

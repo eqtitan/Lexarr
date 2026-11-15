@@ -34,6 +34,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Signed-in users only: these call TMDB/MusicBrainz/OpenLibrary with
+  // the server's keys and hint at what is in the library.
+  if (!(await auth())?.user?.id) {
+    return NextResponse.json({ error: "Sign in to continue" }, { status: 401 });
+  }
+
   const type = req.nextUrl.searchParams.get("type");
   if (type !== "music" && type !== "book") {
     return NextResponse.json({ error: "type must be music or book" }, { status: 400 });

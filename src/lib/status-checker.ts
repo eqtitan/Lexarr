@@ -30,6 +30,7 @@ import { getMediaState } from "./arr/media-state";
 import { PIPELINE_RULES, isUnreleased, IN_THEATERS_MESSAGE } from "./pipeline-rules";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
+import { userFacingError } from "@/lib/user-facing-error";
 
 export interface StatusCheckResult {
   updated: number;
@@ -385,7 +386,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           // the new escalation tier below, which reads this field).
           await updateRequestIfStatus(req.id, req.status, {
             lastCheckedAt: now,
-            lastError: `Check failed: ${msg.slice(0, 240)}`,
+            lastError: userFacingError(`Check failed: ${msg}`),
             checkFailingSince: req.checkFailingSince ?? now,
           });
         }
@@ -494,7 +495,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       try {
         await updateRequestIfStatus(req.id, "downloading", {
           lastCheckedAt: now,
-          lastError: `Stall check failed: ${msg.slice(0, 240)}`,
+          lastError: userFacingError(`Stall check failed: ${msg}`),
           checkFailingSince: req.checkFailingSince ?? now,
         });
       } catch (err) {
@@ -582,7 +583,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
       const moved = await updateRequestIfStatus(req.id, "approved", {
         status: "failed",
         autoRetryCount: attempt,
-        lastError: arrError,
+        lastError: userFacingError(arrError),
       });
       if (moved) {
         await prisma.pipelineEvent.create({
@@ -604,7 +605,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
     } else {
       const recorded = await updateRequestIfStatus(req.id, "approved", {
         autoRetryCount: attempt,
-        lastError: arrError,
+        lastError: userFacingError(arrError),
       });
       if (recorded) {
         await prisma.pipelineEvent.create({

@@ -9,6 +9,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 
+// These routes need a signed-in user (0.28.0); signed in unless a test says otherwise.
+const authMock = vi.hoisted(() => vi.fn(async (): Promise<{ user: { id: string; role: string } } | null> => ({ user: { id: "u1", role: "user" } })));
+vi.mock("@/lib/auth/config", () => ({ auth: authMock }));
 vi.mock("@/lib/search/tmdb", () => ({
   search: vi.fn(),
 }));
@@ -67,6 +70,15 @@ describe("GET /api/search", () => {
     const { GET } = await import("@/app/api/search/route");
     const res = await GET(makeReq("http://localhost/api/search?q=matrix"));
     expect(res.status).toBe(429);
+  });
+
+  it("refuses visitors who aren't signed in, without calling any source", async () => {
+    authMock.mockResolvedValueOnce(null);
+    const tmdb = await import("@/lib/search/tmdb");
+    const { GET } = await import("@/app/api/search/route");
+    const res = await GET(makeReq("http://localhost/api/search?q=matrix"));
+    expect(res.status).toBe(401);
+    expect(vi.mocked(tmdb.search)).not.toHaveBeenCalled();
   });
 
   it("returns empty results for queries under 2 chars", async () => {

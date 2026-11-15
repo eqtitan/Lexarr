@@ -56,8 +56,13 @@ export async function checkRateLimit(
   // User-Agent per request gets a fresh per-client bucket every time. Cap
   // the total across all clients per route ("auth", "search", ...) so that
   // rotation can't exceed a fixed ceiling. Trade-off: a flood can exhaust
-  // the shared ceiling for everyone until the window resets.
-  if (trustedProxyHops() === 0) {
+  // the shared ceiling for everyone until the window resets. Not needed
+  // when the key holds a real address (a trusted proxy, or the TCP peer
+  // stamped by scripts/client-ip-preload.cjs), so a flood from one client
+  // can't lock everyone else out.
+  const client = key.slice(key.indexOf(":") + 1);
+  const spoofableKey = client.startsWith("ua:") || client === "unknown";
+  if (trustedProxyHops() === 0 && spoofableKey) {
     const route = key.split(":", 1)[0];
     const ceiling = config.limit * ceilingMultiplier();
     const total = await incrementBucket(`${route}:__all__`, windowStart);
@@ -148,6 +153,15 @@ export function getClientIp(headers: Headers): string {
     }
     const realIp = headers.get("x-real-ip");
     if (realIp) return realIp;
+  }
+
+  // The production image stamps the TCP peer address on every request
+  // (scripts/client-ip-preload.cjs, overwriting any client-sent value), so
+  // without a proxy this is the real client. Only trusted when the image
+  // says the hook is loaded; otherwise a client could set it.
+  if (env().LEXARR_CLIENT_IP_HEADER === "1") {
+    const peer = headers.get("x-lexarr-client-ip")?.replace(/^::ffff:/, "");
+    if (peer) return peer;
   }
 
   const ua = headers.get("user-agent") || "";

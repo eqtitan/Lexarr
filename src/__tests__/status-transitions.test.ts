@@ -270,7 +270,7 @@ describe("checkFailingSince tracking", () => {
     await checker.checkAndUpdateStatuses();
     const afterFirst = await prisma.request.findUnique({ where: { id: req.id } });
     expect(afterFirst?.checkFailingSince).not.toBeNull();
-    expect(afterFirst?.lastError).toMatch(/^Check failed:/);
+    expect(afterFirst?.lastError).toMatch(/^Couldn't check this request's status:/);
 
     await checker.checkAndUpdateStatuses();
     const afterSecond = await prisma.request.findUnique({ where: { id: req.id } });

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.0] — 2026-11-14
+
+### Security
+- **Login guessing is really rate-limited now.** With no reverse proxy, Lexarr identified a client by a hash of its User-Agent and Accept-Language headers, which a script can change on every attempt; only a shared cap of 20 attempts a minute across *everyone* held (about 29,000 guesses a day, and a flood locked everyone out). The production image now preloads a small hook (`scripts/client-ip-preload.cjs`) that stamps the real TCP peer address on every request (`x-lexarr-client-ip`, overwriting anything the client sent), so the 5-per-minute limit applies per real address and the shared cap is no longer needed. Next.js itself only fills in X-Forwarded-For when the client didn't send one, so that header couldn't be trusted.
+- **Per-account lockout.** After 20 wrong passwords for the same account within about 15 minutes, further attempts for it are refused until they age out, whichever addresses they come from. Applies to Lexarr accounts and, separately, to Jellyfin sign-in (so Jellyfin passwords can't be guessed through Lexarr). A successful sign-in clears the count.
+- **Browsing needs an account.** Search, new releases, title details and the Music/Books lists answered anyone on the network, using the server's TMDB/MusicBrainz/OpenLibrary access and hinting at what's in the library. They now return 401 when not signed in, and every page except sign-in sends a logged-out visitor to `/login`. A new test fails if any API route lacks a caller check and isn't on the short, documented public list (health checks, version, sign-in).
+- **Users no longer see raw internal errors.** A failed request's reason could be a whole error from LazyLibrarian or Radarr (internal address and port, an HTML error page) or a database error. Reasons are now plain English ("LazyLibrarian couldn't look this book up. An admin can retry it."), both when saved and when a non-admin reads one saved earlier, including in the request's event timeline. Admins still see the full detail.
+- **Content-Security-Policy is enforced** (it was report-only, with the end-to-end test failing on any violation), and the `X-Powered-By: Next.js` header is gone.
+- **Notification webhook URLs must be http(s).**
+- `POST /api/request` with a malformed body returns 400 instead of 500.
+
 ## [0.27.0] — 2026-11-14
 
 ### Added

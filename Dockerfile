@@ -68,6 +68,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modul
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 
+# Stamps the real TCP peer address on every request (x-lexarr-client-ip)
+# so rate limiting can't be dodged by changing headers; see the script.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/client-ip-preload.cjs ./client-ip-preload.cjs
+ENV NODE_OPTIONS="--require /app/client-ip-preload.cjs"
+ENV LEXARR_CLIENT_IP_HEADER=1
+
 USER nextjs
 
 EXPOSE 5056

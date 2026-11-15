@@ -9,9 +9,9 @@ import { test, expect, type Page } from "@playwright/test";
 const RADARR = "http://127.0.0.1:7878";
 const DUNE_TMDB_ID = 438631;
 
-// Content-Security-Policy is report-only (next.config.ts): violations are
-// logged to the console, not blocked. Any violation fails the run, so the
-// policy can be switched to enforcing once this stays clean.
+// The Content-Security-Policy is enforced (next.config.ts): a blocked load
+// is logged to the console ("violates the following Content Security
+// Policy directive"), and any such message fails the run.
 const cspViolations: string[] = [];
 function watchCsp(page: Page) {
   page.on("console", (msg) => {

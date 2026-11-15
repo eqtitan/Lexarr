@@ -4,10 +4,9 @@ import type { NextConfig } from "next";
  * Baseline security headers applied to every Lexarr response.
  *
  * Chosen to be LAN-safe (no HSTS — would break HTTP-over-LAN Unraid
- * setups). The Content-Security-Policy ships REPORT-ONLY first: browsers
- * log violations to the console without blocking anything, and the e2e
- * smoke test fails on any violation. Switch the header name to
- * "Content-Security-Policy" once real use shows none.
+ * setups). The Content-Security-Policy is enforced. It shipped report-only
+ * first, with the e2e smoke test failing on any violation; none turned up,
+ * so 0.28.0 made it blocking.
  */
 
 // What the UI legitimately loads: poster/cover art (TMDB, Cover Art
@@ -42,7 +41,7 @@ const SECURITY_HEADERS = [
     value:
       "camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=()",
   },
-  { key: "Content-Security-Policy-Report-Only", value: CSP },
+  { key: "Content-Security-Policy", value: CSP },
   // Tells browsers not to cache any HTML/API response of ours — prevents
   // stale auth state after sign-out. Static /_next/ assets keep their own
   // long cache headers because Next.js fingerprints them.
@@ -50,6 +49,8 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Don't advertise the framework (X-Powered-By: Next.js) to scanners.
+  poweredByHeader: false,
   // instrumentationHook + eslint config moved out of NextConfig in Next.js 16
   images: {
     remotePatterns: [
