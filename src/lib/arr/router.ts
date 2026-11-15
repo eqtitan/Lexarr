@@ -19,6 +19,9 @@ export interface RouteResult {
    *  "wrong profile got used" without checking the *arr by hand. */
   qualityProfileId?: number;
   rootFolderPath?: string;
+  /** Books only: LazyLibrarian's book id. Not a number since LazyLibrarian
+   *  moved to OpenLibrary ("OL15992072W"), so it can't live in arrId. */
+  bookId?: string;
 }
 
 interface RouteInput {
@@ -85,7 +88,14 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
     }
 
     case "book": {
-      const [_bookKey, authorHint] = externalId.split("|");
+      const [bookKey, authorHint] = externalId.split("|");
+      // "/works/OL15992072W" -> "OL15992072W": the work the user picked.
+      const workId = bookKey?.replace(/^\/works\//, "") || undefined;
+      // externalId2 holds a stored LazyLibrarian id on re-sends. "0" was
+      // written by 0.28.0 and earlier when an OpenLibrary id didn't parse
+      // as a number; it means "none".
+      const knownId =
+        externalId2 && externalId2 !== "0" && externalId2 !== externalId ? externalId2 : undefined;
       let result: { id: string; alreadyExists: boolean };
 
       // Books default to ebook when the caller didn't specify a format —
@@ -93,14 +103,15 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
       // replaying a pre-0.17 request that never had bookFormat stored).
       const llType = input.bookFormat === "audiobook" ? "AudioBook" : "eBook";
 
-      if (externalId2 && externalId2 !== externalId) {
-        result = await lazylibrarian.addBook(externalId2, llType);
+      if (knownId) {
+        result = await lazylibrarian.addBook(knownId, llType);
       } else {
-        result = await lazylibrarian.addBookByTitle(title, authorHint, llType);
+        result = await lazylibrarian.addBookByTitle(title, authorHint, llType, workId);
       }
 
       return {
-        arrId: parseInt(result.id, 10) || 0,
+        arrId: /^\d+$/.test(result.id) ? Number(result.id) : 0,
+        bookId: result.id,
         alreadyExists: result.alreadyExists,
       };
     }

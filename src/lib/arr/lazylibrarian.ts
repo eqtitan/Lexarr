@@ -1,4 +1,4 @@
-import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
+import { arrFetch, ArrApiError, ARR_TIMEOUT_MS } from "./_fetch";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 
@@ -39,6 +39,30 @@ export async function health(): Promise<boolean> {
 }
 
 export type LazyLibrarianBookType = "eBook" | "AudioBook";
+
+/**
+ * Book adds run one at a time. LazyLibrarian handles each add on its own
+ * threads and, with several arriving together (an admin approving a
+ * batch, the auto-retry sweep), adds time out or interleave their
+ * metadata refreshes. A promise chain keeps Lexarr's sends serial.
+ */
+let addChain: Promise<unknown> = Promise.resolve();
+function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const run = addChain.then(fn, fn);
+  addChain = run.catch(() => undefined);
+  return run;
+}
+
+/** How many search matches addBookByTitle tries before giving up. */
+export const MAX_MATCH_ATTEMPTS = 3;
+
+/** LazyLibrarian answered OK but the book isn't in its library. */
+export class BookNotAddedError extends Error {
+  constructor(bookId: string) {
+    super(`LazyLibrarian accepted book ${bookId} but didn't add it to its library`);
+    this.name = "BookNotAddedError";
+  }
+}
 
 interface LazyLibrarianBook {
   BookID?: string;
@@ -157,7 +181,14 @@ export async function getWanted(): Promise<LazyLibrarianBook[]> {
  *
  * Returns { id, alreadyExists } to match the *arr integration pattern.
  */
-export async function addBook(
+export function addBook(
+  bookId: string,
+  bookType: LazyLibrarianBookType = "eBook",
+): Promise<{ id: string; alreadyExists: boolean }> {
+  return oneAtATime(() => addBookNow(bookId, bookType));
+}
+
+async function addBookNow(
   bookId: string,
   bookType: LazyLibrarianBookType = "eBook",
 ): Promise<{ id: string; alreadyExists: boolean }> {
@@ -203,6 +234,11 @@ export async function addBook(
     log.debug("lazylibrarian: re-fetching book after queue failed", { err });
     return null;
   });
+  // addBook and queueBook both answer OK even when LazyLibrarian couldn't
+  // match the book to an author and dropped it (seen with OpenLibrary ids
+  // on older LazyLibrarian builds). Without this check the request shows
+  // "downloading" for a book LazyLibrarian never heard of.
+  if (!refreshed) throw new BookNotAddedError(bookId);
   const authorId = refreshed?.AuthorID || refreshed?.authorid;
   if (authorId) {
     await resumeAuthor(String(authorId));
@@ -220,13 +256,53 @@ export async function addBook(
 }
 
 /**
- * Main integration entry point: search by title+author, find best match, add it.
- * Returns { id, alreadyExists } where id is LazyLibrarian's bookId (GoodReads ID).
+ * Main integration entry point: search by title+author, add the best match.
+ * Returns { id, alreadyExists } where id is LazyLibrarian's book id (an
+ * OpenLibrary work id like "OL15992072W", or a GoodReads number).
+ *
+ * `preferredId` is the OpenLibrary work id Lexarr's search showed the
+ * user; when LazyLibrarian returns it, it wins. If adding a match fails
+ * on LazyLibrarian's side (a 5xx, or the book silently not added), the
+ * next match is tried, up to MAX_MATCH_ATTEMPTS.
  */
-export async function addBookByTitle(
+export function addBookByTitle(
   title: string,
   author?: string,
   bookType: LazyLibrarianBookType = "eBook",
+  preferredId?: string,
+): Promise<{ id: string; alreadyExists: boolean }> {
+  return oneAtATime(() => addBookByTitleNow(title, author, bookType, preferredId));
+}
+
+/** Search results ordered best first: the work id the user picked, an
+ *  exact title, a title containing the query, then LazyLibrarian's order. */
+export function rankMatches(
+  results: LazyLibrarianBook[],
+  title: string,
+  preferredId?: string,
+): string[] {
+  // LL returns lowercase keys from findBook (bookname, bookid) but uppercase from other endpoints
+  const getName = (r: LazyLibrarianBook) => (r.BookName || r.bookname || "").toLowerCase();
+  const getId = (r: LazyLibrarianBook) => String(r.BookID || r.bookid || "");
+  const titleLower = title.toLowerCase();
+  const score = (r: LazyLibrarianBook) =>
+    preferredId && getId(r) === preferredId ? 0
+      : getName(r) === titleLower ? 1
+        : getName(r).includes(titleLower) ? 2
+          : 3;
+  const ids = results
+    .map((r, i) => ({ id: getId(r), s: score(r), i }))
+    .filter((r) => r.id)
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((r) => r.id);
+  return [...new Set(ids)];
+}
+
+async function addBookByTitleNow(
+  title: string,
+  author: string | undefined,
+  bookType: LazyLibrarianBookType,
+  preferredId?: string,
 ): Promise<{ id: string; alreadyExists: boolean }> {
   const query = author ? `${title} ${author}` : title;
   const results = await searchBooks(query);
@@ -235,25 +311,24 @@ export async function addBookByTitle(
     throw new Error(`No results found in LazyLibrarian for: ${query}`);
   }
 
-  // Pick best match: exact title match preferred, otherwise first result
-  // LL returns lowercase keys from findBook (bookname, bookid) but uppercase from other endpoints
-  const titleLower = title.toLowerCase();
-  const getName = (r: LazyLibrarianBook) => r.BookName || r.bookname || "";
-  const getId = (r: LazyLibrarianBook) => r.BookID || r.bookid;
-
-  const best =
-    results.find(
-      (r) =>
-        getName(r).toLowerCase() === titleLower ||
-        getName(r).toLowerCase().includes(titleLower),
-    ) ?? results[0];
-
-  const bestId = getId(best);
-  if (!bestId) {
+  const candidates = rankMatches(results, title, preferredId).slice(0, MAX_MATCH_ATTEMPTS);
+  if (candidates.length === 0) {
     throw new Error(`LazyLibrarian result missing BookID for: ${query}`);
   }
 
-  return addBook(String(bestId), bookType);
+  let lastError: unknown;
+  for (const id of candidates) {
+    try {
+      return await addBookNow(id, bookType);
+    } catch (err: unknown) {
+      const retryable =
+        err instanceof BookNotAddedError || (err instanceof ArrApiError && err.isServerError);
+      if (!retryable) throw err;
+      log.warn("lazylibrarian: match failed, trying the next one", { title, bookId: id, err });
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 /**

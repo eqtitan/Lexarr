@@ -246,6 +246,17 @@ if ($isProduction) {
     & git tag -a $deployTag -m "Deployed v$version ($gitSha) to $UnraidHost" HEAD
     & git push -q origin $deployTag
     if ($LASTEXITCODE -ne 0) { Write-Host "  (couldn't push git tag $deployTag -- push it by hand)" -ForegroundColor Yellow }
+
+    # Keep the 3 newest Lexarr images (this one, the previous one for
+    # rollback, one more) and remove older tags plus untagged leftovers
+    # from rebuilds. Each image is ~330 MB. An image a container still
+    # uses can't be removed, so a failed rmi is fine. Untagged leftovers
+    # are matched by the label the Dockerfile sets, so other projects'
+    # images are never touched.
+    $prune = @'
+keep=$(docker image ls lexarr --format '{{.ID}}' | awk '!s[$1]++' | head -n 3); docker image ls lexarr --format '{{.Repository}}:{{.Tag}} {{.ID}}' | while read ref id; do echo $keep | grep -qw $id || { docker rmi $ref >/dev/null 2>&1 && echo "      removed old image $ref"; }; done; docker image prune -f --filter label=org.opencontainers.image.title=lexarr >/dev/null 2>&1; true
+'@
+    Remote $prune
 }
 
 Write-Host ""

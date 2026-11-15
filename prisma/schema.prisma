@@ -122,3 +122,13 @@ model RateLimitBucket {
   @@id([key, windowStart])
   @@index([windowStart])  // for the sweep query
 }
+
+/// Lookups worth keeping across restarts (MusicBrainz chart matches).
+/// See src/lib/persistent-cache.ts.
+model CacheEntry {
+  key       String   @id
+  value     String   // JSON-encoded
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

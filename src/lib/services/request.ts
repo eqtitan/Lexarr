@@ -268,7 +268,7 @@ export async function sendToArrAndUpdateStatus(
       if (opts.mediaType === "book") {
         await prisma.request.update({
           where: { id: request.id },
-          data: { externalId2: String(result.arrId) },
+          data: { externalId2: result.bookId ?? String(result.arrId) },
         });
       }
 

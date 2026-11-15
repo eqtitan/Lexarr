@@ -25,6 +25,7 @@
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 import { discoverCache, mbMatchCache } from "@/lib/cache";
+import { getPersistent, setPersistent } from "@/lib/persistent-cache";
 import { findAlbumReleaseGroup } from "@/lib/search/musicbrainz";
 import * as lidarr from "@/lib/arr/lidarr";
 import * as lazylibrarian from "@/lib/arr/lazylibrarian";
@@ -46,6 +47,8 @@ const DAY = 24 * 60 * 60 * 1000;
 /** MusicBrainz allows anonymous clients one request a second. */
 const MB_GAP_MS = 1100;
 const MB_RETRY_MS = 3000;
+/** Same lifetime as the in-memory mbMatchCache: a week. */
+const MB_MATCH_TTL_MS = 7 * DAY;
 const CHART_SIZE = 25;
 
 const appleChartUrl = () => {
@@ -112,13 +115,21 @@ export async function chartAlbums(): Promise<SearchResult[]> {
     const key = `mb:album:${artist.toLowerCase()}|${title.toLowerCase()}`;
     let match = mbMatchCache.get(key) as SearchResult | null | undefined;
     if (match === undefined) {
+      // Saved by an earlier run of Lexarr (survives restarts).
+      match = await getPersistent<SearchResult | null>(key);
+      if (match !== undefined) mbMatchCache.set(key, match);
+    }
+    if (match === undefined) {
       match = await lookup(artist, title);
       // "The Life of a Showgirl: The Encore" is an edition of "The Life of
       // a Showgirl": fall back to the title before the colon.
       const base = title.split(": ")[0];
       if (match === null && base !== title) match = await lookup(artist, base);
       // undefined = MusicBrainz unreachable: skip, but don't remember it.
-      if (match !== undefined) mbMatchCache.set(key, match);
+      if (match !== undefined) {
+        mbMatchCache.set(key, match);
+        await setPersistent(key, match, MB_MATCH_TTL_MS);
+      }
     }
     if (match && !seen.has(match.id)) {
       seen.add(match.id);

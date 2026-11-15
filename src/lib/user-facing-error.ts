@@ -39,6 +39,10 @@ export function userFacingError<T extends string | null | undefined>(raw: T): T 
   const wrapped = /^((?:Stall )?[Cc]heck failed): ([\s\S]*)$/.exec(text);
   if (wrapped) return `Couldn't check this request's status: ${lowerFirst(userFacingError(wrapped[2]) as string)}`;
 
+  if (/^LazyLibrarian accepted book /.test(text)) {
+    return "LazyLibrarian couldn't add this book. An admin can retry it.";
+  }
+
   const arr = ARR_ERROR.exec(text);
   if (arr) return fromArrError(arr[1], arr[2]);
   if (DB_ERROR.test(text)) return "Lexarr hit a database error with this request. It will try again.";

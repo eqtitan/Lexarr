@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.1] — 2026-11-15
+
+### Fixed
+- **Book requests showed "downloading" for books LazyLibrarian never added.** Since LazyLibrarian moved to OpenLibrary, its book ids look like `OL15992072W`. Lexarr stored a book's id as a number, so these became `0` and Lexarr could never see the book finish. Worse, older LazyLibrarian builds answered "OK" to an OpenLibrary add they had silently dropped. Lexarr now stores the id as text, and after adding a book it checks that LazyLibrarian really has it. If not, the request fails with a clear reason instead of looking sent. A stored `0` from earlier versions is treated as "no id", so a retry searches again.
+- **Book adds pick the edition the user chose and fall back to other matches.** Lexarr passes the OpenLibrary work the user picked, and LazyLibrarian's matching result wins. If adding a match fails on LazyLibrarian's side, the next two matches are tried before giving up.
+- **Book adds go to LazyLibrarian one at a time,** so a batch approval or the auto-retry sweep no longer floods it with parallel adds.
+
+### Added
+- **"Retry all failed" on the admin Pipeline tab.** It re-sends every failed request, one at a time, up to 25 per press, then reports how many went through and which failed again.
+- **MusicBrainz chart matches are saved in the database** (new `CacheEntry` table), so the music Discover list no longer needs about 30 seconds to rebuild after every restart.
+
+### Changed
+- `deploy.ps1` keeps the 3 newest Lexarr images on the server and removes older ones and untagged leftovers from rebuilds (about 330 MB each). The image now carries an `org.opencontainers.image.title=lexarr` label, so only Lexarr's own leftovers are pruned.
+
 ## [0.28.0] — 2026-11-14
 
 ### Security

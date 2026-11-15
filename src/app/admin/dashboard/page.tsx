@@ -61,6 +61,8 @@ export default function DashboardPage() {
   const [tabHidden, setTabHidden] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [retryAllBusy, setRetryAllBusy] = useState(false);
+  const [retryAllNote, setRetryAllNote] = useState<string | null>(null);
 
   // Orphan state — lazy-loaded the first time the Warnings tab is opened.
   // undefined = not fetched yet, null = fetch failed, [] = clean.
@@ -187,6 +189,29 @@ export default function DashboardPage() {
     act("Deny", () => apiSend("/api/admin/requests", "PATCH", { requestId: id, action: "deny", note }));
   const handleRetry = (id: string) =>
     void act("Retry", () => apiSend("/api/admin/retry", "POST", { requestId: id }));
+
+  // "Retry all failed": re-sends failed requests one at a time on the
+  // server, so this can take a while; the button stays busy until done.
+  async function handleRetryAll() {
+    setRetryAllBusy(true);
+    setRetryAllNote(null);
+    try {
+      const r = await apiSend<{ tried: number; sent: number; stillFailing: { title: string }[]; remaining: number }>(
+        "/api/admin/retry",
+        "POST",
+        { allFailed: true },
+      );
+      const parts = [`Re-sent ${r.sent} of ${r.tried}.`];
+      if (r.stillFailing.length) parts.push(`Still failing: ${r.stillFailing.map((f) => f.title).join(", ")}.`);
+      if (r.remaining) parts.push(`${r.remaining} more left; press again to continue.`);
+      setRetryAllNote(r.tried === 0 ? "Nothing has failed." : parts.join(" "));
+    } catch (err) {
+      setActionError(failure("Retry all failed", err));
+    }
+    setRetryAllBusy(false);
+    await mutate();
+  }
+  const failedCount = data?.pipeline.recent.filter((r) => r.status === "failed").length ?? 0;
 
   if (
     sessionStatus === "loading" ||
@@ -383,6 +408,26 @@ export default function DashboardPage() {
 
         {activeTab === "pipeline" && (
           <div className="space-y-5">
+            {(failedCount > 0 || retryAllNote) && (
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                {failedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRetryAll()}
+                    disabled={retryAllBusy}
+                    className="rounded-md px-3 py-1.5 text-xs font-medium ring-1 disabled:opacity-60"
+                    style={{ color: "var(--accent)", borderColor: "var(--accent)" }}
+                  >
+                    {retryAllBusy ? "Retrying…" : "Retry all failed"}
+                  </button>
+                )}
+                {retryAllNote && (
+                  <span role="status" style={{ color: "var(--muted)" }}>
+                    {retryAllNote}
+                  </span>
+                )}
+              </div>
+            )}
             <PipelineTable
               title="Active Downloads"
               requests={data.pipeline.active}

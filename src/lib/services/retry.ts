@@ -98,3 +98,49 @@ export async function retryRequest(
     detail: `Retry #${attempt}`,
   });
 }
+
+/** Most requests one "Retry all failed" press will re-send. */
+export const RETRY_ALL_LIMIT = 25;
+
+export interface RetryAllResult {
+  tried: number;
+  sent: number;
+  /** Requests that failed again, with the (raw, admin-only) reason. */
+  stillFailing: { id: string; title: string; error: string }[];
+  /** Failed requests left for another press because of RETRY_ALL_LIMIT. */
+  remaining: number;
+}
+
+/**
+ * Admin "Retry all failed": retryRequest for every failed request (oldest
+ * update first), one at a time so the *arrs aren't hit with a burst.
+ * Optional mediaType narrows it ("book" after fixing LazyLibrarian).
+ */
+export async function retryAllFailed(
+  admin: { id: string; name: string },
+  mediaType?: MediaType,
+): Promise<RetryAllResult> {
+  const where = { status: "failed", ...(mediaType ? { mediaType } : {}) };
+  const failed = await prisma.request.findMany({
+    where,
+    orderBy: { updatedAt: "asc" },
+    take: RETRY_ALL_LIMIT,
+    select: { id: true, title: true },
+  });
+  const result: RetryAllResult = { tried: 0, sent: 0, stillFailing: [], remaining: 0 };
+  for (const r of failed) {
+    result.tried++;
+    try {
+      await retryRequest(r.id, admin);
+      result.sent++;
+    } catch (err: unknown) {
+      result.stillFailing.push({ id: r.id, title: r.title, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  result.remaining = Math.max(0, (await prisma.request.count({ where })) - result.stillFailing.length);
+  void logAudit(admin.id, "retry_all_failed", { type: "request", id: mediaType ?? "all" }, {
+    tried: result.tried,
+    sent: result.sent,
+  });
+  return result;
+}

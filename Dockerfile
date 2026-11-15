@@ -29,6 +29,7 @@ RUN npm run build
 
 # Production image
 FROM base AS runner
+LABEL org.opencontainers.image.title="lexarr"
 WORKDIR /app
 
 # ARGs do not carry across stages — redeclare + re-export as ENV here too.

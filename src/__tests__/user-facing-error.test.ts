@@ -8,6 +8,12 @@ describe("userFacingError", () => {
     expect(userFacingError(raw)).toBe("LazyLibrarian couldn't look this book up. An admin can retry it.");
   });
 
+  it("explains a book LazyLibrarian accepted but never added", () => {
+    expect(userFacingError("LazyLibrarian accepted book OL9W but didn't add it to its library")).toBe(
+      "LazyLibrarian couldn't add this book. An admin can retry it.",
+    );
+  });
+
   it("explains unreachable services and auth problems", () => {
     expect(userFacingError("Radarr /api/v3/movie: network fetch failed")).toBe(
       "Radarr isn't reachable right now. Lexarr will try again.",
