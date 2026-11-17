@@ -69,6 +69,9 @@ function ageLabel(ms: number): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
+/** Tail of the stall reason every media type got before 0.28.3. */
+const LEGACY_NO_SOURCES = "indexers returned nothing";
+
 /**
  * Why a book stalled, in words the requester can act on. "Indexers
  * returned nothing" was wrong for most books: LazyLibrarian usually found
@@ -242,6 +245,23 @@ async function sweepLateArrivals(now: Date): Promise<number> {
           });
           lateArrivalCheckedAt.delete(req.id);
         }
+        continue;
+      }
+      // Books stalled before 0.28.3 still carry the generic "indexers
+      // returned nothing", usually wrong (LazyLibrarian had tried and lost
+      // several downloads). Rewrite it once with the real reason. updatedAt
+      // is kept so the 48h stalled → failed clock doesn't restart.
+      if (
+        !state.available &&
+        req.mediaType === "book" &&
+        req.status === "stalled" &&
+        req.lastError?.endsWith(LEGACY_NO_SOURCES)
+      ) {
+        const ageMs = now.getTime() - new Date(req.approvedAt ?? req.createdAt).getTime();
+        await updateRequestIfStatus(req.id, "stalled", {
+          lastError: await bookStallReason(req, ageMs),
+          updatedAt: req.updatedAt,
+        });
         continue;
       }
       if (!state.available) continue;
@@ -524,7 +544,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
           ? await bookStallReason(req, ageMs)
           : percent > 0
             ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
-            : `No releases found after ${ageLabel(ageMs)} — indexers returned nothing`;
+            : `No releases found after ${ageLabel(ageMs)} — ${LEGACY_NO_SOURCES}`;
 
       const moved = await updateRequestIfStatus(req.id, "downloading", {
         status: "stalled",

@@ -1,6 +1,6 @@
 {
   "name": "lexarr",
-  "version": "0.28.3",
+  "version": "0.28.4",
   "description": "Unified media request portal for movies, TV, music, and books",
   "engines": {
     "node": ">=22"

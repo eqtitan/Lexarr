@@ -10,9 +10,12 @@
  *
  * Idempotent: if an admin already exists, this is a no-op.
  *
- * Password is upgraded in place if the bootstrap password changes and the
- * bootstrap username matches an existing admin — gives operators a rescue
- * path if they forget credentials.
+ * Rescue: with BOOTSTRAP_ADMIN_RESET=true as well, the matching admin's
+ * password is set to BOOTSTRAP_ADMIN_PASSWORD on start. Until 0.28.4 that
+ * happened on every start whenever the bootstrap password was set, so a
+ * password changed in the UI silently reverted at the next restart or
+ * deploy, and the env value (readable via `docker inspect` and in the .env
+ * backups) stayed a working admin password forever.
  */
 import { PrismaClient } from "@prisma/client";
 import { env } from "@/lib/env";
@@ -27,8 +30,15 @@ export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> 
   const adminCount = await prisma.user.count({ where: { role: "admin" } });
 
   if (adminCount > 0) {
-    // If operator also set bootstrap creds AND a user with that name exists
-    // AND it's an admin, refresh the password hash (rescue path).
+    const reset = ["true", "1", "yes"].includes((env().BOOTSTRAP_ADMIN_RESET ?? "").trim().toLowerCase());
+    if (password && !reset) {
+      log.warn(
+        "bootstrap-admin: BOOTSTRAP_ADMIN_PASSWORD is still set but an admin exists, so it is unused; remove it from the container environment",
+      );
+      return;
+    }
+    // Explicit rescue: reset the named admin's password, then the operator
+    // should remove BOOTSTRAP_ADMIN_RESET (and the password) again.
     if (username && password) {
       const existing = await prisma.user.findFirst({
         where: { name: username, role: "admin" },
@@ -43,7 +53,7 @@ export async function ensureBootstrapAdmin(prisma: PrismaClient): Promise<void> 
             where: { id: existing.id },
             data: { password: hash },
           });
-          log.info("bootstrap-admin: refreshed password for existing admin", { username });
+          log.warn("bootstrap-admin: reset the admin password from BOOTSTRAP_ADMIN_PASSWORD; remove BOOTSTRAP_ADMIN_RESET now", { username });
         }
       }
     }

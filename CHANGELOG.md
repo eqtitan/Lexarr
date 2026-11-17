@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.4] — 2026-11-17
+
+### Security
+- **The bootstrap admin password reset itself on every start.** While `BOOTSTRAP_ADMIN_PASSWORD` was set, each start set the matching admin's password back to it, so a password changed in Lexarr reverted at the next restart or deploy, and the environment value (readable through `docker inspect` and in `.env` backups) stayed a working admin password. Now the bootstrap credentials only create an admin when none exists. Resetting a password needs `BOOTSTRAP_ADMIN_RESET=true` as well, and Lexarr logs a warning while the bootstrap password is still set. **Operators:** remove `BOOTSTRAP_ADMIN_PASSWORD` from the container once an admin exists.
+- **Pre-deploy database backups are root-only (600).** They hold user accounts and password hashes, and were world-readable (644).
+
+### Fixed
+- **Books stalled before 0.28.3 kept the old "indexers returned nothing" reason.** The late-arrival sweep rewrites it once with what LazyLibrarian actually did, without restarting the 48-hour stalled-to-failed clock.
+
 ## [0.28.3] — 2026-11-17
 
 ### Fixed

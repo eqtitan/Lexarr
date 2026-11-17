@@ -134,6 +134,30 @@ describe("stalled books", () => {
     expect(getBookAttempts).not.toHaveBeenCalled();
   });
 
+  it("rewrites an old generic stall reason once, keeping updatedAt", async () => {
+    getBookStatus.mockResolvedValue("Wanted");
+    getBookAttempts.mockResolvedValue({ tried: 2, failed: 2 });
+    const req = await book("OL6W", "stalled", TWO_DAYS_AGO());
+    const old = new Date(Date.now() - 3_600_000);
+    await prisma.request.update({
+      where: { id: req.id },
+      data: { lastError: "No releases found after 2d — indexers returned nothing", updatedAt: old },
+    });
+    await checker.checkAndUpdateStatuses();
+    const row = await reload(req.id);
+    expect(row?.status).toBe("stalled");
+    expect(row?.lastError).toBe("Tried 2 downloads in 2d, none finished — LazyLibrarian is still searching");
+    expect(row?.updatedAt.getTime()).toBe(old.getTime());
+  });
+
+  it("leaves a current stall reason alone", async () => {
+    getBookStatus.mockResolvedValue("Wanted");
+    const req = await book("OL7W", "stalled", TWO_DAYS_AGO());
+    await prisma.request.update({ where: { id: req.id }, data: { lastError: "No copy found after 2d — LazyLibrarian is still searching" } });
+    await checker.checkAndUpdateStatuses();
+    expect(getBookAttempts).not.toHaveBeenCalled();
+  });
+
   it("moves a stalled book back to downloading when LazyLibrarian grabs a copy", async () => {
     getBookStatus.mockResolvedValue("Snatched");
     const req = await book("OL5W", "stalled");

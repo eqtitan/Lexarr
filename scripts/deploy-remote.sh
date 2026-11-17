@@ -50,6 +50,8 @@ cmd_backup() {
   mkdir -p "$BACKUP_DIR"
   dest="$BACKUP_DIR/pre-deploy-$label-$(date +%Y%m%d-%H%M%S).db"
   sqlite3 "$db" ".backup '$dest'"
+  # User accounts and password hashes: root-only, like the .env copy below.
+  chmod 600 "$dest"
   fix_owner "$db"
   if [ "$(sqlite3 "$dest" 'PRAGMA integrity_check;')" != ok ]; then
     rm -f "$dest"

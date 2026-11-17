@@ -67,6 +67,7 @@ const envSchema = z.object({
   // Failover admin — ensures an admin always exists on fresh installs / DB wipes
   BOOTSTRAP_ADMIN_USERNAME: z.string().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(6).optional(),
+  BOOTSTRAP_ADMIN_RESET: z.string().optional(), // "true" to reset that admin's password on start (rescue only)
 
   // Where the host-side stack-healthcheck cron's JSON snapshots are mounted
   // (docker run -v .../stack-healthcheck:/stack-health:ro).
