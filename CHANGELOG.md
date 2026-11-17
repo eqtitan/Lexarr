@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.30.2] — 2026-11-17
+
+### Fixed
+- **A title imported after Lexarr gave up shows as available in seconds.** Radarr, Sonarr and Lidarr notify Lexarr on every import, but Lexarr only acted on that for approved or downloading requests; a failed or stalled one waited for the late-arrival sweep, which re-checks each row at most every 6 hours (one title stayed "failed" for hours after it imported). The import webhooks now run the same late-arrival check right away, with the same exclusions (tracker drift, deleted from the *arr, failed over 120 days ago). A failed request whose *arr id now tracks a different title is left as it is.
+- **Failed movies, shows and music the *arr is downloading again show as downloading.** Books already did this; for the others the request said "failed" until the file landed.
+- **A failed show's "partial at N%" stays current** as episodes keep arriving (it read 5% at 56%). The row's age is unchanged.
+- **Lidarr's import webhook finds the right music requests.** Lidarr names the artist, but album, EP and single requests store the Lidarr album id. Every music request was matched on the artist id, so release requests were never updated by the webhook, and a release whose album id happened to equal the artist id was checked against the wrong album and could be flagged as tracker drift. Artist-wide requests now match the artist id; release requests match the artist's MusicBrainz id and are checked by their own album id. **Operators:** enable "On Release Import" on Lidarr's Lexarr webhook.
+
 ## [0.30.1] — 2026-11-17
 
 ### Fixed

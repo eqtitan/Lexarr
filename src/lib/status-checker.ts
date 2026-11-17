@@ -191,112 +191,13 @@ async function sweepLateArrivals(now: Date): Promise<number> {
 
   let recovered = 0;
   for (const req of candidates) {
-    if (req.lastError && UNRECOVERABLE_PREFIXES.some((p) => req.lastError!.startsWith(p))) continue;
+    if (!lateArrivalEligible(req, now)) continue;
     const last = lateArrivalCheckedAt.get(req.id);
     if (last !== undefined && now.getTime() - last < LATE_ARRIVAL_RECHECK_MS) continue;
     lateArrivalCheckedAt.set(req.id, now.getTime());
 
     try {
-      const state = await getMediaState(req, { checkIdentity: true, now });
-      if (state.identityMismatch) continue;
-
-      // A stalled or failed title that turns out not to be out yet (a show
-      // that hasn't premiered, a movie still in theaters) isn't stuck: park
-      // it back at "approved" with the reason, where the main loop keeps
-      // watching it and the *arr grabs it on release day. The main loop
-      // never looks at stalled/failed rows, so without this a stalled one
-      // would be failed by Tier C after 48h, and a failed one (given up on
-      // before in-theaters counted as unreleased) would stay failed.
-      if (!state.available && state.unreleased) {
-        const moved = await updateRequestIfStatus(req.id, req.status, {
-          status: "approved",
-          lastError: unreleasedMessage(state.unreleased),
-          lastCheckedAt: now,
-        });
-        if (moved) {
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "approved",
-              detail: JSON.stringify({ reason: `unreleased_from_${req.status}`, releaseDate: state.unreleased.releaseDate }),
-            },
-          });
-          lateArrivalCheckedAt.delete(req.id);
-        }
-        continue;
-      }
-      // A stalled or failed book that LazyLibrarian is downloading again
-      // (a later search found a working copy) is back in progress. Without
-      // this it stayed "stalled" until the file landed, and Tier C could
-      // fail it mid-download.
-      if (!state.available && state.inQueue && req.mediaType === "book") {
-        const moved = await updateRequestIfStatus(req.id, req.status, {
-          status: "downloading",
-          lastError: null,
-          lastCheckedAt: now,
-        });
-        if (moved) {
-          await prisma.pipelineEvent.create({
-            data: {
-              requestId: req.id,
-              event: "downloading",
-              detail: JSON.stringify({ reason: `resnatched_from_${req.status}` }),
-            },
-          });
-          lateArrivalCheckedAt.delete(req.id);
-        }
-        continue;
-      }
-      // Books stalled before 0.28.3 still carry the generic "indexers
-      // returned nothing", usually wrong (LazyLibrarian had tried and lost
-      // several downloads). Rewrite it once with the real reason. updatedAt
-      // is kept so the 48h stalled → failed clock doesn't restart.
-      if (
-        !state.available &&
-        req.mediaType === "book" &&
-        req.status === "stalled" &&
-        req.lastError?.endsWith(LEGACY_NO_SOURCES)
-      ) {
-        const ageMs = now.getTime() - new Date(req.approvedAt ?? req.createdAt).getTime();
-        await updateRequestIfStatus(req.id, "stalled", {
-          lastError: await bookStallReason(req, ageMs),
-          updatedAt: req.updatedAt,
-        });
-        continue;
-      }
-      if (!state.available) continue;
-
-      // When did Lexarr give up? The newest "failed" event, else the row's
-      // last write (a failed row is otherwise left untouched).
-      const failedEvent = await prisma.pipelineEvent.findFirst({
-        where: { requestId: req.id, event: "failed" },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      });
-      const gaveUpAt = failedEvent?.createdAt ?? req.updatedAt;
-      const notifyOwner = now.getTime() - gaveUpAt.getTime() <= LATE_ARRIVAL_NOTIFY_MS;
-
-      if (
-        await markAvailable(req, req.status, now, {
-          notifyOwner,
-          detail: {
-            reason: "late_arrival",
-            from: req.status,
-            gaveUpAt: gaveUpAt.toISOString(),
-            previousError: req.lastError?.slice(0, 200) ?? null,
-            notified: notifyOwner,
-          },
-        })
-      ) {
-        recovered++;
-        lateArrivalCheckedAt.delete(req.id);
-        log.info("status-checker: late arrival recovered", {
-          requestId: req.id,
-          title: req.title,
-          from: req.status,
-          notified: notifyOwner,
-        });
-      }
+      if (await checkLateArrival(req, now)) recovered++;
     } catch (err) {
       // A 404 / network error just means "not this time" -- the row stays
       // failed exactly as it was. Debug only: this runs for every candidate.
@@ -304,6 +205,144 @@ async function sweepLateArrivals(now: Date): Promise<number> {
     }
   }
   return recovered;
+}
+
+/** May the late-arrival logic touch this failed/stalled row? Not when the
+ *  failure can't fix itself, and not long after Lexarr gave up. */
+function lateArrivalEligible(req: { lastError: string | null; updatedAt: Date }, now: Date): boolean {
+  if (req.lastError && UNRECOVERABLE_PREFIXES.some((p) => req.lastError!.startsWith(p))) return false;
+  return now.getTime() - req.updatedAt.getTime() < LATE_ARRIVAL_WINDOW_MS;
+}
+
+/** Tier B's reason for a title that got part of the way ("— partial at 56%"). */
+const PARTIAL_AT = /— partial at (\d+)%$/;
+
+/**
+ * Look at one failed or stalled request again and move it on if its *arr
+ * has: on disk → available; not out yet → approved; downloading again →
+ * downloading. Returns true only for a move to available. Shared by the
+ * sweep (each row at most every 6h) and the import webhooks (right away),
+ * so a title imported after Lexarr gave up shows as available within
+ * seconds instead of hours (found live).
+ * Throws on an *arr error; callers treat that as "not this time".
+ */
+async function checkLateArrival(req: Prisma.RequestGetPayload<object>, now: Date): Promise<boolean> {
+  // Books always report LazyLibrarian's "Snatched" as in-queue; asking for
+  // their queue would also count every Wanted book as downloading.
+  const state = await getMediaState(req, { checkIdentity: true, checkQueue: req.mediaType !== "book", now });
+  if (state.identityMismatch) return false;
+
+  // A stalled or failed title that turns out not to be out yet (a show
+  // that hasn't premiered, a movie still in theaters) isn't stuck: park
+  // it back at "approved" with the reason, where the main loop keeps
+  // watching it and the *arr grabs it on release day. The main loop
+  // never looks at stalled/failed rows, so without this a stalled one
+  // would be failed by Tier C after 48h, and a failed one (given up on
+  // before in-theaters counted as unreleased) would stay failed.
+  if (!state.available && state.unreleased) {
+    const moved = await updateRequestIfStatus(req.id, req.status, {
+      status: "approved",
+      lastError: unreleasedMessage(state.unreleased),
+      lastCheckedAt: now,
+    });
+    if (moved) {
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: req.id,
+          event: "approved",
+          detail: JSON.stringify({ reason: `unreleased_from_${req.status}`, releaseDate: state.unreleased.releaseDate }),
+        },
+      });
+      lateArrivalCheckedAt.delete(req.id);
+    }
+    return false;
+  }
+  // A stalled or failed title its *arr is downloading again (a later
+  // search found a copy) is back in progress. Books had this first; for
+  // movies, shows and music the request stayed "failed" until the file
+  // landed. Back at "downloading" the main loop
+  // and the stall tiers watch it again.
+  if (!state.available && state.inQueue) {
+    const moved = await updateRequestIfStatus(req.id, req.status, {
+      status: "downloading",
+      lastError: null,
+      lastCheckedAt: now,
+    });
+    if (moved) {
+      await prisma.pipelineEvent.create({
+        data: {
+          requestId: req.id,
+          event: "downloading",
+          detail: JSON.stringify({ reason: `resnatched_from_${req.status}` }),
+        },
+      });
+      lateArrivalCheckedAt.delete(req.id);
+    }
+    return false;
+  }
+  // Books stalled before 0.28.3 still carry the generic "indexers
+  // returned nothing", usually wrong (LazyLibrarian had tried and lost
+  // several downloads). Rewrite it once with the real reason. updatedAt
+  // is kept so the 48h stalled → failed clock doesn't restart.
+  if (
+    !state.available &&
+    req.mediaType === "book" &&
+    req.status === "stalled" &&
+    req.lastError?.endsWith(LEGACY_NO_SOURCES)
+  ) {
+    const ageMs = now.getTime() - new Date(req.approvedAt ?? req.createdAt).getTime();
+    await updateRequestIfStatus(req.id, "stalled", {
+      lastError: await bookStallReason(req, ageMs),
+      updatedAt: req.updatedAt,
+    });
+    return false;
+  }
+  // A show that kept filling in after Lexarr gave up: keep "partial at N%"
+  // true (a show read 5% at 56%). Message only -- updatedAt is kept, so
+  // neither the 48h clock nor the 120-day window moves.
+  const partial = req.lastError?.match(PARTIAL_AT);
+  if (!state.available && partial && state.percent > 0) {
+    const pct = state.percent.toFixed(0);
+    if (pct !== partial[1]) {
+      await updateRequestIfStatus(req.id, req.status, {
+        lastError: req.lastError!.replace(PARTIAL_AT, `— partial at ${pct}%`),
+        updatedAt: req.updatedAt,
+      });
+    }
+    return false;
+  }
+  if (!state.available) return false;
+
+  // When did Lexarr give up? The newest "failed" event, else the row's
+  // last write (a failed row is otherwise left untouched).
+  const failedEvent = await prisma.pipelineEvent.findFirst({
+    where: { requestId: req.id, event: "failed" },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  const gaveUpAt = failedEvent?.createdAt ?? req.updatedAt;
+  const notifyOwner = now.getTime() - gaveUpAt.getTime() <= LATE_ARRIVAL_NOTIFY_MS;
+
+  const moved = await markAvailable(req, req.status, now, {
+    notifyOwner,
+    detail: {
+      reason: "late_arrival",
+      from: req.status,
+      gaveUpAt: gaveUpAt.toISOString(),
+      previousError: req.lastError?.slice(0, 200) ?? null,
+      notified: notifyOwner,
+    },
+  });
+  if (moved) {
+    lateArrivalCheckedAt.delete(req.id);
+    log.info("status-checker: late arrival recovered", {
+      requestId: req.id,
+      title: req.title,
+      from: req.status,
+      notified: notifyOwner,
+    });
+  }
+  return moved;
 }
 
 // The cycle currently running, if any. A cycle makes one *arr call per
@@ -810,20 +849,24 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
 /**
  * Update a single request by its arrId and media type.
  * Used by webhook handlers for instant status updates.
+ * `scope` narrows which rows that arrId may match (music: artist-wide
+ * requests vs one release, whose arrIds are different Lidarr id spaces).
  */
 export async function checkSingleRequest(
   mediaType: string,
   arrId: number,
+  scope: Prisma.RequestWhereInput = {},
 ): Promise<boolean> {
   const request = await prisma.request.findFirst({
     where: {
+      ...scope,
       mediaType,
       arrId,
       status: { in: ["approved", "downloading"] },
     },
   });
 
-  if (!request) return false;
+  if (!request) return checkSingleLateArrival(mediaType, arrId, scope);
 
   let isAvailable: boolean;
   let identityMismatch: string | null;
@@ -878,6 +921,62 @@ export async function checkSingleRequest(
   }
 
   return false;
+}
+
+/**
+ * Webhook for a title Lexarr had already given up on (failed or stalled):
+ * run the late-arrival check now instead of waiting up to 6h for the
+ * sweep. Tracker drift / deleted rows and ones outside the 120-day window
+ * stay as they are, exactly as in the sweep.
+ */
+async function checkSingleLateArrival(
+  mediaType: string,
+  arrId: number,
+  scope: Prisma.RequestWhereInput,
+): Promise<boolean> {
+  const now = new Date();
+  const request = await prisma.request.findFirst({
+    where: { ...scope, mediaType, arrId, status: { in: ["failed", "stalled"] } },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!request || !lateArrivalEligible(request, now)) return false;
+  try {
+    return await checkLateArrival(request, now);
+  } catch (err) {
+    log.warn("status-checker: webhook-triggered late-arrival check failed", { err });
+    return false;
+  }
+}
+
+/**
+ * Lidarr import webhook. Lidarr names the artist, not the album, but music
+ * requests come in two kinds with different ids in arrId: artist-wide ones
+ * (no releaseType) hold the Lidarr *artist* id, release requests (album,
+ * EP, single) hold the Lidarr *album* id. Matching every request on the
+ * artist id missed all release requests, and could check an unrelated
+ * release whose album id happened to equal it (artist 9 vs album 9, found
+ * live 2026-11-17) and flag it as tracker drift. Release requests carry
+ * the artist's MusicBrainz id in externalId2, so they're found by that.
+ */
+export async function checkMusicImport(artistId: number, artistMbid?: string | null): Promise<boolean> {
+  let updated = await checkSingleRequest("music", artistId, { releaseType: null });
+
+  const mbid = artistMbid || (await lidarr.getArtist(artistId))?.foreignArtistId;
+  if (!mbid) return updated;
+  const releases = await prisma.request.findMany({
+    where: {
+      mediaType: "music",
+      releaseType: { not: null },
+      externalId2: mbid,
+      arrId: { not: null },
+      status: { in: ["approved", "downloading", "failed", "stalled"] },
+    },
+    select: { id: true, arrId: true },
+  });
+  for (const r of releases) {
+    if (await checkSingleRequest("music", r.arrId!, { id: r.id })) updated = true;
+  }
+  return updated;
 }
 
 /**

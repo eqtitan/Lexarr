@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 // Mock dependencies before importing routes
 vi.mock("@/lib/status-checker", () => ({
   checkSingleRequest: vi.fn().mockResolvedValue(true),
+  checkMusicImport: vi.fn().mockResolvedValue(true),
 }));
 
 // Webhook routes read LEXARR_WEBHOOK_SECRET through env(), which reads
@@ -362,26 +363,26 @@ describe("Webhook routes — event handling (M3)", () => {
       expect(json).toEqual({ ok: true, skipped: "no artist id" });
     });
 
-    it("calls checkSingleRequest with mediaType music on a valid import event", async () => {
-      const { checkSingleRequest } = await import("@/lib/status-checker");
-      vi.mocked(checkSingleRequest).mockResolvedValue(true);
+    it("hands the artist id and MusicBrainz id to checkMusicImport", async () => {
+      const { checkMusicImport } = await import("@/lib/status-checker");
+      vi.mocked(checkMusicImport).mockResolvedValue(true);
 
       const { POST } = await import("@/app/api/webhooks/lidarr/route");
       const res = await POST(
         makeWebhookReq(
           "http://localhost/api/webhooks/lidarr?token=test-secret-123",
-          { eventType: "TrackFileImported", artist: { id: 9 } },
+          { eventType: "TrackFileImported", artist: { id: 9, mbId: "00000000-0000-4000-8000-0000000000ac" } },
         ),
       );
       expect(res.status).toBe(200);
       const json = await (res as Response).json();
       expect(json).toEqual({ ok: true, updated: true });
-      expect(vi.mocked(checkSingleRequest)).toHaveBeenCalledWith("music", 9);
+      expect(vi.mocked(checkMusicImport)).toHaveBeenCalledWith(9, "00000000-0000-4000-8000-0000000000ac");
     });
 
-    it("returns 500 when checkSingleRequest throws", async () => {
-      const { checkSingleRequest } = await import("@/lib/status-checker");
-      vi.mocked(checkSingleRequest).mockRejectedValue(new Error("lidarr unreachable"));
+    it("returns 500 when checkMusicImport throws", async () => {
+      const { checkMusicImport } = await import("@/lib/status-checker");
+      vi.mocked(checkMusicImport).mockRejectedValue(new Error("lidarr unreachable"));
 
       const { POST } = await import("@/app/api/webhooks/lidarr/route");
       const res = await POST(

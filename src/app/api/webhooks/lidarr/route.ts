@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkSingleRequest } from "@/lib/status-checker";
+import { checkMusicImport } from "@/lib/status-checker";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
 import { verifyWebhookToken, webhookTokenFrom } from "@/lib/webhook-auth";
@@ -12,7 +12,7 @@ import { verifyWebhookToken, webhookTokenFrom } from "@/lib/webhook-auth";
  * The older ?token=YOUR_SECRET form still works but leaks into URLs/logs.
  * Events: On Import, On Upgrade
  *
- * Idempotency: idempotent — delegates to `checkSingleRequest()`, a
+ * Idempotency: idempotent — delegates to `checkMusicImport()`, a
  * state-reconciling update. Duplicate POSTs from Lidarr retries
  * converge on the same row state.
  */
@@ -35,7 +35,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: "no artist id" });
     }
 
-    const updated = await checkSingleRequest("music", artistId);
+    // Lidarr's payload names the artist (with its MusicBrainz id, "mbId");
+    // checkMusicImport finds both artist-wide and per-release requests.
+    const updated = await checkMusicImport(artistId, body.artist?.mbId ?? body.artist?.foreignArtistId ?? null);
     return NextResponse.json({ ok: true, updated });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);

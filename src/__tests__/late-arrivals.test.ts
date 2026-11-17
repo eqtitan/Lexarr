@@ -11,12 +11,23 @@ import type { PrismaClient } from "@prisma/client";
 useTestDb();
 
 const getMovie = vi.fn();
+const radarrQueue = vi.fn();
 vi.mock("@/lib/arr/radarr", () => ({
   getMovie: (...a: unknown[]) => getMovie(...a),
+  getQueue: (...a: unknown[]) => radarrQueue(...a),
+}));
+const getSeries = vi.fn();
+vi.mock("@/lib/arr/sonarr", () => ({
+  getSeries: (...a: unknown[]) => getSeries(...a),
   getQueue: vi.fn().mockResolvedValue({ records: [] }),
 }));
-vi.mock("@/lib/arr/sonarr", () => ({}));
-vi.mock("@/lib/arr/lidarr", () => ({}));
+const getAlbum = vi.fn();
+const getArtist = vi.fn();
+vi.mock("@/lib/arr/lidarr", () => ({
+  getAlbum: (...a: unknown[]) => getAlbum(...a),
+  getArtist: (...a: unknown[]) => getArtist(...a),
+  getQueue: vi.fn().mockResolvedValue({ records: [] }),
+}));
 vi.mock("@/lib/arr/lazylibrarian", () => ({}));
 vi.mock("@/lib/arr/router", () => ({ routeToArr: vi.fn() }));
 const notify = vi.fn();
@@ -37,6 +48,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  radarrQueue.mockResolvedValue({ records: [] });
   checker._resetLateArrivalCache();
   userId = (await prisma.user.create({ data: { name: "alice" } })).id;
 });
@@ -227,5 +239,158 @@ describe("movies still in theaters", () => {
     await checker.checkAndUpdateStatuses();
 
     expect(await status(req.id)).toBe("downloading");
+  });
+});
+
+describe("back in the queue (all media types, 0.30.2)", () => {
+  it("moves a failed movie its *arr is downloading again back to downloading", async () => {
+    const req = await failedRequest({ failedDaysAgo: 2 });
+    getMovie.mockResolvedValue({ hasFile: false });
+    radarrQueue.mockResolvedValue({ records: [{ movieId: 7 }] });
+
+    await checker.checkAndUpdateStatuses();
+
+    const row = await prisma.request.findUnique({ where: { id: req.id } });
+    expect(row?.status).toBe("downloading");
+    expect(row?.lastError).toBeNull();
+    const ev = await prisma.pipelineEvent.findFirst({ where: { requestId: req.id, event: "downloading" } });
+    expect(JSON.parse(ev!.detail!)).toEqual({ reason: "resnatched_from_failed" });
+  });
+});
+
+describe("partial progress on a failed show (0.30.2)", () => {
+  async function failedShow(lastError: string) {
+    const req = await prisma.request.create({
+      data: { userId, mediaType: "tv", externalId: "1877", title: "Example Show", status: "failed", arrId: 26, lastError },
+    });
+    await prisma.$executeRawUnsafe(`UPDATE "Request" SET "updatedAt" = ? WHERE "id" = ?`, Date.now() - 2 * DAY, req.id);
+    return prisma.request.findUnique({ where: { id: req.id } });
+  }
+
+  it("keeps 'partial at N%' current without moving updatedAt", async () => {
+    const before = await failedShow("No additional releases found after 211d — partial at 5%");
+    getSeries.mockResolvedValue({ tmdbId: 1877, status: "ended", statistics: { percentOfEpisodes: 55.96 } });
+
+    await checker.checkAndUpdateStatuses();
+
+    const after = await prisma.request.findUnique({ where: { id: before!.id } });
+    expect(after?.status).toBe("failed");
+    expect(after?.lastError).toBe("No additional releases found after 211d — partial at 56%");
+    expect(after?.updatedAt.getTime()).toBe(before!.updatedAt.getTime());
+  });
+
+  it("leaves other reasons alone", async () => {
+    const before = await failedShow("No releases found after 12h — indexers returned nothing");
+    getSeries.mockResolvedValue({ tmdbId: 1877, status: "ended", statistics: { percentOfEpisodes: 40 } });
+
+    await checker.checkAndUpdateStatuses();
+
+    expect(await prisma.request.findUnique({ where: { id: before!.id } })).toEqual(before);
+  });
+});
+
+describe("import webhook on a request Lexarr gave up on (0.30.2)", () => {
+  it("marks a failed movie available straight away, as a late arrival", async () => {
+    const req = await failedRequest({ failedDaysAgo: 3 });
+    getMovie.mockResolvedValue({ hasFile: true });
+
+    expect(await checker.checkSingleRequest("movie", 7)).toBe(true);
+
+    expect(await status(req.id)).toBe("available");
+    const ev = await prisma.pipelineEvent.findFirst({ where: { requestId: req.id, event: "available" } });
+    expect(JSON.parse(ev!.detail!)).toMatchObject({ reason: "late_arrival", from: "failed", notified: true });
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("works even right after the sweep looked at the row (no 6h wait)", async () => {
+    const req = await failedRequest();
+    getMovie.mockResolvedValue({ hasFile: false });
+    await checker.checkAndUpdateStatuses(); // sweep checks it: still no file
+
+    getMovie.mockResolvedValue({ hasFile: true }); // Radarr imports, fires the webhook
+    expect(await checker.checkSingleRequest("movie", 7)).toBe(true);
+    expect(await status(req.id)).toBe("available");
+  });
+
+  it("leaves tracker drift and old failures alone", async () => {
+    const drift = await failedRequest({ arrId: 11, lastError: "Tracker drift — please re-request. x" });
+    const old = await failedRequest({ arrId: 12, updatedDaysAgo: 130 });
+    getMovie.mockResolvedValue({ hasFile: true });
+
+    expect(await checker.checkSingleRequest("movie", 11)).toBe(false);
+    expect(await checker.checkSingleRequest("movie", 12)).toBe(false);
+    expect(await status(drift.id)).toBe("failed");
+    expect(await status(old.id)).toBe("failed");
+    expect(getMovie).not.toHaveBeenCalled();
+  });
+
+  it("doesn't rewrite a failed row as drift when the id now tracks another title", async () => {
+    const req = await failedRequest();
+    getMovie.mockResolvedValue({ hasFile: true, tmdbId: 999 });
+
+    expect(await checker.checkSingleRequest("movie", 7)).toBe(false);
+    const row = await prisma.request.findUnique({ where: { id: req.id } });
+    expect(row?.status).toBe("failed");
+    expect(row?.lastError).toBe("No releases found after 12h — indexers returned nothing");
+  });
+});
+
+describe("Lidarr import webhook (checkMusicImport, 0.30.2)", () => {
+  const ACE = "00000000-0000-4000-8000-0000000000ac";
+  const WOF = "00000000-0000-4000-8000-0000000000f0";
+  const music = (data: {
+    title: string;
+    arrId: number;
+    releaseType?: string | null;
+    externalId: string;
+    externalId2: string;
+    status?: string;
+  }) => prisma.request.create({ data: { userId, mediaType: "music", status: "downloading", releaseType: null, ...data } });
+
+  it("checks a single by its album id, found through the artist's MusicBrainz id", async () => {
+    const single = await music({ title: "Example Single", arrId: 12940, releaseType: "single", externalId: WOF, externalId2: ACE });
+    getAlbum.mockResolvedValue({ foreignAlbumId: WOF, statistics: { percentOfTracks: 100, trackFileCount: 4 } });
+
+    expect(await checker.checkMusicImport(9, ACE)).toBe(true);
+
+    expect(getAlbum).toHaveBeenCalledWith(12940);
+    expect(await status(single.id)).toBe("available");
+  });
+
+  it("never checks a release whose album id merely equals the artist id", async () => {
+    // Album 9 belongs to another artist; the webhook said artist 9.
+    const other = await music({ title: "Everyday", arrId: 9, releaseType: "album", externalId: "rg-everyday", externalId2: "dmb-mbid" });
+
+    await checker.checkMusicImport(9, ACE);
+
+    expect(getAlbum).not.toHaveBeenCalled();
+    const row = await prisma.request.findUnique({ where: { id: other.id } });
+    expect(row?.status).toBe("downloading");
+    expect(row?.lastError).toBeNull();
+  });
+
+  it("still checks an artist-wide request by the artist id", async () => {
+    const whole = await music({ title: "Example Artist", arrId: 9, externalId: ACE, externalId2: ACE });
+    getArtist.mockResolvedValue({ foreignArtistId: ACE, statistics: { albumCount: 3, percentOfTracks: 100 } });
+
+    expect(await checker.checkMusicImport(9, ACE)).toBe(true);
+    expect(await status(whole.id)).toBe("available");
+  });
+
+  it("looks the MusicBrainz id up when the payload has none, and recovers a failed single", async () => {
+    const single = await music({
+      title: "Example Single",
+      arrId: 12940,
+      releaseType: "single",
+      externalId: WOF,
+      externalId2: ACE,
+      status: "failed",
+    });
+    getArtist.mockResolvedValue({ foreignArtistId: ACE });
+    getAlbum.mockResolvedValue({ foreignAlbumId: WOF, statistics: { percentOfTracks: 100, trackFileCount: 4 } });
+
+    expect(await checker.checkMusicImport(9, null)).toBe(true);
+    expect(getArtist).toHaveBeenCalledWith(9);
+    expect(await status(single.id)).toBe("available");
   });
 });
