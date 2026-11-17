@@ -7,6 +7,8 @@ import * as radarr from "./radarr";
 import * as sonarr from "./sonarr";
 import * as lidarr from "./lidarr";
 import * as lazylibrarian from "./lazylibrarian";
+import { ArrApiError } from "./_fetch";
+import { log } from "@/lib/log";
 import type { MediaType, MusicReleaseType, BookFormat } from "@/types";
 
 export interface RouteResult {
@@ -96,18 +98,30 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
       // as a number; it means "none".
       const knownId =
         externalId2 && externalId2 !== "0" && externalId2 !== externalId ? externalId2 : undefined;
-      let result: { id: string; alreadyExists: boolean };
+      let result: { id: string; alreadyExists: boolean } | undefined;
 
       // Books default to ebook when the caller didn't specify a format —
       // this preserves behaviour for existing callers (e.g. retry flow
       // replaying a pre-0.17 request that never had bookFormat stored).
       const llType = input.bookFormat === "audiobook" ? "AudioBook" : "eBook";
 
-      if (knownId) {
-        result = await lazylibrarian.addBook(knownId, llType);
-      } else {
-        result = await lazylibrarian.addBookByTitle(title, authorHint, llType, workId);
+      // Add by id first: the OpenLibrary work the user picked, then a
+      // stored id from an earlier send. Only then search by title --
+      // LazyLibrarian's OpenLibrary title search on a generic title
+      // ("Poems", "Meditations") can take minutes and time out. The work id
+      // goes first so a stored GoodReads-era id (often a different edition)
+      // isn't re-queued when the user's own pick works.
+      const ids = [...new Set([workId, knownId].filter((x): x is string => !!x))];
+      for (const id of ids) {
+        try {
+          result = await lazylibrarian.addBook(id, llType);
+          break;
+        } catch (err) {
+          if (!isBookIdRejected(err)) throw err;
+          log.warn("lazylibrarian: add by id failed, trying next", { id, err: String(err) });
+        }
       }
+      result ??= await lazylibrarian.addBookByTitle(title, authorHint, llType, workId);
 
       return {
         arrId: /^\d+$/.test(result.id) ? Number(result.id) : 0,
@@ -119,4 +133,15 @@ export async function routeToArr(input: RouteInput): Promise<RouteResult> {
     default:
       throw new Error(`Unknown media type: ${mediaType}`);
   }
+}
+
+/**
+ * LazyLibrarian refused or dropped this particular id (an HTTP error, or
+ * it answered OK without adding the book), so another id or a title search
+ * may still work. Network errors and timeouts (status 0) mean LazyLibrarian
+ * itself is down; those stop the send.
+ */
+function isBookIdRejected(err: unknown): boolean {
+  if (err instanceof lazylibrarian.BookNotAddedError) return true;
+  return err instanceof ArrApiError && err.status !== 0;
 }

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.2] — 2026-11-16
+
+### Fixed
+- **Downloaded ebooks never showed as available.** After a download LazyLibrarian sets an ebook to "Open"; Lexarr only accepted "Have", which LazyLibrarian sets only on a library scan. No ebook request had ever become available. Both now count.
+- **Books with OpenLibrary ids were never status-checked.** Their LazyLibrarian id is text, so `arrId` stays empty, and every status check skipped requests without an `arrId`. They sat at "downloading" after the book arrived. The checks now treat a book with a LazyLibrarian id as sent.
+- **Book requests for generic titles timed out, and re-sends could queue the wrong edition.** Lexarr now adds a book by the OpenLibrary work the user picked first, then by any id stored from an earlier send, and only then searches by title. LazyLibrarian's OpenLibrary title search on titles like "Poems" or "Meditations" can take minutes, longer than Lexarr waits. Trying the user's pick first also stops a stored GoodReads-era id, often a different edition, from being queued again. If LazyLibrarian is unreachable the send stops instead of trying more.
+
 ## [0.28.1] — 2026-11-15
 
 ### Fixed

@@ -171,12 +171,18 @@ export async function getMediaState(
     if (!bookId) return NOTHING;
     // Audiobooks: LazyLibrarian often leaves them at "Open" (file on disk,
     // post-processing unfinished); Jellyfin can already play them, so
-    // isAudiobookOnDisk counts that as available. Legacy rows with a null
+    // isAudiobookOnDisk counts that as available. Ebooks the same: after
+    // post-processing LazyLibrarian sets a downloaded ebook to "Open", and
+    // "Have" only comes from a library scan. Checking "Have" alone meant no
+    // ebook request ever became available (found live 2026-11-16: 0
+    // available, 10 downloaded books all "Open"). Legacy rows with a null
     // bookFormat are ebooks.
+    const ebookStatus =
+      req.bookFormat === "audiobook" ? null : await lazylibrarian.getBookStatus(bookId, "eBook");
     const available =
       req.bookFormat === "audiobook"
         ? await lazylibrarian.isAudiobookOnDisk(bookId)
-        : (await lazylibrarian.getBookStatus(bookId, "eBook")) === "Have";
+        : ebookStatus === "Have" || ebookStatus === "Open";
     let inQueue = false;
     if (checkQueue && !available) {
       const wanted = await lazylibrarian.getQueue().catch((err: unknown) => {

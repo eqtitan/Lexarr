@@ -30,6 +30,22 @@ import { getMediaState } from "./arr/media-state";
 import { PIPELINE_RULES, isUnreleased, IN_THEATERS_MESSAGE } from "./pipeline-rules";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
+import type { Prisma } from "@prisma/client";
+
+/**
+ * "This request reached its *arr." Movies, shows and music carry the *arr's
+ * numeric id in arrId. Books carry LazyLibrarian's id in externalId2, which
+ * since OpenLibrary is text ("OL15992072W"), so their arrId is null. Before
+ * this, every check below filtered on arrId alone and never looked at those
+ * books again: they sat at "downloading" after LazyLibrarian had them.
+ * "0" is what 0.28.0 and earlier wrote for an id that didn't parse.
+ */
+export const SENT_TO_ARR: Prisma.RequestWhereInput = {
+  OR: [
+    { arrId: { not: null } },
+    { mediaType: "book", externalId2: { not: null, notIn: ["0"] } },
+  ],
+};
 import { userFacingError } from "@/lib/user-facing-error";
 
 export interface StatusCheckResult {
@@ -140,7 +156,7 @@ async function sweepLateArrivals(now: Date): Promise<number> {
   const candidates = await prisma.request.findMany({
     where: {
       status: { in: ["failed", "stalled"] },
-      arrId: { not: null },
+      ...SENT_TO_ARR,
       updatedAt: { gt: new Date(now.getTime() - LATE_ARRIVAL_WINDOW_MS) },
     },
   });
@@ -251,7 +267,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   const activeRequests = await prisma.request.findMany({
     where: {
       status: { in: ["approved", "downloading"] },
-      arrId: { not: null },
+      ...SENT_TO_ARR,
     },
   });
 
@@ -420,10 +436,14 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   const neverFoundCandidates = await prisma.request.findMany({
     where: {
       status: "downloading",
-      arrId: { not: null },
-      OR: [
-        { approvedAt: { lt: noSourcesCutoff } },
-        { approvedAt: null, createdAt: { lt: noSourcesCutoff } },
+      AND: [
+        SENT_TO_ARR,
+        {
+          OR: [
+            { approvedAt: { lt: noSourcesCutoff } },
+            { approvedAt: null, createdAt: { lt: noSourcesCutoff } },
+          ],
+        },
       ],
     },
   });
@@ -679,7 +699,7 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
   const checkFailingTooLong = await prisma.request.findMany({
     where: {
       status: { in: ["approved", "downloading"] },
-      arrId: { not: null },
+      ...SENT_TO_ARR,
       checkFailingSince: { lt: twoHoursAgo },
     },
     include: { user: { select: { name: true } } },
