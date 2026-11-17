@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.30.0] — 2026-11-17
+
+### Added
+- **Admin → Readiness page.** One place to see whether Lexarr is safe and working, with a fix for anything that isn't. Read-only, admin only, refreshed every minute; it never shows a secret value (only "set", a length or a count).
+  - **Security:** bootstrap credentials left in the environment, session-secret and webhook-secret strength, open sign-ups, and the live Content-Security-Policy (Lexarr fetches its own page and checks scripts need a nonce).
+  - **Backups:** age of the newest nightly backup, owner-only permissions, cache-pool and NAS copies. Read from `backup-status.json`, which the host's nightly backup job writes into the stack-health folder.
+  - **Services:** Radarr, Sonarr, Lidarr, LazyLibrarian, Prowlarr, qBittorrent and NZBGet reachable; stack-health report fresh and clean.
+  - **Pipeline:** stalled requests by type with the oldest, failures in the last 7 days, requests whose status check keeps failing.
+  - **Books:** LazyLibrarian ranks Usenet above torrents with a non-zero priority weight and torrent seeders of at least 5, and Prowlarr's LazyLibrarian sync doesn't overwrite them. Indexer hosts and API keys from LazyLibrarian and Prowlarr are dropped where they're read.
+
+### Security
+- **Visitors through a proxy on the Docker host no longer share one rate-limit bucket.** A proxy such as `tailscale serve` forwarding to `127.0.0.1:5056` reaches Lexarr from the Docker gateway, so every visitor through it looked like one address. New `LEXARR_TRUSTED_PROXIES` lists such proxy addresses; for connections from exactly those, Lexarr uses the address the proxy appended to X-Forwarded-For. Anyone else's X-Forwarded-For is still ignored, and LAN visitors keep their own address through Docker, so they can't forge one (measured on the dev server).
+
 ## [0.29.0] — 2026-11-17
 
 ### Security

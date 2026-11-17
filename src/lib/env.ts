@@ -29,6 +29,7 @@ const envSchema = z.object({
   PROWLARR_API_KEY: z.string().optional(),
   LAZYLIBRARIAN_API_KEY: z.string().optional(),
   LAZYLIBRARIAN_PORT: z.string().optional(),
+  PORT: z.string().optional(), // port Lexarr listens on (readiness self-check)
   QBITTORRENT_URL: z.string().optional(),
   QBITTORRENT_USER: z.string().optional(),
   QBITTORRENT_PASS: z.string().optional(),
@@ -57,6 +58,9 @@ const envSchema = z.object({
   // Number of reverse-proxy hops to trust for rate-limiting's
   // X-Forwarded-For lookup. See src/lib/rate-limit.ts and .env.example.
   TRUSTED_PROXY_HOPS: z.string().optional(),
+  // Comma-separated TCP peer addresses whose X-Forwarded-For is believed
+  // (e.g. the Docker gateway when `tailscale serve` runs on the host).
+  LEXARR_TRUSTED_PROXIES: z.string().optional(),
   // Set to "1" by the Dockerfile, which preloads scripts/client-ip-preload.cjs
   // to stamp the real TCP peer address on each request. See rate-limit.ts.
   LEXARR_CLIENT_IP_HEADER: z.string().optional(),

@@ -44,3 +44,14 @@ export interface ProwlarrIndexerStat {
 export async function getIndexerStats(): Promise<{ indexers: ProwlarrIndexerStat[] }> {
   return api("/api/v1/indexerstats");
 }
+
+/**
+ * Sync level of one of Prowlarr's apps ("fullSync", "addOnly",
+ * "disabled"), or null when there's no such app. The app records also
+ * carry that app's API key; only the level is returned.
+ */
+export async function getAppSyncLevel(appName: string): Promise<string | null> {
+  const apps = await api<{ name?: string; implementation?: string; syncLevel?: string }[]>("/api/v1/applications");
+  const app = (apps ?? []).find((a) => a.name === appName || a.implementation === appName);
+  return app?.syncLevel ?? null;
+}

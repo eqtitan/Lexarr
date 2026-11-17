@@ -35,6 +35,7 @@ export default defineConfig({
       env: {
         DATABASE_URL: `file:${DB_FILE}`,
         NEXTAUTH_SECRET: "e2e-secret-not-for-production",
+        PORT: String(PORT), // readiness self-check fetches its own pages
         NEXTAUTH_URL: `http://127.0.0.1:${PORT}`,
         AUTH_TRUST_HOST: "true",
         AUTH_JELLYFIN_ENABLED: "false",

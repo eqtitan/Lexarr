@@ -95,3 +95,24 @@ test("admin settings: save music regions; add, test, toggle and delete a channel
   await channel.getByRole("button", { name: "Confirm?" }).click();
   await expect(page.getByText(named("E2E hook"))).toHaveCount(0);
 });
+
+test("readiness page: admin sees every check group; signed-out gets 403", async ({ page, browser }) => {
+  const violations: string[] = [];
+  page.on("console", (m) => /Content Security Policy/i.test(m.text()) && violations.push(m.text()));
+  await loginAsAdmin(page);
+  await page.goto("/admin/readiness");
+  await expect(page.getByRole("heading", { name: "Readiness" })).toBeVisible();
+  for (const group of ["Security", "Services", "Pipeline"]) {
+    await expect(page.getByRole("heading", { name: group })).toBeVisible();
+  }
+  // e2e uses a 29-character NEXTAUTH_SECRET, so the page must flag it.
+  await expect(page.locator('[data-check="auth-secret"]')).toHaveAttribute("data-status", "fail");
+  await expect(page.locator('[data-check="csp"]')).toHaveAttribute("data-status", "ok");
+  expect(violations).toEqual([]);
+
+  const anon = await browser.newContext();
+  expect((await anon.request.get("/api/admin/readiness")).status()).toBe(403);
+  // Non-admin 403 is unit-tested (readiness-route.test.ts): another sign-in here
+  // would trip the real 5/min sign-in limit for the later smoke test.
+  await anon.close();
+});

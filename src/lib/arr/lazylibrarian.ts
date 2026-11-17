@@ -395,3 +395,37 @@ export async function getQueue() {
   const data = await api("getWanted");
   return { records: Array.isArray(data) ? data : [] };
 }
+
+export interface SourceSetting {
+  name: string;
+  kind: "usenet" | "torrent" | "direct";
+  enabled: boolean;
+  priority: number;
+  seeders: number;
+}
+
+/**
+ * Download-source ranking, for the readiness page. listProviders also
+ * returns each indexer's host and API key; only the name, kind, enabled
+ * flag, priority and seeder minimum are kept.
+ */
+export async function getSourceSettings(): Promise<{ sources: SourceSetting[]; priorityWeight: number }> {
+  const [providers, weight] = await Promise.all([
+    api("listProviders"),
+    api("readCFG", { group: "General", name: "PRIORITY_WEIGHT" }),
+  ]);
+  const p = (providers ?? {}) as Record<string, unknown>;
+  const pick = (key: string, kind: SourceSetting["kind"]): SourceSetting[] =>
+    (Array.isArray(p[key]) ? (p[key] as Record<string, unknown>[]) : []).map((r) => ({
+      name: String(r.DISPNAME || r.NAME || "?"),
+      kind,
+      enabled: String(r.ENABLED) === "1" || r.ENABLED === true || String(r.ENABLED).toLowerCase() === "true",
+      priority: Number(r.DLPRIORITY) || 0,
+      seeders: Number(r.SEEDERS) || 0,
+    }));
+  const w = Array.isArray(weight) ? Number(weight[0]) : Number(weight);
+  return {
+    sources: [...pick("newznab", "usenet"), ...pick("torznab", "torrent"), ...pick("gen", "direct")],
+    priorityWeight: Number.isFinite(w) ? w : 0,
+  };
+}

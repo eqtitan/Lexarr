@@ -200,6 +200,45 @@ describe("getClientIp with the client-IP hook (LEXARR_CLIENT_IP_HEADER=1)", () =
     delete process.env.LEXARR_CLIENT_IP_HEADER;
     expect(getClientIp(new Headers({ "x-lexarr-client-ip": "192.168.1.50" }))).toBe("unknown");
   });
+
+  describe("with a proxy on the Docker host (LEXARR_TRUSTED_PROXIES)", () => {
+    // Measured on the dev server: `curl 127.0.0.1:5056` from the host arrives from the
+    // arrnet gateway; LAN and tailnet clients keep their own address.
+    const GATEWAY = "172.18.0.1";
+    afterEach(() => {
+      delete process.env.LEXARR_TRUSTED_PROXIES;
+    });
+
+    it("uses the address the proxy appended, only for connections from the proxy", () => {
+      process.env.LEXARR_CLIENT_IP_HEADER = "1";
+      process.env.LEXARR_TRUSTED_PROXIES = `${GATEWAY}, 10.0.0.9`;
+      // Through tailscale serve: client-sent junk first, the proxy's entry last.
+      const viaProxy = new Headers({
+        "x-lexarr-client-ip": `::ffff:${GATEWAY}`,
+        "x-forwarded-for": "6.6.6.6, 100.101.102.103",
+      });
+      expect(getClientIp(viaProxy)).toBe("100.101.102.103");
+    });
+
+    it("ignores X-Forwarded-For from anyone else, so a LAN client can't forge an address", () => {
+      process.env.LEXARR_CLIENT_IP_HEADER = "1";
+      process.env.LEXARR_TRUSTED_PROXIES = GATEWAY;
+      const lan = new Headers({ "x-lexarr-client-ip": "::ffff:192.168.1.211", "x-forwarded-for": "100.1.2.3" });
+      expect(getClientIp(lan)).toBe("192.168.1.211");
+    });
+
+    it("falls back to the proxy's address when it sent no X-Forwarded-For", () => {
+      process.env.LEXARR_CLIENT_IP_HEADER = "1";
+      process.env.LEXARR_TRUSTED_PROXIES = GATEWAY;
+      expect(getClientIp(new Headers({ "x-lexarr-client-ip": GATEWAY }))).toBe(GATEWAY);
+    });
+
+    it("trusts nothing when the list is empty", () => {
+      process.env.LEXARR_CLIENT_IP_HEADER = "1";
+      const h = new Headers({ "x-lexarr-client-ip": GATEWAY, "x-forwarded-for": "100.1.2.3" });
+      expect(getClientIp(h)).toBe(GATEWAY);
+    });
+  });
 });
 
 describe("getClientIp", () => {

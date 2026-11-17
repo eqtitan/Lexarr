@@ -17,6 +17,7 @@ const adminLinks = [
   { href: "/admin/users", label: "Users" },
   { href: "/admin/settings", label: "Settings" },
   { href: "/admin/audit", label: "Audit" },
+  { href: "/admin/readiness", label: "Readiness" },
 ];
 
 export default function Nav() {

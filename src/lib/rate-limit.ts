@@ -119,6 +119,13 @@ export const RATE_LIMITS = {
  */
 const trustedProxyHops = () => Number(env().TRUSTED_PROXY_HOPS) || 0;
 
+/** LEXARR_TRUSTED_PROXIES: exact TCP peer addresses of local proxies. */
+const trustedProxies = () =>
+  (env().LEXARR_TRUSTED_PROXIES ?? "")
+    .split(",")
+    .map((s) => s.trim().replace(/^::ffff:/, ""))
+    .filter(Boolean);
+
 /**
  * Per-route ceiling across ALL clients, as a multiple of the per-client
  * limit (default 4: e.g. auth 20/min, search 120/min in total). Only
@@ -161,7 +168,25 @@ export function getClientIp(headers: Headers): string {
   // says the hook is loaded; otherwise a client could set it.
   if (env().LEXARR_CLIENT_IP_HEADER === "1") {
     const peer = headers.get("x-lexarr-client-ip")?.replace(/^::ffff:/, "");
-    if (peer) return peer;
+    if (peer) {
+      // A proxy on the host (`tailscale serve`, say) reaches Lexarr from
+      // the Docker gateway, so every visitor through it shares that one
+      // address. Only when the TCP peer is a listed proxy is the address
+      // it appended to X-Forwarded-For believed (the rightmost entry; the
+      // rest is client-supplied). LAN clients keep their own address
+      // through Docker, so they can't pose as the proxy to forge one.
+      if (trustedProxies().includes(peer)) {
+        const forwarded = headers
+          .get("x-forwarded-for")
+          ?.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .pop()
+          ?.replace(/^::ffff:/, "");
+        if (forwarded) return forwarded;
+      }
+      return peer;
+    }
   }
 
   const ua = headers.get("user-agent") || "";
