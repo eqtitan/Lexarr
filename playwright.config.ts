@@ -36,7 +36,9 @@ export default defineConfig({
         DATABASE_URL: `file:${DB_FILE}`,
         NEXTAUTH_SECRET: "e2e-secret-not-for-production",
         PORT: String(PORT), // readiness self-check fetches its own pages
-        NEXTAUTH_URL: `http://127.0.0.1:${PORT}`,
+        // Sign-in runs through the public-origin allowlist (not NEXTAUTH_URL), as on the dev server.
+        // localhost, not 127.0.0.1: Next.js rewrites 127.0.0.1 to localhost in request URLs.
+        LEXARR_PUBLIC_URLS: `http://localhost:${PORT}`,
         AUTH_TRUST_HOST: "true",
         AUTH_JELLYFIN_ENABLED: "false",
         ARR_HOST: "http://127.0.0.1",

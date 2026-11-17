@@ -25,6 +25,7 @@ vi.mock("@/lib/auth/plex", () => ({
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 59, resetAt: Date.now() }),
   getClientIp: vi.fn().mockReturnValue("127.0.0.1"),
+  isTrustedProxyPeer: vi.fn().mockReturnValue(false),
   RATE_LIMITS: {
     general: { limit: 60, windowSeconds: 60 },
     auth: { limit: 5, windowSeconds: 60 },

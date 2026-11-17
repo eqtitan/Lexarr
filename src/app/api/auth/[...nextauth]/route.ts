@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handlers } from "@/lib/auth/config";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
+import { pickPublicOrigin } from "@/lib/public-origin";
 
-export const { GET } = handlers;
+/**
+ * Auth.js builds redirects and callback URLs from the request URL. Swap in
+ * the public address this request actually used (LAN or Tailscale), chosen
+ * from LEXARR_PUBLIC_URLS only (src/lib/public-origin.ts). NEXTAUTH_URL must
+ * be unset when LEXARR_PUBLIC_URLS is used: next-auth would put its single
+ * address back.
+ */
+function onPublicOrigin(req: NextRequest): NextRequest {
+  const origin = pickPublicOrigin(req.headers);
+  if (!origin || origin === req.nextUrl.origin) return req;
+  return new NextRequest(req.nextUrl.href.replace(req.nextUrl.origin, origin), req);
+}
+
+export function GET(req: NextRequest) {
+  return handlers.GET(onPublicOrigin(req));
+}
 
 // NextAuth multiplexes sign-in, csrf, session, and callback (credential
 // submission) through this one POST handler. Only the callback path is a
@@ -27,5 +43,5 @@ export async function POST(req: NextRequest) {
       );
     }
   }
-  return handlers.POST(req);
+  return handlers.POST(onPublicOrigin(req));
 }

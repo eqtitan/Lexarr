@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.30.1] — 2026-11-17
+
+### Fixed
+- **Sign-in works from every address Lexarr is served at.** `NEXTAUTH_URL` pins all sign-in redirects to one address, so signing in through `tailscale serve` (https://server.<tailnet>.ts.net:8443) sent people back to the LAN URL; without it Auth.js used the server's own `http://0.0.0.0:5056`. New `LEXARR_PUBLIC_URLS` lists every public address (primary first); the sign-in route hands Auth.js the one the request arrived on. Only listed addresses are ever used, so a forged Host header can't redirect anyone elsewhere, and the scheme/host a proxy reports are believed only from a trusted local proxy (`LEXARR_TRUSTED_PROXIES`). **Operators using it:** set `LEXARR_PUBLIC_URLS` and remove `NEXTAUTH_URL`.
+
 ## [0.30.0] — 2026-11-17
 
 ### Added

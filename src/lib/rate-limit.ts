@@ -127,6 +127,18 @@ const trustedProxies = () =>
     .filter(Boolean);
 
 /**
+ * Did this request come straight from a listed local proxy? Only then are
+ * the X-Forwarded-* headers it carries believed (here for the client
+ * address, in public-origin.ts for scheme and host). Needs the peer
+ * address stamped by scripts/client-ip-preload.cjs.
+ */
+export function isTrustedProxyPeer(headers: Headers): boolean {
+  if (env().LEXARR_CLIENT_IP_HEADER !== "1") return false;
+  const peer = headers.get("x-lexarr-client-ip")?.replace(/^::ffff:/, "");
+  return !!peer && trustedProxies().includes(peer);
+}
+
+/**
  * Per-route ceiling across ALL clients, as a multiple of the per-client
  * limit (default 4: e.g. auth 20/min, search 120/min in total). Only
  * applies when TRUSTED_PROXY_HOPS is 0 — see checkRateLimit.
@@ -175,7 +187,7 @@ export function getClientIp(headers: Headers): string {
       // it appended to X-Forwarded-For believed (the rightmost entry; the
       // rest is client-supplied). LAN clients keep their own address
       // through Docker, so they can't pose as the proxy to forge one.
-      if (trustedProxies().includes(peer)) {
+      if (isTrustedProxyPeer(headers)) {
         const forwarded = headers
           .get("x-forwarded-for")
           ?.split(",")

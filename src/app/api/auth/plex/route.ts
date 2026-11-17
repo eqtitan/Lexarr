@@ -1,3 +1,4 @@
+import { pickPublicOrigin } from "@/lib/public-origin";
 import { NextRequest, NextResponse } from "next/server";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
       // flow would never complete.
       secure:
         req.nextUrl.protocol === "https:" ||
-        env().NEXTAUTH_URL?.startsWith("https://") === true,
+        pickPublicOrigin(req.headers)?.startsWith("https://") === true,
       sameSite: "lax",
       maxAge: PIN_SESSION_TTL_MS / 1000,
       path: "/api/auth/plex",

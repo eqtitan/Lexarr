@@ -131,3 +131,16 @@ test("category chips filter the home page feed", async ({ page }) => {
   await expect(page.getByText("Stub New Movie")).toBeVisible();
   await expect(page.getByText("Stub New Show")).toBeVisible();
 });
+
+test("sign-in URLs come from the public-address allowlist, not the Host header", async ({ request, baseURL }) => {
+  // playwright.config.ts lists http://localhost:<port> as the public address.
+  const allowed = `http://localhost:${new URL(baseURL!).port}`;
+  const callbacks = async (headers?: Record<string, string>) =>
+    Object.values((await (await request.get("/api/auth/providers", { headers })).json()) as Record<string, { callbackUrl: string }>)
+      .map((p) => new URL(p.callbackUrl).origin);
+  expect(new Set(await callbacks())).toEqual(new Set([allowed]));
+  // A forged Host (or forwarded host from a non-proxy) can't point sign-in elsewhere.
+  expect(new Set(await callbacks({ host: "evil.example", "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" }))).toEqual(
+    new Set([allowed]),
+  );
+});

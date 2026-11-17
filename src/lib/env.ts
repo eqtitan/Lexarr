@@ -25,6 +25,9 @@ const envSchema = z.object({
 
   // Optional
   NEXTAUTH_URL: z.string().optional(),
+  // Every address Lexarr is served at, comma-separated, primary first
+  // (src/lib/public-origin.ts). Replaces NEXTAUTH_URL when set.
+  LEXARR_PUBLIC_URLS: z.string().optional(),
   LEXARR_WEBHOOK_SECRET: z.string().optional(),
   PROWLARR_API_KEY: z.string().optional(),
   LAZYLIBRARIAN_API_KEY: z.string().optional(),
