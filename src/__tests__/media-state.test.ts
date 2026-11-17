@@ -5,7 +5,6 @@ vi.mock("@/lib/arr/sonarr", () => ({ getSeries: vi.fn(), getQueue: vi.fn() }));
 vi.mock("@/lib/arr/lidarr", () => ({ getAlbum: vi.fn(), getArtist: vi.fn(), getQueue: vi.fn() }));
 vi.mock("@/lib/arr/lazylibrarian", () => ({
   getBookStatus: vi.fn(),
-  isAudiobookOnDisk: vi.fn(),
   getQueue: vi.fn(),
 }));
 
@@ -122,11 +121,18 @@ describe("getMediaState — books", () => {
     expect(lazylibrarian.getBookStatus).toHaveBeenCalledWith("LL1", "eBook");
   });
 
-  it("audiobooks use the on-disk check", async () => {
-    vi.mocked(lazylibrarian.isAudiobookOnDisk).mockResolvedValue(true);
+  it("audiobooks read the AudioBook status; Open counts as on disk", async () => {
+    vi.mocked(lazylibrarian.getBookStatus).mockResolvedValue("Open" as never);
     const s = await getMediaState({ ...base, mediaType: "book", externalId2: "LL1", bookFormat: "audiobook" });
     expect(s.available).toBe(true);
-    expect(lazylibrarian.getBookStatus).not.toHaveBeenCalled();
+    expect(lazylibrarian.getBookStatus).toHaveBeenCalledWith("LL1", "AudioBook");
+  });
+
+  it("a Snatched book is in the queue even without checkQueue", async () => {
+    vi.mocked(lazylibrarian.getBookStatus).mockResolvedValue("Snatched" as never);
+    const s = await getMediaState({ ...base, mediaType: "book", externalId2: "LL1" });
+    expect(s).toMatchObject({ available: false, inQueue: true });
+    expect(lazylibrarian.getQueue).not.toHaveBeenCalled();
   });
 
   it("in-queue means in the Wanted list", async () => {

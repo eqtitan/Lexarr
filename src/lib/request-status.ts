@@ -13,7 +13,8 @@
  *                           └──────────── admin retry ──▶ approved ◀──┘
  *
  * Late arrivals: failed and stalled can also move to available when the
- * *arr imports the title after Lexarr gave up (status-checker.ts's
+ * *arr imports the title after Lexarr gave up, or (books) back to
+ * downloading when LazyLibrarian starts a new download (status-checker.ts's
  * late-arrival sweep).
  *
  * Terminal: available, denied, cancelled.
@@ -43,11 +44,13 @@ const TRANSITIONS: Record<RequestStatus, readonly RequestStatus[]> = {
   // nothing found for 12h+ → stalled; drift / 404 → failed.
   downloading: ["available", "approved", "stalled", "failed", "cancelled"],
   // No progress for 48h → failed; admin retry → approved; imported after
-  // all (late-arrival sweep) → available.
-  stalled: ["failed", "approved", "cancelled", "available"],
+  // all (late-arrival sweep) → available; LazyLibrarian found a working
+  // copy and is downloading it (late-arrival sweep, books) → downloading.
+  stalled: ["failed", "approved", "cancelled", "available", "downloading"],
   // Admin retry → approved; the *arr kept searching after Lexarr gave up
-  // and imported it later (late-arrival sweep) → available.
-  failed: ["approved", "cancelled", "available"],
+  // and imported it later (late-arrival sweep) → available; or, for books,
+  // started downloading again → downloading.
+  failed: ["approved", "cancelled", "available", "downloading"],
   available: [],
   denied: [],
   cancelled: [],

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.3] — 2026-11-17
+
+### Fixed
+- **Stalled books said "indexers returned nothing" when they hadn't.** Usually LazyLibrarian had found copies and every download died. A stalled book now says what happened, for the requester and the admin: "Tried 7 downloads in 2d, none finished — LazyLibrarian is still searching", or "No copy found after 2d — …" when nothing was tried. Only counts come back from LazyLibrarian's history; its download URLs, which carry indexer API keys, never leave the server module.
+- **A book could be marked stalled while it was downloading.** LazyLibrarian's "Snatched" (a download running now) now counts as in the queue.
+- **A stalled or failed book stayed stalled after LazyLibrarian found a working copy.** It now goes back to "downloading" (new lifecycle move: stalled/failed → downloading), so the 48-hour stalled-to-failed rule can't fail it mid-download.
+
 ## [0.28.2] — 2026-11-16
 
 ### Fixed

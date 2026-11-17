@@ -141,18 +141,47 @@ export async function getBookStatus(
   return statusForType(book, bookType);
 }
 
-/**
- * Check whether an audiobook's physical file is present on disk — which
- * is all that matters for Jellyfin playback. Returns true for both
- * "Have" (LL fully post-processed) and "Open" (file exists, post-proc
- * not yet finalized). Using getBookStatus alone misses the "Open" case
- * and would leave Lexarr stuck showing "downloading" indefinitely.
- */
-export async function isAudiobookOnDisk(bookId: string): Promise<boolean> {
-  const book = await getBook(bookId);
-  if (!book) return false;
-  const status = statusForType(book, "AudioBook");
-  return status === "Have" || status === "Open";
+/** What LazyLibrarian has tried for one book. Counts only: its history
+ *  rows also carry the download URLs, which embed indexer API keys, so
+ *  nothing else from them leaves this module. */
+export interface BookAttempts {
+  /** Downloads LazyLibrarian started for this book and format. */
+  tried: number;
+  /** Of those, how many it marked Failed. */
+  failed: number;
+}
+
+interface HistoryRow {
+  BookID?: string;
+  AuxInfo?: string;
+  Status?: string;
+}
+
+/** getHistory returns every row of LazyLibrarian's wanted table (~150 KB
+ *  for a few hundred rows), so one fetch serves a whole status cycle. */
+const HISTORY_TTL_MS = 60_000;
+let historyCache: { at: number; rows: HistoryRow[] } | null = null;
+
+/** Test hook. */
+export function _resetHistoryCache(): void {
+  historyCache = null;
+}
+
+export async function getBookAttempts(
+  bookId: string,
+  bookType: LazyLibrarianBookType = "eBook",
+): Promise<BookAttempts> {
+  if (!historyCache || Date.now() - historyCache.at > HISTORY_TTL_MS) {
+    const data = await api("getHistory");
+    const rows = Array.isArray(data)
+      ? (data as HistoryRow[]).map((r) => ({ BookID: r.BookID, AuxInfo: r.AuxInfo, Status: r.Status }))
+      : [];
+    historyCache = { at: Date.now(), rows };
+  }
+  const mine = historyCache.rows.filter(
+    (r) => String(r.BookID) === bookId && (r.AuxInfo || "eBook") === bookType,
+  );
+  return { tried: mine.length, failed: mine.filter((r) => r.Status === "Failed").length };
 }
 
 /** Get all authors in the library */

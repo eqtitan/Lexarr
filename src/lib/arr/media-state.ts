@@ -169,22 +169,20 @@ export async function getMediaState(
   if (req.mediaType === "book") {
     const bookId = req.externalId2 || (arrId ? String(arrId) : "");
     if (!bookId) return NOTHING;
-    // Audiobooks: LazyLibrarian often leaves them at "Open" (file on disk,
-    // post-processing unfinished); Jellyfin can already play them, so
-    // isAudiobookOnDisk counts that as available. Ebooks the same: after
-    // post-processing LazyLibrarian sets a downloaded ebook to "Open", and
-    // "Have" only comes from a library scan. Checking "Have" alone meant no
-    // ebook request ever became available (found live 2026-11-16: 0
-    // available, 10 downloaded books all "Open"). Legacy rows with a null
-    // bookFormat are ebooks.
-    const ebookStatus =
-      req.bookFormat === "audiobook" ? null : await lazylibrarian.getBookStatus(bookId, "eBook");
-    const available =
-      req.bookFormat === "audiobook"
-        ? await lazylibrarian.isAudiobookOnDisk(bookId)
-        : ebookStatus === "Have" || ebookStatus === "Open";
-    let inQueue = false;
-    if (checkQueue && !available) {
+    // "Open" means the file is on disk: after post-processing LazyLibrarian
+    // sets a downloaded book to "Open", and "Have" only comes from a library
+    // scan. Checking "Have" alone meant no ebook request ever became
+    // available (found live 2026-11-16: 0 available, 10 downloaded books all
+    // "Open"). Legacy rows with a null bookFormat are ebooks.
+    const llType = req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
+    const llStatus = await lazylibrarian.getBookStatus(bookId, llType);
+    const available = llStatus === "Have" || llStatus === "Open";
+    // "Snatched": a download is running in qBittorrent/NZBGet right now, so
+    // it is in the queue whether or not the caller asked to check the
+    // Wanted list. Without this the stall check flagged a book "no releases
+    // found" while it was downloading.
+    let inQueue = !available && llStatus === "Snatched";
+    if (checkQueue && !available && !inQueue) {
       const wanted = await lazylibrarian.getQueue().catch((err: unknown) => {
         log.debug("media-state: LazyLibrarian wanted list unavailable", { err });
         return { records: [] };

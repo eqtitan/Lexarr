@@ -27,6 +27,7 @@ import { notify } from "./notifications";
 import { sendToArrAndUpdateStatus } from "./services/request";
 import { updateRequestIfStatus } from "./request-transition";
 import { getMediaState } from "./arr/media-state";
+import * as lazylibrarian from "./arr/lazylibrarian";
 import { PIPELINE_RULES, isUnreleased, IN_THEATERS_MESSAGE } from "./pipeline-rules";
 import type { MediaType } from "@/types";
 import type { ArrQueueRecord } from "@/types/external-apis";
@@ -66,6 +67,30 @@ function ageLabel(ms: number): string {
   const hrs = Math.floor(ms / 3_600_000);
   if (hrs < 48) return `${hrs}h`;
   return `${Math.floor(hrs / 24)}d`;
+}
+
+/**
+ * Why a book stalled, in words the requester can act on. "Indexers
+ * returned nothing" was wrong for most books: LazyLibrarian usually found
+ * copies and every download died (seven dead torrents for one title, found
+ * live 2026-11-17). Shown to the requester and the admin as lastError.
+ */
+export async function bookStallReason(
+  req: { externalId2: string | null; arrId: number | null; bookFormat: string | null },
+  ageMs: number,
+): Promise<string> {
+  const still = "LazyLibrarian is still searching";
+  const bookId = req.externalId2 && req.externalId2 !== "0" ? req.externalId2 : req.arrId ? String(req.arrId) : "";
+  const llType = req.bookFormat === "audiobook" ? "AudioBook" : "eBook";
+  const attempts = bookId
+    ? await lazylibrarian.getBookAttempts(bookId, llType).catch((err: unknown) => {
+        log.debug("status-checker: LazyLibrarian history unavailable", { err });
+        return null;
+      })
+    : null;
+  if (!attempts || attempts.tried === 0) return `No copy found after ${ageLabel(ageMs)} — ${still}`;
+  const n = attempts.tried;
+  return `Tried ${n} download${n === 1 ? "" : "s"} in ${ageLabel(ageMs)}, none finished — ${still}`;
 }
 
 /**
@@ -191,6 +216,28 @@ async function sweepLateArrivals(now: Date): Promise<number> {
               requestId: req.id,
               event: "approved",
               detail: JSON.stringify({ reason: `unreleased_from_${req.status}`, releaseDate: state.unreleased.releaseDate }),
+            },
+          });
+          lateArrivalCheckedAt.delete(req.id);
+        }
+        continue;
+      }
+      // A stalled or failed book that LazyLibrarian is downloading again
+      // (a later search found a working copy) is back in progress. Without
+      // this it stayed "stalled" until the file landed, and Tier C could
+      // fail it mid-download.
+      if (!state.available && state.inQueue && req.mediaType === "book") {
+        const moved = await updateRequestIfStatus(req.id, req.status, {
+          status: "downloading",
+          lastError: null,
+          lastCheckedAt: now,
+        });
+        if (moved) {
+          await prisma.pipelineEvent.create({
+            data: {
+              requestId: req.id,
+              event: "downloading",
+              detail: JSON.stringify({ reason: `resnatched_from_${req.status}` }),
             },
           });
           lateArrivalCheckedAt.delete(req.id);
@@ -473,9 +520,11 @@ async function runStatusCheck(): Promise<StatusCheckResult> {
 
       const ageMs = now.getTime() - new Date(req.approvedAt ?? req.createdAt).getTime();
       const reason =
-        percent > 0
-          ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
-          : `No releases found after ${ageLabel(ageMs)} — indexers returned nothing`;
+        req.mediaType === "book"
+          ? await bookStallReason(req, ageMs)
+          : percent > 0
+            ? `No additional releases found after ${ageLabel(ageMs)} — partial at ${percent.toFixed(0)}%`
+            : `No releases found after ${ageLabel(ageMs)} — indexers returned nothing`;
 
       const moved = await updateRequestIfStatus(req.id, "downloading", {
         status: "stalled",
