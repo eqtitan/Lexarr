@@ -83,6 +83,17 @@ test("request → approve → sent to Radarr → available", async ({ browser, r
 
   expect(cspViolations).toEqual([]);
 
+  // Scripts need the per-request nonce: no 'unsafe-inline', a fresh nonce
+  // on every page load, and Next.js's own scripts carry it.
+  const csp = async () => (await request.get("/login")).headers()["content-security-policy"] ?? "";
+  const [a, b] = [await csp(), await csp()];
+  const scriptSrc = a.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
+  expect(scriptSrc).toMatch(/'nonce-[A-Za-z0-9+/=]{16,}'/);
+  expect(scriptSrc).not.toContain("'unsafe-inline'");
+  expect(a).not.toBe(b);
+  const html = await (await request.get("/login")).text();
+  expect(html).toMatch(/<script[^>]+nonce="[^"]+"/);
+
   await userCtx.close();
   await adminCtx.close();
 });

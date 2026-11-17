@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.29.0] — 2026-11-17
+
+### Security
+- **Scripts need a per-request nonce.** The Content-Security-Policy is now built for each request in `src/proxy.ts`: `script-src 'self' 'nonce-…' 'strict-dynamic'`, with no `'unsafe-inline'`. Next.js stamps the nonce on its own scripts, so a script injected into a page no longer runs. Styles keep `'unsafe-inline'` (React style attributes; styles can't run code). The policy moved out of `next.config.ts`, since a second, nonce-less policy would block Next.js's scripts. The e2e smoke test now checks for the nonce, a fresh one per load, and no `'unsafe-inline'` in script-src.
+
 ## [0.28.5] — 2026-11-17
 
 ### Changed
