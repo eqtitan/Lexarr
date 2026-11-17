@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.28.5] — 2026-11-17
+
+### Changed
+- Dependency patch updates (#87): Next.js 16.4.6, TypeScript 6.0.3, Tailwind CSS 4.3.5, PostCSS 8.5.33, ESLint 10.15.0, typescript-eslint 8.72.2, Playwright 1.65.1, @types/node 25.9.9. `npm audit`: 0 vulnerabilities.
+
 ## [0.28.4] — 2026-11-17
 
 ### Security
