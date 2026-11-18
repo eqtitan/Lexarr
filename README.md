@@ -118,6 +118,8 @@ docker run -d \
   --env-file .env \
   -p 5056:5056 \
   -v lexarr-data:/app/data \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --pids-limit=256 --memory=1g \
   --restart unless-stopped \
   lexarr
 ```

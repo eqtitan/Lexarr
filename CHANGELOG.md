@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [0.30.3] — 2026-11-18
+
+### Security
+- **HSTS on the HTTPS address.** Responses that reach the visitor over HTTPS through a trusted proxy (`tailscale serve`) now carry `Strict-Transport-Security`, so a browser that has used it once won't fall back to plain HTTP. It is never sent on the plain-HTTP LAN address, and a forged `X-Forwarded-Proto` from a LAN client is ignored. It starts at 1 day, because browsers keep it past any rollback; `LEXARR_HSTS_MAX_AGE` raises it, and `0` tells browsers to forget it.
+- **The container runs locked down.** `deploy.ps1` starts Lexarr with no Linux capabilities, no privilege gain, and caps of 1 GB memory and 256 processes (it uses about 90 MB and 65). The deploy rehearsal runs with the same settings, so an image that needs more fails the rehearsal instead of the deploy. `docker-compose.yml` and the README's `docker run` example have the same settings.
+
 ## [0.30.2] — 2026-11-17
 
 ### Fixed

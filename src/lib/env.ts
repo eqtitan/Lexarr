@@ -64,6 +64,9 @@ const envSchema = z.object({
   // Comma-separated TCP peer addresses whose X-Forwarded-For is believed
   // (e.g. the Docker gateway when `tailscale serve` runs on the host).
   LEXARR_TRUSTED_PROXIES: z.string().optional(),
+  // Strict-Transport-Security max-age (seconds) on HTTPS responses through
+  // a trusted proxy. Default 86400; 0 tells browsers to forget it. See hsts.ts.
+  LEXARR_HSTS_MAX_AGE: z.string().optional(),
   // Set to "1" by the Dockerfile, which preloads scripts/client-ip-preload.cjs
   // to stamp the real TCP peer address on each request. See rate-limit.ts.
   LEXARR_CLIENT_IP_HEADER: z.string().optional(),

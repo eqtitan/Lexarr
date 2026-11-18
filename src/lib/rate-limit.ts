@@ -15,6 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
+import { isTrustedProxyPeer } from "@/lib/trusted-proxy";
 import { prisma } from "@/lib/db";
 import { log } from "@/lib/log";
 
@@ -119,24 +120,9 @@ export const RATE_LIMITS = {
  */
 const trustedProxyHops = () => Number(env().TRUSTED_PROXY_HOPS) || 0;
 
-/** LEXARR_TRUSTED_PROXIES: exact TCP peer addresses of local proxies. */
-const trustedProxies = () =>
-  (env().LEXARR_TRUSTED_PROXIES ?? "")
-    .split(",")
-    .map((s) => s.trim().replace(/^::ffff:/, ""))
-    .filter(Boolean);
-
-/**
- * Did this request come straight from a listed local proxy? Only then are
- * the X-Forwarded-* headers it carries believed (here for the client
- * address, in public-origin.ts for scheme and host). Needs the peer
- * address stamped by scripts/client-ip-preload.cjs.
- */
-export function isTrustedProxyPeer(headers: Headers): boolean {
-  if (env().LEXARR_CLIENT_IP_HEADER !== "1") return false;
-  const peer = headers.get("x-lexarr-client-ip")?.replace(/^::ffff:/, "");
-  return !!peer && trustedProxies().includes(peer);
-}
+// LEXARR_TRUSTED_PROXIES lives in trusted-proxy.ts (no DB import, so the
+// request proxy can use it); re-exported here for existing callers.
+export { isTrustedProxyPeer };
 
 /**
  * Per-route ceiling across ALL clients, as a multiple of the per-client

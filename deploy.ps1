@@ -56,6 +56,10 @@ $BUILDS  = "/mnt/user/appdata/lexarr-build"    # one clean dir per deployed comm
 $IMAGE   = "lexarr"
 $NETWORK = "arrnet"
 $REHEARSAL_PORT = 5059
+# Container hardening: no Linux capabilities, no privilege gain, bounded
+# memory and processes (Lexarr uses ~90 MiB and ~65). Keep in step with
+# HARDENING in scripts/deploy-remote.sh, so the rehearsal runs the same way.
+$HARDENING = "--cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 --memory=1g"
 $VOLUMES = @(
     "/mnt/user/data/stack-healthcheck:/stack-health:ro",
     "${DataVolume}:/app/data"
@@ -207,7 +211,7 @@ Write-Host ""
 # ── 4. Start the new container; roll back (DB too) if it isn't healthy ───
 Step "[4/4] Starting ${IMAGE}:$shaTag..."
 $volFlags = ($VOLUMES | ForEach-Object { "-v $_" }) -join " "
-Remote "docker run -d --name $ContainerName --network $NETWORK -p ${HostPort}:5056 --env-file $EnvFile $volFlags --restart unless-stopped ${IMAGE}:${shaTag}"
+Remote "docker run -d --name $ContainerName --network $NETWORK -p ${HostPort}:5056 --env-file $EnvFile $volFlags $HARDENING --restart unless-stopped ${IMAGE}:${shaTag}"
 $healthy = ($LASTEXITCODE -eq 0)
 if ($healthy) {
     # Polls /api/livez for up to 90s (migrations run first), then requires

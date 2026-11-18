@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCsp, newNonce } from "@/lib/csp";
+import { hstsHeader } from "@/lib/hsts";
 
 /**
  * Per-request Content-Security-Policy with a script nonce (src/lib/csp.ts).
@@ -19,6 +20,9 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
+  // Per request: only responses that went out over HTTPS (src/lib/hsts.ts).
+  const hsts = hstsHeader(request.headers);
+  if (hsts) response.headers.set("Strict-Transport-Security", hsts);
   return response;
 }
 

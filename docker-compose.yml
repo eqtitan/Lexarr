@@ -25,6 +25,13 @@ services:
       # container always listens on 5056 internally.
       - "5056:5056"
     env_file: .env
+    # Hardening: Lexarr runs as an unprivileged user and needs no Linux
+    # capabilities. Memory and process caps sit well above normal use
+    # (~90 MiB, ~65 processes).
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
     # env_file above pulls every variable from .env. We still declare
     # a couple of Docker-specific overrides below because they use
     # container-local paths that don't make sense in .env.

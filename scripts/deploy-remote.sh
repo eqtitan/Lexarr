@@ -17,6 +17,9 @@ KEEP_PRE_DEPLOY=5
 # Globals, not locals: the rehearsal cleanup trap runs after cmd_rehearse returns.
 REHEARSE_NAME=lexarr-rehearse
 REHEARSE_DIR=/tmp/lexarr-rehearse
+# Same hardening deploy.ps1 gives the live container (keep in step), so a
+# rehearsal fails if the new image needs a capability or more memory.
+HARDENING="--cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 --memory=1g"
 
 db_path() { echo "$(docker volume inspect "$1" -f '{{.Mountpoint}}')/lexarr.db"; }
 
@@ -128,7 +131,8 @@ cmd_rehearse() {
     LIDARR_API_KEY=dummy TMDB_API_KEY=dummy >"$dir/env"
 
   echo "Rehearsing $image on port $port against a copy of the live DB ($before)..."
-  docker run -d --name "$name" -p "$port:5056" --env-file "$dir/env" -v "$dir/data:/app/data" "$image" >/dev/null
+  # shellcheck disable=SC2086 # HARDENING is a list of flags
+  docker run -d --name "$name" -p "$port:5056" --env-file "$dir/env" -v "$dir/data:/app/data" $HARDENING "$image" >/dev/null
   cmd_wait_healthy "$port" 90 "$name"
 
   docker logs "$name" 2>&1 | grep -E "^Applying migration|successfully applied|No pending migrations" || {
