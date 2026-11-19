@@ -78,20 +78,10 @@ npm run lint         # Run ESLint
 npx tsc --noEmit     # Type check
 ```
 
-## Quality Metrics (as of 2026-04-21, P-07 commit)
-- **Score: 100/100** (up from 56 baseline → 93 → 100)
-- Type errors: 0
-- Lint errors: 0
-- Lint warnings: 0 (all 105 `any` usages eliminated)
-- Tests: 240 passing (25 test files) — was 78/9 in 2026-04-12 metrics, has grown
-  during pre-1.0 hardening (P-01 auth race tests, P-04 logger, P-05 rate-limit
-  durability, P-06 crypto round-trip + plaintext-leak scan, P-07 /api/request
-  route-level tests)
-- Coverage: ~5% lines on src/app/api/ (low — known gap, slated for post-1.0
-  systematic test push). lib/services 0%. Crypto + rate-limit covered via
-  real-DB throwaway-sqlite pattern.
+## Quality Gates
+- Type errors, lint errors and lint warnings: 0 (CI enforces all three)
+- Tests: vitest unit/route tests plus a Playwright end-to-end smoke; CI runs both
 - Pre-commit hooks: husky + lint-staged (auto lint + related tests)
-- Tracked in `quality-metrics.json`
 
 ## Key Features
 - **Library availability detection**: Search results show "In Library" / "Monitored" / "Requested" badges via POST /api/library-status (checks Radarr, Sonarr, Lidarr in parallel; music singles/EPs check release-group level, not artist)
@@ -147,11 +137,10 @@ npx tsc --noEmit     # Type check
 - **Version metadata:** `GET /api/version` returns `{ version, gitSha,
   buildTime }` for the running container — use it to confirm what's
   actually deployed without SSHing in and reading image tags.
-- **Deploy log:** append a row to `docs/deployments.md` (`Date | Version |
-  Git SHA | Notes`) on every production deploy, using the same
-  version/SHA baked into the image. Applies whether the deploy is run by a
-  human or an agent.
-- **GitHub:** github.com/eqtitan/Lexarr (private)
+- **Deploy log:** keep a record of every production deploy (date, version,
+  git SHA, notes) outside this repo, using the same version/SHA baked into
+  the image. Applies whether the deploy is run by a human or an agent.
+- **GitHub:** github.com/eqtitan/Lexarr
 
 ## Service Layer Pattern
 API routes are thin HTTP handlers. Business logic lives in `src/lib/services/`:

@@ -7,13 +7,15 @@ import * as nzbget from "@/lib/arr/nzbget";
 import * as bazarr from "@/lib/arr/bazarr";
 import * as lazylibrarian from "@/lib/arr/lazylibrarian";
 import * as jellyfin from "@/lib/arr/jellyfin";
+import { serviceUrls } from "@/lib/arr/urls";
 
 export type ServiceCategory = "arr" | "download" | "media" | "utility";
 
 export interface ServiceDefinition {
   name: string;
   category: ServiceCategory;
-  url: string;
+  /** Where the service lives (ARR_HOST or its *_URL); read at call time. */
+  readonly url: string;
   health: () => Promise<unknown>;
   /**
    * (M2-01/M2-02) Docker container name on the Unraid host. Optional for
@@ -34,42 +36,54 @@ export const SERVICE_REGISTRY: ServiceDefinition[] = [
   {
     name: "Radarr",
     category: "arr",
-    url: "http://your-server-ip:7878",
+    get url() {
+      return serviceUrls.radarr();
+    },
     health: radarr.health,
     unraidContainerName: "radarr",
   },
   {
     name: "Sonarr",
     category: "arr",
-    url: "http://your-server-ip:8989",
+    get url() {
+      return serviceUrls.sonarr();
+    },
     health: sonarr.health,
     unraidContainerName: "sonarr",
   },
   {
     name: "Lidarr",
     category: "arr",
-    url: "http://your-server-ip:8686",
+    get url() {
+      return serviceUrls.lidarr();
+    },
     health: lidarr.health,
     unraidContainerName: "lidarr",
   },
   {
     name: "Prowlarr",
     category: "arr",
-    url: "http://your-server-ip:9696",
+    get url() {
+      return serviceUrls.prowlarr();
+    },
     health: prowlarr.health,
     unraidContainerName: "prowlarr",
   },
   {
     name: "Bazarr",
     category: "arr",
-    url: "http://your-server-ip:6767",
+    get url() {
+      return serviceUrls.bazarr();
+    },
     health: bazarr.health,
     unraidContainerName: "bazarr",
   },
   {
     name: "LazyLibrarian",
     category: "arr",
-    url: "http://your-server-ip:5299",
+    get url() {
+      return serviceUrls.lazylibrarian();
+    },
     health: lazylibrarian.health,
     unraidContainerName: "lazylibrarian",
   },
@@ -77,14 +91,18 @@ export const SERVICE_REGISTRY: ServiceDefinition[] = [
   {
     name: "qBittorrent",
     category: "download",
-    url: "http://your-server-ip:8080",
+    get url() {
+      return serviceUrls.qbittorrent();
+    },
     health: qbittorrent.health,
     unraidContainerName: "qbittorrent",
   },
   {
     name: "NZBGet",
     category: "download",
-    url: "http://your-server-ip:6789",
+    get url() {
+      return serviceUrls.nzbget();
+    },
     health: nzbget.health,
     unraidContainerName: "nzbget",
   },
@@ -92,7 +110,9 @@ export const SERVICE_REGISTRY: ServiceDefinition[] = [
   {
     name: "Jellyfin",
     category: "media",
-    url: "http://your-server-ip:8096",
+    get url() {
+      return serviceUrls.jellyfin();
+    },
     health: jellyfin.health,
     unraidContainerName: "jellyfin",
   },

@@ -1,7 +1,8 @@
 import { arrFetch } from "./_fetch";
 import { env } from "@/lib/env";
+import { serviceUrls } from "./urls";
 
-const base = () => env().BAZARR_URL || "http://your-server-ip:6767";
+const base = () => serviceUrls.bazarr();
 const apiKey = () => env().BAZARR_API_KEY!;
 
 // Unused helper kept for future Bazarr endpoints; underscore prefix keeps

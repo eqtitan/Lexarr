@@ -1,6 +1,7 @@
 import { ARR_TIMEOUT_MS, ArrApiError } from "./_fetch";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
+import { serviceUrls } from "./urls";
 import { getBreaker } from "./circuit-breaker";
 
 const SERVICE = "qBittorrent";
@@ -14,7 +15,7 @@ interface QbTorrent {
   size: number;
 }
 
-const base = () => env().QBITTORRENT_URL!;
+const base = () => serviceUrls.qbittorrent();
 const username = () => env().QBITTORRENT_USER!;
 const password = () => env().QBITTORRENT_PASS!;
 

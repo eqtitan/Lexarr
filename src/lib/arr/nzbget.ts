@@ -1,9 +1,10 @@
 import { arrFetch, ArrApiError } from "./_fetch";
 import { log } from "@/lib/log";
 import { env } from "@/lib/env";
+import { serviceUrls } from "./urls";
 import { getBreaker } from "./circuit-breaker";
 
-const base = () => env().NZBGET_URL!;
+const base = () => serviceUrls.nzbget();
 const username = () => env().NZBGET_USER!;
 const password = () => env().NZBGET_PASS!;
 

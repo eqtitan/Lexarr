@@ -266,5 +266,5 @@ keep=$(docker image ls lexarr --format '{{.ID}}' | awk '!s[$1]++' | head -n 3); 
 Write-Host ""
 Write-Host "  Lexarr v$version ($gitSha) is live and healthy at http://${UnraidHost}:$HostPort" -ForegroundColor Green
 Write-Host "  Pre-deploy backup: $backupPath" -ForegroundColor Green
-Write-Host "  Add a row to docs/deployments.md." -ForegroundColor Green
+Write-Host "  Record this deploy in your deploy log." -ForegroundColor Green
 Write-Host ""

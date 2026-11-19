@@ -3,7 +3,10 @@
  * Public, unauthenticated feature-flag endpoint — no mocks needed beyond
  * process.env, which the route reads directly.
  */
+import { useTestDb, testPrisma } from "../helpers/test-db";
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
+
+useTestDb();
 
 describe("GET /api/config", () => {
   const originalEnv = process.env;
@@ -54,5 +57,17 @@ describe("GET /api/config", () => {
     const res = await GET();
     const json = await (res as Response).json();
     expect(json.jellyfinEnabled).toBe(false);
+  });
+
+  it("registration: open before the first admin, closed after, open again with REGISTRATION_OPEN", async () => {
+    delete process.env.REGISTRATION_OPEN;
+    const { GET } = await import("@/app/api/config/route");
+    const open = async () => ((await (await GET()).json()) as { registrationOpen: boolean }).registrationOpen;
+
+    expect(await open()).toBe(true);
+    await (await testPrisma()).user.create({ data: { name: "first-admin", role: "admin" } });
+    expect(await open()).toBe(false);
+    process.env.REGISTRATION_OPEN = "true";
+    expect(await open()).toBe(true);
   });
 });

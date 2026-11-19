@@ -9,6 +9,7 @@ type AuthMode = "login" | "register" | "jellyfin";
 interface AuthConfig {
   plexEnabled: boolean;
   jellyfinEnabled: boolean;
+  registrationOpen: boolean;
 }
 
 export default function LoginPage() {
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const [authConfig, setAuthConfig] = useState<AuthConfig>({
     plexEnabled: false,
     jellyfinEnabled: true,
+    registrationOpen: true,
   });
 
   // Fetch feature flags so we only render the Plex button when it's enabled
@@ -33,6 +35,7 @@ export default function LoginPage() {
         setAuthConfig({
           plexEnabled: !!c.plexEnabled,
           jellyfinEnabled: c.jellyfinEnabled !== false,
+          registrationOpen: c.registrationOpen !== false,
         }),
       )
       .catch(() => {
@@ -175,10 +178,14 @@ export default function LoginPage() {
         </>
       )}
 
-      {/* Mode tabs — Jellyfin hidden when disabled */}
+      {/* Mode tabs — Register hidden when sign-ups are closed, Jellyfin when disabled */}
       <div className="mb-4 flex rounded-lg bg-[var(--card)] p-1">
         {(
-          ["login", "register", ...(authConfig.jellyfinEnabled ? ["jellyfin" as const] : [])] as AuthMode[]
+          [
+            "login",
+            ...(authConfig.registrationOpen ? ["register" as const] : []),
+            ...(authConfig.jellyfinEnabled ? ["jellyfin" as const] : []),
+          ] as AuthMode[]
         ).map((m) => (
           <button
             key={m}

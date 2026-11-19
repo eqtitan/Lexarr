@@ -1,5 +1,6 @@
-import { env } from "@/lib/env";
-const jellyfinUrl = () => env().JELLYFIN_URL || "http://localhost:8096";
+import { serviceUrls } from "@/lib/arr/urls";
+// JELLYFIN_URL, else ARR_HOST:8096 -- the same address the Jellyfin client uses.
+const jellyfinUrl = () => serviceUrls.jellyfin();
 
 export async function authenticateJellyfin(username: string, password: string) {
   const res = await fetch(`${jellyfinUrl()}/Users/AuthenticateByName`, {

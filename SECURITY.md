@@ -13,7 +13,7 @@ minor.
 
 | Version | Supported |
 | ------- | --------- |
-| latest (`0.9.x` today) | ✅ |
+| latest release ([Releases](https://github.com/eqtitan/Lexarr/releases)) | ✅ |
 | older | ❌ — upgrade first |
 
 ## Reporting a vulnerability
@@ -98,8 +98,11 @@ tracker.
 - **No 2FA.** Self-hosted deployments are expected to sit behind a
   reverse proxy / SSO (Authelia, Authentik, Cloudflare Access) if 2FA
   is required. Native 2FA is a post-1.0 item.
-- **Session cookies are not `__Host-` prefixed.** Same rationale —
-  intended for LAN or proxy-fronted deployments.
+- **Plain HTTP on the LAN.** Lexarr itself speaks HTTP only. Put it
+  behind an HTTPS reverse proxy (or `tailscale serve`) and list that
+  address in `LEXARR_PUBLIC_URLS`: sign-ins there get `__Host-`/`__Secure-`
+  cookies and HSTS. Sign-ins on a plain-HTTP address send the password
+  unencrypted across that network.
 
 If one of these becomes relevant to a real exploit, that's in scope.
 Report it.

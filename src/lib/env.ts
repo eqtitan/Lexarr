@@ -93,16 +93,27 @@ const envSchema = z.object({
   STACK_HEALTH_SSH_USER: z.string().optional(),
   STACK_HEALTH_SSH_KEY_PATH: z.string().optional(),
 
-  // (M2-02) Base URL for Unraid container deep links. Defaults to the LAN IP
-  // documented in CLAUDE.md; operators on a different host override it.
+  // Base URL of the Unraid web UI, for container deep links from the admin
+  // dashboard (e.g. http://192.168.1.100). Unset: no deep links.
   UNRAID_BASE_URL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * process.env without empty values. .env.example lists every variable as
+ * `KEY=`, and Docker's --env-file passes those through as "", so an
+ * untouched line must count as unset, not as an (invalid) empty value.
+ */
+function setVars(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && v.trim() !== "") out[k] = v;
+  return out;
+}
+
 /** The validated config, read now. Never throws (see file comment). */
 export function env(): Env {
-  const raw = process.env;
+  const raw = setVars();
   const result = envSchema.safeParse(raw);
   return result.success ? result.data : (raw as unknown as Env);
 }
@@ -114,7 +125,7 @@ export function env(): Env {
  * arrives via `docker run --env-file`).
  */
 export function validateEnvOrThrow(): void {
-  const result = envSchema.safeParse(process.env);
+  const result = envSchema.safeParse(setVars());
   if (!result.success) {
     const issues = result.error.issues
       .map((i) => `  ${i.path.join(".")}: ${i.message}`)

@@ -1,7 +1,7 @@
 import { arrFetch, ARR_TIMEOUT_MS } from "./_fetch";
-import { env } from "@/lib/env";
+import { serviceUrls } from "./urls";
 
-const base = () => env().JELLYFIN_URL || "http://your-server-ip:8096";
+const base = () => serviceUrls.jellyfin();
 
 // Previously a bare fetch with no timeout -- the one integration that
 // never got migrated onto the shared arrFetch helper (see its header

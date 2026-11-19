@@ -2,7 +2,7 @@
 
 > **One Docker container. One search bar. Every request type your \*arr stack handles.**
 
-![Status](https://img.shields.io/badge/status-private%20beta-orange) ![Version](https://img.shields.io/badge/version-v0.17.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-pre--1.0-orange) [![Release](https://img.shields.io/github/v/release/eqtitan/Lexarr?sort=semver)](https://github.com/eqtitan/Lexarr/releases) [![CI](https://github.com/eqtitan/Lexarr/actions/workflows/ci.yml/badge.svg)](https://github.com/eqtitan/Lexarr/actions/workflows/ci.yml) ![License](https://img.shields.io/badge/license-MIT-green)
 
 Lexarr is a unified media request portal that gives your entire \*arr stack a single front door. Search movies, TV, music, and books in one place — Lexarr routes each request to the right app automatically.
 
@@ -21,7 +21,6 @@ Lexarr fixes that with one portal that covers all four media types.
 | Books (LazyLibrarian) | ❌ | ❌ | ✅ |
 | Music singles/EPs (narrow monitoring) | ❌ | ❌ | ✅ |
 | Single Docker container | ✅ | ✅ | ✅ |
-| Active development | Maintained | Slowing | ✅ |
 
 **Where Lexarr is currently weaker:** Smaller community, newer codebase, fewer edge cases handled than tools with years of history. Plex support exists but is secondary — Jellyfin is the primary focus. No mobile app; browser only.
 
@@ -51,23 +50,28 @@ Lexarr provides a single search bar that searches across all your media sources,
 
 ## Screenshots
 
-| Search | Request flow | Admin dashboard |
-|--------|-------------|-----------------|
-| ![Search](docs/screenshots/search.png) | ![Request](docs/screenshots/request.png) | ![Admin](docs/screenshots/admin.png) |
+| Search | Details and request |
+|--------|-------------|
+| ![Search](docs/screenshots/search.png) | ![Request](docs/screenshots/request.png) |
+| **Your requests** | **Admin approvals** |
+| ![Requests](docs/screenshots/requests.png) | ![Admin approvals](docs/screenshots/admin.png) |
 
-*Screenshots from v0.17.1 beta running on Unraid.*
+*Screenshots use demo data.*
 
 ---
 
 ## Project Status
 
-**Lexarr is in private beta.** The code is not yet public — it will be opened at the 1.0.0 release milestone, which requires 7 consecutive days of stable production running with no critical incidents.
+Lexarr is **pre-1.0** and runs every day in a real household with Radarr,
+Sonarr, Lidarr, LazyLibrarian, Prowlarr and Jellyfin. It has shipped
+60+ releases since March 2026; see the [Releases](https://github.com/eqtitan/Lexarr/releases)
+page or [`CHANGELOG.md`](CHANGELOG.md) for what changed in each.
 
-Current version: **v0.17.1**. Active known issue: music singles/EP routing is being refined.
+Pre-1.0 means minor versions may still change behavior or configuration.
+Every such change is called out in the changelog, and database migrations
+run automatically on start.
 
 To follow development: [r/Lexarr](https://reddit.com/r/Lexarr) · [Watch this repo](https://github.com/eqtitan/Lexarr/subscription)
-
-To request beta access: DM u/eqtitan on Reddit with your GitHub username.
 
 ---
 
@@ -138,9 +142,11 @@ Healthy response:
 ### 5 · Sign up (1 min)
 
 Open `http://<your-server-ip>:5056` and register. **The first user
-becomes admin.** If you're bringing in family/friends later, they'll
-need you to approve their signup from the admin dashboard unless you
-set `REGISTRATION_OPEN=true`.
+becomes admin**, and sign-up closes after that (the Register tab
+disappears). Family and friends then sign in with their Jellyfin or Plex
+account, if you enabled those, or you set `REGISTRATION_OPEN=true` while
+they create accounts. Admins choose per user whether requests need
+approval.
 
 ### 6 · (Optional) Webhooks for instant status updates (2 min)
 
@@ -184,6 +190,9 @@ Copy `.env.example` to `.env` and fill in your values:
 | `PLEX_CLIENT_ID` | No | Defaults to `lexarr`. Enables Plex SSO |
 | `PROWLARR_API_KEY` | No | For future Prowlarr integration |
 | `LAZYLIBRARIAN_API_KEY` | No | For book request routing |
+
+Every other variable (proxies, extra public URLs, rate limits, notifications)
+is optional and documented inline in [`.env.example`](.env.example).
 
 ## Development
 
@@ -235,7 +244,7 @@ writes mean a restart loses nothing important.
 - **Database**: SQLite via Prisma
 - **Auth**: NextAuth.js v5 (Plex SSO, Jellyfin, credentials)
 - **UI**: Tailwind CSS v4, dark mode
-- **Deployment**: Docker (Node 22 Alpine)
+- **Deployment**: Docker (Node 22 Alpine, runs as a non-root user)
 
 ## Architecture
 
@@ -259,100 +268,21 @@ prisma/
 
 ## Roadmap to 1.0.0
 
-Lexarr is currently **pre-1.0** (`0.10.0` as of 2026-04-17). Pre-1.0
-releases may contain backwards-incompatible changes between minor versions.
-Each milestone has explicit **exit criteria** — a version ships when every
-box is checked, not when a feature list is complete.
+1.0.0 ships when these are done:
 
-### Shipped
+- [ ] A release runs 7 days in a row with no P0 incident
+      *(P0 = data loss, container crash loop, or auth bypass)*
+- [ ] The Quick Start is confirmed by someone who has never seen the repo
+- [ ] A published image on `ghcr.io`, so you can `docker pull` instead of
+      building from source
+- [ ] Health-check failures can be sent to Lexarr's own notification channels
 
-#### `0.6.0` — UX polish *(2026-04-16)*
-- [x] Every button has loading / success / error state
-- [x] Every API error → user-visible, actionable message (no silent failures)
-- [x] Mobile layout audited (dashboard works on phone)
-- [x] Empty states for every list (no results, no queue, no warnings)
-- [x] Toasts consistent (color, duration, position, dismissal)
-
-#### `0.7.0` — Reliability *(2026-04-16; 2 items completed in 0.9.0)*
-- [x] No `catch {}` silently swallowing errors without logging
-- [x] Retry logic reviewed — nothing loops forever
-- [x] Circuit breakers on every *arr call *(shipped in 0.9.0 — timeouts
-      + typed errors landed in 0.7.0 via `arrFetch`; per-call breakers
-      in 0.9.0)*
-- [x] All POST routes either idempotent or documented non-idempotent
-      *(shipped in 0.9.0 — see
-      [`docs/POST-idempotency.md`](docs/POST-idempotency.md))*
-
-#### `0.7.1` — Stuck-download detection *(2026-04-17, patch)*
-- Surfaces *arr errors to `Request.lastError` for user-visible diagnostics
-- Book stall detection (was missing from 0.7.0)
-- arrId-drift handling — detects when an *arr ID has been reused for a
-  different title and marks the request failed with a clear reason
-
-#### `0.8.0` — Version visibility *(2026-04-17)*
-- [x] Inline version + channel label in nav (`Lexarr v0.8.0 beta`) —
-      derived from `package.json` at build time, channel (`alpha` / `beta` /
-      `rc` / `stable`) derived from the SemVer string
-- [x] CI workflow — typecheck, lint, test on every push and PR
-
-#### `0.9.0` — Observability *(2026-04-17)*
-- [x] "Diagnose" action on down-service pills (log tail + last error,
-      read-only, no container control)
-- [x] Request lifecycle visible end-to-end: submitted → approved → sent →
-      downloading → completed/failed, each step timestamped
-- [x] Audit log readable without scrolling for common actions
-- [x] Stack-health tile deep-links to the healthcheck report body
-- [x] Per-*arr circuit breakers *(rolled from 0.7.0)*
-- [x] POST route idempotency audit *(rolled from 0.7.0 — see
-      [`docs/POST-idempotency.md`](docs/POST-idempotency.md))*
-
-#### `0.10.0` — Release readiness *(2026-04-17)*
-- [x] README explains setup in ≤ 10 min for someone with an existing *arr
-      stack
-- [x] `.env.example` documents every variable with inline comments
-- [x] `docker-compose.yml` is a complete working example *(with
-      Docker-native healthcheck probing `/api/livez`)*
-- [x] Migration path docs (upgrading from 0.x to 0.y) — see
-      [`docs/upgrading.md`](docs/upgrading.md)
-- [x] Security checklist (secrets rotation, headers, CORS) — see
-      [`docs/security-checklist.md`](docs/security-checklist.md); four
-      baseline HTTP security headers now applied via `next.config.ts`
-- [x] `SECURITY.md` with private disclosure policy *(GitHub gates the
-      Security Advisories feature on this)*
-- [x] `/api/healthz` readiness endpoint validating DB reachability + at least one
-      *arr key — not just "Next.js is alive" (cached 10s); `/api/livez`
-      liveness (app + DB only) backs the Docker HEALTHCHECK
-- [x] `npm audit` clean + Docker base-image CVE check documented —
-      see [`docs/security-audit.md`](docs/security-audit.md)
-- [x] Migration smoke test — upgrade from an empty 0.1.0 DB passes
-      `prisma migrate deploy` without manual intervention *(wired into
-      CI as a required step)*
-
-*Also shipped (not on original exit criteria):*
-- Music search ranking fix — singles/EPs surface instead of being buried
-  by partial-match albums; Live / Remix / Acoustic badges
-- Hotfix 0.9.1 — search cache no longer poisoned by upstream outages
-
-### Planned
-
-#### `1.0.0` — Public launch
-- [ ] 0.10.0 ran in prod for 7 consecutive days with no P0 incident
-      *(P0 = data loss, container crashloop, or auth bypass)*
-- [ ] CI green on every push for those 7 days
-- [ ] README validated by at least one external tester who hasn't seen
-      the repo before — the only way to check "clear enough for a
-      stranger" without going public first
-- [ ] GitHub Release notes written manually (1.0.0 matters)
-- [ ] Repo flipped to public
-- [ ] Branch protection enabled on master *(rulesets, not classic —
-      free tier on public repos; blocks force-push + deletion, admin
-      bypass allowed)*
-- [ ] `SECURITY.md` + `LICENSE` + `README.md` all visible on the
-      public-facing repo
-- [ ] At least one Lexarr image pushed to `ghcr.io` with the `1.0.0`
-      tag so others can `docker pull` *(needs an image-publish workflow
-      again — the old tag-triggered one was removed while `deploy.ps1` is
-      the only release path)*
+Already in place: the 10-minute Quick Start, every variable documented in
+`.env.example`, a complete `docker-compose.yml` with a health check,
+[upgrade notes](docs/upgrading.md), a [security checklist](docs/security-checklist.md),
+`/api/healthz` and `/api/livez`, automatic migrations tested from an empty
+0.1.0 database in CI, and a private vulnerability disclosure policy
+([`SECURITY.md`](SECURITY.md)).
 
 ## Versioning
 
@@ -367,13 +297,10 @@ and dates the CHANGELOG's `[Unreleased]` block; once merged it ships with
 
 ## Contributing
 
-The repo is currently private while in beta. Once public at 1.0.0:
-
-- **Bug reports:** GitHub Issues. Include your \*arr versions, Docker logs, and steps to reproduce.
+- **Bug reports:** [GitHub Issues](https://github.com/eqtitan/Lexarr/issues). Include your Lexarr version (shown in the nav), your \*arr versions, the relevant Docker log lines, and steps to reproduce.
 - **Feature requests:** GitHub Issues with the `enhancement` label, or post in [r/Lexarr](https://reddit.com/r/Lexarr).
-- **PRs:** Welcome. The codebase is TypeScript throughout with 0 lint errors and 78 passing tests. Read `CLAUDE.md` for architecture orientation before starting.
-
-During private beta, report bugs by opening a GitHub Issue if you have repo access, or DMing u/eqtitan on Reddit.
+- **Security problems:** please don't open a public issue; see [`SECURITY.md`](SECURITY.md).
+- **Pull requests:** welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first.
 
 ## License
 

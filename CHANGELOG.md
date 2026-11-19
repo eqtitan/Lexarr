@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Lexarr is in the **pre-1.0** phase — APIs, schemas, and configuration may
 change between minor versions. See the README roadmap for what 1.0.0 requires.
 
+## [Unreleased]
+
+## [0.31.0] — 2026-11-19
+
+### Fixed
+- **A fresh install from `.env.example` starts.** Copying `.env.example` and filling in only the README minimum left lines like `BOOTSTRAP_ADMIN_PASSWORD=` empty, and startup validation rejected the empty value, so Lexarr answered every request with a 500. Empty values now count as unset.
+- **Admin links and optional services find the server.** Bazarr, qBittorrent, NZBGet and Jellyfin defaulted to a literal `your-server-ip` placeholder (or `localhost` for Jellyfin sign-in), and the dashboard's Diagnose links always did. Each now uses its own `*_URL` when set and otherwise `ARR_HOST` on its standard port, the same address the client uses. `.env.example` ships those URLs empty.
+- **The login page hides Register once sign-up is closed.** After the first admin exists, sign-up is closed unless `REGISTRATION_OPEN=true`, but the Register tab still showed and only failed on submit. `/api/config` now reports `registrationOpen`, and the tab appears only when an account can actually be created.
+
+### Changed
+- **Ready for a public repository.** New README status, roadmap and screenshots (demo data), a `CONTRIBUTING.md` and pull-request template, and an updated `SECURITY.md`. Deployment-specific notes moved out of the repository, and examples use placeholder addresses.
+
 ## [0.30.3] — 2026-11-18
 
 ### Security
