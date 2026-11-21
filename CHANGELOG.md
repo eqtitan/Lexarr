@@ -10,6 +10,9 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 
 ## [Unreleased]
 
+### Changed
+- **`deploy.ps1` finds your Unraid server by itself.** `-UnraidHost` is now optional. The script tries `LEXARR_UNRAID_HOST`, the address it remembered last time, then `tower`, `tower.local`, `unraid` and `unraid.local`; if none answers on SSH it asks once and remembers the answer in `~/.lexarr-unraid-host`. A plain `.\deploy.ps1 -Rehearse` now works with no setup.
+
 ### Added
 - **A rehearsal can be kept running.** `deploy.ps1 -Rehearse -RehearseName <name> -KeepRehearsal` leaves the rehearsal container up under that name (dummy keys, notifications off, a copy of the database) so you can open it and look around, instead of tearing it down once the checks pass. The live container is never touched, and `lexarr` or `lexarr-*` names are refused. `-RehearsePort` changes the port from 5059.
 

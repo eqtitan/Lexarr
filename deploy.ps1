@@ -41,7 +41,15 @@
 .PARAMETER NoBuild
     Skip the Docker build step and re-use the image already on Unraid.
 
+.PARAMETER UnraidHost
+    Optional. If left out, the script finds your server by itself: the
+    LEXARR_UNRAID_HOST variable, then the address it remembered last time,
+    then the usual Unraid names (tower, tower.local, unraid, unraid.local).
+    If none answers it asks once and remembers the answer in
+    ~/.lexarr-unraid-host (delete that file to forget it).
+
 .EXAMPLE
+    .\deploy.ps1 -Rehearse                              # simplest: finds the server itself
     .\deploy.ps1 -UnraidHost 192.168.1.100 -Rehearse   # try it first
     .\deploy.ps1 -UnraidHost 192.168.1.100 -Rehearse -RehearseName TEST4LexArr -KeepRehearsal
     .\deploy.ps1 -UnraidHost 192.168.1.100             # then deploy
@@ -55,7 +63,7 @@ param(
     [switch]$Force,
     [switch]$NoSync,
     [switch]$NoBuild,
-    [string]$UnraidHost = $(if ($env:LEXARR_UNRAID_HOST) { $env:LEXARR_UNRAID_HOST } else { "your-server-ip" }),
+    [string]$UnraidHost = "",
     # The container being replaced. Overridable so the rollback path can be
     # exercised against a throwaway container instead of production.
     [string]$ContainerName = "lexarr",
@@ -71,6 +79,34 @@ if (($RehearseName -or $KeepRehearsal) -and -not $Rehearse) { throw "-RehearseNa
 if ($KeepRehearsal -and -not $RehearseName) { throw "-KeepRehearsal needs -RehearseName (for example -RehearseName TEST4LexArr)." }
 if ($RehearseName -and $RehearseName -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$') { throw "-RehearseName may only use letters, digits, '_', '.' and '-'." }
 if ($RehearseName -and ($RehearseName -ieq "lexarr" -or $RehearseName -ilike "lexarr-*")) { throw "-RehearseName '$RehearseName' is reserved for the live container. Pick another name." }
+
+# ── Find the Unraid server ────────────────────────────────────────────────
+$HostFile = Join-Path $HOME ".lexarr-unraid-host"
+function Test-Ssh([string]$h) {
+    # True if something answers on the SSH port within 2 seconds.
+    if (-not $h) { return $false }
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $iar = $c.BeginConnect($h, 22, $null, $null)
+        $up = $iar.AsyncWaitHandle.WaitOne(2000) -and $c.Connected
+        $c.Close()
+        return $up
+    } catch { return $false }
+}
+if (-not $UnraidHost) {
+    $saved = if (Test-Path $HostFile) { (Get-Content $HostFile -Raw).Trim() } else { "" }
+    $candidates = @($env:LEXARR_UNRAID_HOST, $saved, "tower", "tower.local", "unraid", "unraid.local") | Where-Object { $_ }
+    foreach ($h in $candidates) {
+        if (Test-Ssh $h) { $UnraidHost = $h; Write-Host "Found your Unraid server at $h" -ForegroundColor Green; break }
+    }
+    if (-not $UnraidHost) {
+        Write-Host "Couldn't find your Unraid server automatically."
+        $UnraidHost = (Read-Host "Type its IP address or name (shown on the Unraid dashboard)").Trim()
+        if (-not (Test-Ssh $UnraidHost)) { throw "Nothing answers SSH (port 22) at '$UnraidHost'. Check the address and that SSH is enabled in Unraid (Settings > Management Access)." }
+    }
+}
+if ($UnraidHost -notmatch '^[A-Za-z0-9][A-Za-z0-9.:-]*$') { throw "'$UnraidHost' doesn't look like an IP address or host name." }
+try { Set-Content -Path $HostFile -Value $UnraidHost -NoNewline } catch { }
 
 # ── Config ────────────────────────────────────────────────────────────────
 $UNRAID  = "root@$UnraidHost"
@@ -210,7 +246,7 @@ if ($Rehearse) {
     Remote "$REMOTE_SCRIPT rehearse $rehearseArgs"
     if ($LASTEXITCODE -ne 0) { Fail "Rehearsal FAILED -- don't deploy this commit. The live container was not touched." }
     Write-Host ""
-    Write-Host "  Rehearsal passed. Deploy with: .\deploy.ps1 -UnraidHost $UnraidHost" -ForegroundColor Green
+    Write-Host "  Rehearsal passed. Deploy with: .\deploy.ps1" -ForegroundColor Green
     if ($RehearseName -and $KeepRehearsal) {
         Write-Host "  $RehearseName is running: http://${UnraidHost}:$REHEARSAL_PORT" -ForegroundColor Green
     }
