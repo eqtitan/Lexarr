@@ -46,7 +46,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/bcryptjs": "^3.0.0",
-    "@vitest/coverage-istanbul": "^4.1.12",
+    "@vitest/coverage-istanbul": "^5.1.0",
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "husky": "^9.1.7",
