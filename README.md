@@ -199,6 +199,27 @@ If something fails, see
 and [`docs/security-checklist.md`](docs/security-checklist.md) for
 the secrets/hardening pass.
 
+## Staying up to date
+
+Lexarr tells you when a new release is out, three ways:
+
+- **In the app.** Admins see an **Update** badge in the top bar (and an
+  "Update available" line in the account menu on phones) when a newer
+  release exists. It links to that release's notes. Lexarr asks GitHub for
+  the latest release once a day and sends nothing about your install. Set
+  `LEXARR_UPDATE_CHECK=false` to turn it off, e.g. on an air-gapped host.
+- **On GitHub.** Click **Watch → Custom → Releases** on the repository to get
+  an email or notification for each release.
+- **In a feed reader.** Subscribe to
+  `https://github.com/eqtitan/Lexarr/releases.atom`.
+
+To apply an update, follow [`docs/upgrading.md`](docs/upgrading.md): back up
+the database, pull the new version, `docker compose up -d --build`. Patch
+releases (`0.x.y`) are always safe in place; minor releases may change
+configuration before 1.0, so read the release notes first. A pre-built
+`ghcr.io` image, which would also let Watchtower and Unraid update it for
+you, is on the [roadmap](#roadmap-to-100).
+
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in your values:
@@ -217,6 +238,7 @@ Copy `.env.example` to `.env` and fill in your values:
 | `PLEX_CLIENT_ID` | No | Defaults to `lexarr`. Enables Plex SSO |
 | `PROWLARR_API_KEY` | No | For future Prowlarr integration |
 | `LAZYLIBRARIAN_API_KEY` | No | For book request routing |
+| `LEXARR_UPDATE_CHECK` | No | Set to `false` to turn off the admin "update available" check (see [Staying up to date](#staying-up-to-date)) |
 
 Every other variable (proxies, extra public URLs, rate limits, notifications)
 is optional and documented inline in [`.env.example`](.env.example).
