@@ -63,7 +63,7 @@ test("admin manages users: create, promote, reset password, delete", async ({ pa
   await expect(page.getByText(named("carol"))).toHaveCount(0);
 });
 
-test("admin settings: save music regions; add, test, toggle and delete a channel", async ({ page }) => {
+test("admin settings: save music regions; manage a channel; readiness; run the setup guide", async ({ page }) => {
   await loginAsAdmin(page);
   await page.goto("/admin/settings");
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
@@ -108,6 +108,38 @@ test("admin settings: save music regions; add, test, toggle and delete a channel
   await expect(page.locator('[data-check="auth-secret"]')).toHaveAttribute("data-status", "fail");
   await expect(page.locator('[data-check="csp"]')).toHaveAttribute("data-status", "ok");
   expect(violations).toEqual([]);
+
+  // Setup guide, same session again. The e2e database is seeded with the
+  // guide already finished (so other tests land on the home page); an admin
+  // reruns it from Settings. That it is admin-only is covered by
+  // src/__tests__/setup-page.test.tsx.
+  const next = () => page.getByRole("button", { name: /^(Start|Next)$/ }).click();
+  await page.goto("/admin/settings");
+  await page.getByRole("link", { name: "Run setup guide" }).click();
+  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page.getByRole("heading", { name: "Welcome to Lexarr" })).toBeVisible();
+  await next();
+  await expect(page.getByRole("heading", { name: "Connect your apps" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Check again|Checking/ })).toBeVisible();
+  await next();
+  await expect(page.getByRole("heading", { name: "Who can sign in" })).toBeVisible();
+  await expect(page.getByText(/Open sign-up: off/)).toBeVisible();
+  await next();
+  await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
+  await next();
+  await expect(page.getByRole("heading", { name: "Instant status updates" })).toBeVisible();
+  for (const arr of ["radarr", "sonarr", "lidarr"]) {
+    await expect(page.getByText(new RegExp(`/api/webhooks/${arr}$`))).toBeVisible();
+  }
+  await next();
+  // The e2e server sets LEXARR_UPDATE_CHECK=false, so the switch is locked.
+  await expect(page.getByRole("heading", { name: "Update notices", level: 1 })).toBeVisible();
+  await expect(page.getByRole("switch")).toBeDisabled();
+  await expect(page.getByText(/Turned off by/)).toBeVisible();
+  await next();
+  await expect(page.getByRole("heading", { name: "You're set" })).toBeVisible();
+  await page.getByRole("button", { name: "Finish" }).click();
+  await page.waitForURL((url) => url.pathname === "/");
 });
 
 test("readiness API: signed-out gets 403 (non-admin: readiness-route.test.ts)", async ({ browser }) => {

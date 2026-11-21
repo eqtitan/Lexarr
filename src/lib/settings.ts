@@ -117,6 +117,22 @@ export async function setUpdateCheckEnabled(enabled: boolean): Promise<void> {
   await writeRaw("updates.check", enabled === true);
 }
 
+export type SetupStatus = "pending" | "completed" | "skipped";
+
+/**
+ * Where the first-run setup guide stands. "pending" until an admin finishes
+ * or skips it; the guide can be re-run any time from Admin → Settings.
+ * Lives in the database, so wiping the database brings the guide back.
+ */
+export async function getSetupStatus(): Promise<SetupStatus> {
+  const raw = await readRaw("setup.status");
+  return raw === "completed" || raw === "skipped" ? raw : "pending";
+}
+
+export async function setSetupStatus(status: "completed" | "skipped"): Promise<void> {
+  await writeRaw("setup.status", status);
+}
+
 // ── Test-only helpers ────────────────────────────────────────────────
 
 export const __testing = {
