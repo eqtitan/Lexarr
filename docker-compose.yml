@@ -11,8 +11,9 @@
 # admin.
 #
 # This config assumes the Lexarr repo is cloned locally and built
-# from source. For pre-built images (post-1.0), swap `build: .` for
-# `image: ghcr.io/eqtitan/lexarr:<version>`.
+# from source. To run the pre-built image instead, swap `build: .` for
+# `image: ghcr.io/eqtitan/lexarr:<version>` (or `:latest`), then use
+# `docker compose pull && docker compose up -d`.
 # ============================================================
 
 services:
