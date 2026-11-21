@@ -1,15 +1,18 @@
 /**
  * "Is a newer Lexarr out?" -- the admin-only update notice.
  *
- * Asks GitHub for the latest published release at most once a day (a failed
- * lookup is retried after an hour) and compares it to the running version.
- * Nothing about the install is sent. Set LEXARR_UPDATE_CHECK=false to turn it
- * off (air-gapped hosts); the status then reports `enabled: false` and no
+ * Opt-in: nothing is requested until an admin turns it on (setup guide or
+ * Admin → Settings). Then it asks GitHub for the latest published release at
+ * most once a day (a failed lookup is retried after an hour) and compares it
+ * to the running version. Nothing about the install is sent.
+ * LEXARR_UPDATE_CHECK=false is a hard off switch that overrides the setting
+ * (air-gapped hosts); either way the status reports `enabled: false` and no
  * request is made.
  */
 import { updateCheckCache } from "@/lib/cache";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
+import { getUpdateCheckEnabled } from "@/lib/settings";
 import { APP_VERSION } from "@/lib/version";
 
 const REPO = "eqtitan/Lexarr";
@@ -20,8 +23,10 @@ const FAILURE_TTL_MS = 60 * 60 * 1000;
 const TIMEOUT_MS = 5_000;
 
 export interface UpdateStatus {
-  /** False when LEXARR_UPDATE_CHECK=false; nothing else is meaningful then. */
+  /** False when switched off (by setting or env); nothing else is meaningful then. */
   enabled: boolean;
+  /** True when LEXARR_UPDATE_CHECK=false forces it off, so the setting can't turn it on. */
+  lockedByEnv: boolean;
   current: string;
   /** Latest published release, without the leading "v"; null if unknown. */
   latest: string | null;
@@ -70,11 +75,24 @@ export function compareVersions(a: string, b: string): number | null {
 function unknownStatus(): UpdateStatus {
   return {
     enabled: true,
+    lockedByEnv: false,
     current: APP_VERSION,
     latest: null,
     updateAvailable: false,
     url: RELEASES_PAGE,
     checkedAt: new Date().toISOString(),
+  };
+}
+
+function disabledStatus(lockedByEnv: boolean): UpdateStatus {
+  return {
+    enabled: false,
+    lockedByEnv,
+    current: APP_VERSION,
+    latest: null,
+    updateAvailable: false,
+    url: RELEASES_PAGE,
+    checkedAt: null,
   };
 }
 
@@ -106,6 +124,7 @@ async function lookup(): Promise<UpdateStatus | null> {
     const url = apiUrl.startsWith(`${RELEASES_PAGE}/`) ? apiUrl : RELEASES_PAGE;
     return {
       enabled: true,
+      lockedByEnv: false,
       current: APP_VERSION,
       latest: tag.replace(/^v/, ""),
       updateAvailable: cmp > 0,
@@ -120,9 +139,11 @@ async function lookup(): Promise<UpdateStatus | null> {
 
 /** The current update status. Never throws; a failed lookup says "no update". */
 export async function getUpdateStatus(): Promise<UpdateStatus> {
-  if (env().LEXARR_UPDATE_CHECK === "false") {
-    return { enabled: false, current: APP_VERSION, latest: null, updateAvailable: false, url: RELEASES_PAGE, checkedAt: null };
-  }
+  if (env().LEXARR_UPDATE_CHECK === "false") return disabledStatus(true);
+  // Read the opt-in every call (it's one small row) so turning it off hides
+  // the notice at once, even while a cached lookup is still warm.
+  const optedIn = await getUpdateCheckEnabled().catch(() => false);
+  if (!optedIn) return disabledStatus(false);
   const cached = updateCheckCache.get(CACHE_KEY) as UpdateStatus | undefined;
   if (cached) return cached;
   const fresh = await lookup();

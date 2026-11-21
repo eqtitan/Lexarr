@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { updateCheckCache } from "@/lib/cache";
 
 vi.mock("@/lib/version", () => ({ APP_VERSION: "0.31.0" }));
+vi.mock("@/lib/settings", () => ({ getUpdateCheckEnabled: vi.fn() }));
+import { getUpdateCheckEnabled } from "@/lib/settings";
 
 import { compareVersions, getUpdateStatus } from "@/lib/update-check";
 
@@ -42,6 +44,7 @@ describe("getUpdateStatus", () => {
   beforeEach(() => {
     updateCheckCache.delete("latest-release");
     fetchMock.mockReset();
+    vi.mocked(getUpdateCheckEnabled).mockReset().mockResolvedValue(true);
     vi.stubGlobal("fetch", fetchMock);
     delete process.env.LEXARR_UPDATE_CHECK;
   });
@@ -56,6 +59,7 @@ describe("getUpdateStatus", () => {
     const s = await getUpdateStatus();
     expect(s).toMatchObject({
       enabled: true,
+      lockedByEnv: false,
       current: "0.31.0",
       latest: "0.32.0",
       updateAvailable: true,
@@ -82,10 +86,30 @@ describe("getUpdateStatus", () => {
     expect((init as RequestInit).headers).toMatchObject({ "User-Agent": "Lexarr/0.31.0" });
   });
 
-  it("makes no request at all when LEXARR_UPDATE_CHECK=false", async () => {
+  it("makes no request until an admin opts in", async () => {
+    vi.mocked(getUpdateCheckEnabled).mockResolvedValue(false);
+    const s = await getUpdateStatus();
+    expect(s).toMatchObject({ enabled: false, lockedByEnv: false, updateAvailable: false, latest: null, checkedAt: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("hides the notice at once when switched off, even with a warm cache", async () => {
+    fetchMock.mockResolvedValue(release("v0.32.0"));
+    expect((await getUpdateStatus()).updateAvailable).toBe(true);
+    vi.mocked(getUpdateCheckEnabled).mockResolvedValue(false);
+    expect(await getUpdateStatus()).toMatchObject({ enabled: false, updateAvailable: false });
+  });
+
+  it("treats an unreadable setting (database error) as not opted in", async () => {
+    vi.mocked(getUpdateCheckEnabled).mockRejectedValue(new Error("db down"));
+    expect((await getUpdateStatus()).enabled).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("LEXARR_UPDATE_CHECK=false overrides an opt-in and makes no request", async () => {
     process.env.LEXARR_UPDATE_CHECK = "false";
     const s = await getUpdateStatus();
-    expect(s).toMatchObject({ enabled: false, updateAvailable: false, latest: null, checkedAt: null });
+    expect(s).toMatchObject({ enabled: false, lockedByEnv: true, updateAvailable: false, latest: null, checkedAt: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

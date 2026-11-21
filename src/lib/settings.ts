@@ -103,6 +103,20 @@ export async function setAllowedRegions(regions: RegionCode[]): Promise<void> {
   await writeRaw("music.allowedRegions", clean);
 }
 
+/**
+ * Whether the admin "update available" check may call GitHub. Opt-in:
+ * off until an admin turns it on (setup guide or Admin → Settings).
+ * LEXARR_UPDATE_CHECK=false still forces it off regardless (see
+ * src/lib/update-check.ts).
+ */
+export async function getUpdateCheckEnabled(): Promise<boolean> {
+  return (await readRaw("updates.check")) === true;
+}
+
+export async function setUpdateCheckEnabled(enabled: boolean): Promise<void> {
+  await writeRaw("updates.check", enabled === true);
+}
+
 // ── Test-only helpers ────────────────────────────────────────────────
 
 export const __testing = {
