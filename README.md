@@ -50,13 +50,26 @@ Lexarr provides a single search bar that searches across all your media sources,
 
 ## Screenshots
 
-| Search | Details and request |
-|--------|-------------|
-| ![Search](docs/screenshots/search.png) | ![Request](docs/screenshots/request.png) |
-| **Your requests** | **Admin approvals** |
-| ![Requests](docs/screenshots/requests.png) | ![Admin approvals](docs/screenshots/admin.png) |
+<table>
+<tr>
+<th>Search</th>
+<th>Browse and request</th>
+</tr>
+<tr>
+<td><img src="docs/screenshots/search.png" alt="Search" width="320"></td>
+<td><img src="docs/screenshots/request.png" alt="Browse new TV shows and request" width="320"></td>
+</tr>
+<tr>
+<th>Your requests</th>
+<th>Admin approvals</th>
+</tr>
+<tr>
+<td><img src="docs/screenshots/requests.png" alt="Requests" width="320"></td>
+<td><img src="docs/screenshots/admin.png" alt="Admin approvals" width="320"></td>
+</tr>
+</table>
 
-*Screenshots use demo data.*
+*Screenshots are from a v0.31.0 beta instance, captured on mobile.*
 
 ---
 
