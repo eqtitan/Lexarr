@@ -18,6 +18,19 @@
     with dummy keys and notifications off, then tear it down. The live
     container is never touched. Works from any branch.
 
+.PARAMETER RehearseName
+    With -Rehearse: run the rehearsal container under this name (for example
+    TEST4LexArr) instead of the default throwaway lexarr-rehearse.
+
+.PARAMETER KeepRehearsal
+    With -Rehearse and -RehearseName: leave the container running after the
+    checks pass, so you can open it and look around. It uses dummy keys, has
+    notifications off and a copy of the DB. The live container is never
+    touched; a name that is "lexarr" or starts with "lexarr-" is refused.
+
+.PARAMETER RehearsePort
+    Port for the rehearsal container (default 5059).
+
 .PARAMETER Force
     Deploy even if the commit isn't master, isn't pushed, or CI hasn't
     passed for it. Prints a warning; use for emergencies only.
@@ -30,11 +43,15 @@
 
 .EXAMPLE
     .\deploy.ps1 -UnraidHost 192.168.1.100 -Rehearse   # try it first
+    .\deploy.ps1 -UnraidHost 192.168.1.100 -Rehearse -RehearseName TEST4LexArr -KeepRehearsal
     .\deploy.ps1 -UnraidHost 192.168.1.100             # then deploy
     $env:LEXARR_UNRAID_HOST = "192.168.1.100"            # or set it once
 #>
 param(
     [switch]$Rehearse,
+    [string]$RehearseName = "",
+    [switch]$KeepRehearsal,
+    [int]$RehearsePort = 5059,
     [switch]$Force,
     [switch]$NoSync,
     [switch]$NoBuild,
@@ -49,13 +66,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Rehearsal-name checks come first, before anything is shipped or built.
+if (($RehearseName -or $KeepRehearsal) -and -not $Rehearse) { throw "-RehearseName and -KeepRehearsal only work with -Rehearse." }
+if ($KeepRehearsal -and -not $RehearseName) { throw "-KeepRehearsal needs -RehearseName (for example -RehearseName TEST4LexArr)." }
+if ($RehearseName -and $RehearseName -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$') { throw "-RehearseName may only use letters, digits, '_', '.' and '-'." }
+if ($RehearseName -and ($RehearseName -ieq "lexarr" -or $RehearseName -ilike "lexarr-*")) { throw "-RehearseName '$RehearseName' is reserved for the live container. Pick another name." }
+
 # ── Config ────────────────────────────────────────────────────────────────
 $UNRAID  = "root@$UnraidHost"
 $SSH     = @("-o", "StrictHostKeyChecking=no", $UNRAID)
 $BUILDS  = "/mnt/user/appdata/lexarr-build"    # one clean dir per deployed commit
 $IMAGE   = "lexarr"
 $NETWORK = "arrnet"
-$REHEARSAL_PORT = 5059
+$REHEARSAL_PORT = $RehearsePort
 # Container hardening: no Linux capabilities, no privilege gain, bounded
 # memory and processes (Lexarr uses ~90 MiB and ~65). Keep in step with
 # HARDENING in scripts/deploy-remote.sh, so the rehearsal runs the same way.
@@ -182,10 +205,15 @@ Write-Host ""
 # ── Rehearsal: run against a copy of the live DB, then stop ───────────────
 if ($Rehearse) {
     Step "[3/4] Rehearsing..."
-    Remote "$REMOTE_SCRIPT rehearse ${IMAGE}:${shaTag} $REHEARSAL_PORT"
+    $rehearseArgs = "${IMAGE}:${shaTag} $REHEARSAL_PORT"
+    if ($RehearseName) { $rehearseArgs += " $RehearseName" + $(if ($KeepRehearsal) { " keep" } else { "" }) }
+    Remote "$REMOTE_SCRIPT rehearse $rehearseArgs"
     if ($LASTEXITCODE -ne 0) { Fail "Rehearsal FAILED -- don't deploy this commit. The live container was not touched." }
     Write-Host ""
     Write-Host "  Rehearsal passed. Deploy with: .\deploy.ps1 -UnraidHost $UnraidHost" -ForegroundColor Green
+    if ($RehearseName -and $KeepRehearsal) {
+        Write-Host "  $RehearseName is running: http://${UnraidHost}:$REHEARSAL_PORT" -ForegroundColor Green
+    }
     Write-Host ""
     exit 0
 }
