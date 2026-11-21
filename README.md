@@ -203,11 +203,13 @@ the secrets/hardening pass.
 
 Lexarr tells you when a new release is out, three ways:
 
-- **In the app.** Admins see an **Update** badge in the top bar (and an
-  "Update available" line in the account menu on phones) when a newer
-  release exists. It links to that release's notes. Lexarr asks GitHub for
-  the latest release once a day and sends nothing about your install. Set
-  `LEXARR_UPDATE_CHECK=false` to turn it off, e.g. on an air-gapped host.
+- **In the app (opt-in).** Turn on **Admin → Settings → Update notices** and
+  admins see an **Update** badge in the top bar (and an "Update available"
+  line in the account menu on phones) when a newer release exists. It links
+  to that release's notes. Once on, Lexarr asks GitHub for the latest release
+  once a day and sends nothing about your install. It is off until you turn
+  it on. `LEXARR_UPDATE_CHECK=false` forces it off whatever the setting says,
+  e.g. on an air-gapped host.
 - **On GitHub.** Click **Watch → Custom → Releases** on the repository to get
   an email or notification for each release.
 - **In a feed reader.** Subscribe to
@@ -238,7 +240,7 @@ Copy `.env.example` to `.env` and fill in your values:
 | `PLEX_CLIENT_ID` | No | Defaults to `lexarr`. Enables Plex SSO |
 | `PROWLARR_API_KEY` | No | For future Prowlarr integration |
 | `LAZYLIBRARIAN_API_KEY` | No | For book request routing |
-| `LEXARR_UPDATE_CHECK` | No | Set to `false` to turn off the admin "update available" check (see [Staying up to date](#staying-up-to-date)) |
+| `LEXARR_UPDATE_CHECK` | No | Set to `false` to force the admin "update available" check off, overriding the Settings switch (see [Staying up to date](#staying-up-to-date)) |
 
 Every other variable (proxies, extra public URLs, rate limits, notifications)
 is optional and documented inline in [`.env.example`](.env.example).

@@ -11,7 +11,7 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 ## [Unreleased]
 
 ### Added
-- **Admins are told when a new release is out.** A badge in the top bar (and a line in the account menu, for phones) links to the release notes when GitHub's latest release is newer than the running version. Lexarr checks once a day, sends nothing about the install, and the check fails quietly if GitHub is unreachable. `LEXARR_UPDATE_CHECK=false` turns it off. The README has a new "Staying up to date" section covering this, GitHub release notifications and the releases feed.
+- **Admins can be told when a new release is out (opt-in).** Turn on Admin → Settings → Update notices and a badge in the top bar (and a line in the account menu, for phones) links to the release notes when GitHub's latest release is newer than the running version. It is off until you turn it on. Once on, Lexarr checks once a day, sends nothing about the install, and the check fails quietly if GitHub is unreachable. `LEXARR_UPDATE_CHECK=false` forces it off whatever the setting says. The README has a new "Staying up to date" section covering this, GitHub release notifications and the releases feed.
 
 ## [0.31.0] — 2026-11-19
 
