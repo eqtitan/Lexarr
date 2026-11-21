@@ -56,6 +56,9 @@ export default function Nav() {
     setMenuOpen(false);
   }, [pathname]);
 
+  // The setup page is shown before anything works (no session, no APIs).
+  if (pathname.startsWith("/setup-needed")) return null;
+
   return (
     <nav className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">

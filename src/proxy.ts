@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCsp, newNonce } from "@/lib/csp";
 import { hstsHeader } from "@/lib/hsts";
+import { envIssues } from "@/lib/env";
+
+/** Still served while required settings are missing: the setup page itself,
+ *  and the probes that tell Docker and deploy.ps1 what state the app is in. */
+const SETUP_MODE_OPEN = ["/setup-needed", "/api/livez", "/api/version"];
 
 /**
  * Per-request Content-Security-Policy with a script nonce (src/lib/csp.ts).
@@ -13,6 +18,20 @@ import { hstsHeader } from "@/lib/hsts";
  * and a second, nonce-less policy would block Next.js's own scripts.
  */
 export function proxy(request: NextRequest) {
+  const issues = envIssues();
+  if (issues.length > 0) {
+    const path = request.nextUrl.pathname;
+    if (!SETUP_MODE_OPEN.includes(path)) {
+      if (path.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "setup_needed", missing: issues.map((i) => i.name) },
+          { status: 503 },
+        );
+      }
+      return NextResponse.redirect(new URL("/setup-needed", request.url));
+    }
+  }
+
   const csp = buildCsp(newNonce(), process.env.NODE_ENV === "development");
 
   const requestHeaders = new Headers(request.headers);

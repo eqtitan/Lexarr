@@ -6,7 +6,7 @@ import { SessionProvider as NextAuthSessionProvider, useSession } from "next-aut
 
 /** Pages a logged-out visitor may see. Everything else needs an account:
  *  the APIs behind them refuse anonymous calls. */
-export const PUBLIC_PATHS = ["/login"];
+export const PUBLIC_PATHS = ["/login", "/setup-needed"];
 
 /** Sends a logged-out visitor on any other page to the sign-in page. */
 export function RequireSignIn({ children }: { children: React.ReactNode }) {

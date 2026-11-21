@@ -4,12 +4,22 @@ import { hstsHeader, HSTS_DEFAULT_MAX_AGE } from "@/lib/hsts";
 import { proxy } from "@/proxy";
 
 const GATEWAY = "172.18.0.1";
+const CONFIGURED = {
+  NEXTAUTH_SECRET: "s",
+  ARR_HOST: "http://localhost",
+  RADARR_API_KEY: "r",
+  SONARR_API_KEY: "s",
+  LIDARR_API_KEY: "l",
+  TMDB_API_KEY: "t",
+};
 const KEYS = ["LEXARR_TRUSTED_PROXIES", "LEXARR_CLIENT_IP_HEADER", "LEXARR_HSTS_MAX_AGE"];
 
 beforeEach(() => {
   for (const k of KEYS) delete process.env[k];
   process.env.LEXARR_TRUSTED_PROXIES = GATEWAY;
   process.env.LEXARR_CLIENT_IP_HEADER = "1";
+  // The proxy only serves pages once the required config is present.
+  Object.assign(process.env, CONFIGURED);
 });
 
 // What `tailscale serve` sends (captured on the dev server), with the peer stamp
