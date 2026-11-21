@@ -6,8 +6,21 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    // Validate required env vars at startup (fails fast with a clear error)
-    const { validateEnvOrThrow } = await import("./lib/env");
+    // Validate required env vars at startup. If any are missing or malformed
+    // the server still starts, in "setup needed" mode: src/proxy.ts sends
+    // pages to /setup-needed and answers APIs with 503, and nothing below
+    // (admin bootstrap, background polling) runs. A restart with the
+    // variables fixed brings the app up normally.
+    const { envIssues, validateEnvOrThrow } = await import("./lib/env");
+    const issues = envIssues();
+    if (issues.length > 0) {
+      console.error(
+        "[env] Lexarr is not configured. Showing the setup page instead of starting.\n" +
+          issues.map((i) => `  ${i.name}: ${i.problem}`).join("\n") +
+          "\nCopy .env.example to .env, fill in the values and restart the container.",
+      );
+      return;
+    }
     validateEnvOrThrow();
 
     // Failover admin bootstrap — ensure at least one admin always exists
