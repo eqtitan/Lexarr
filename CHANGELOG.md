@@ -10,6 +10,9 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 
 ## [Unreleased]
 
+### Added
+- **A rehearsal can be kept running.** `deploy.ps1 -Rehearse -RehearseName <name> -KeepRehearsal` leaves the rehearsal container up under that name (dummy keys, notifications off, a copy of the database) so you can open it and look around, instead of tearing it down once the checks pass. The live container is never touched, and `lexarr` or `lexarr-*` names are refused. `-RehearsePort` changes the port from 5059.
+
 ## [0.32.0] — 2026-11-21
 
 ### Added

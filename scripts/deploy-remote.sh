@@ -8,8 +8,10 @@
 #                                        prints "<backup path> <migration count>"
 #   restore <volume> <backup>            put a backup back as the live DB
 #   wait-healthy <port> <secs> <name>    livez up, then healthz's DB check ok
-#   rehearse <image> <port>              run <image> against a copy of the live
-#                                        DB with dummy keys; never touches live
+#   rehearse <image> <port> [name] [keep] run <image> against a copy of the live
+#                                        DB with dummy keys; never touches live.
+#                                        With a name and keep=keep, the container
+#                                        stays up under that name after it passes.
 set -euo pipefail
 
 BACKUP_DIR=${LEXARR_BACKUP_DIR:-/mnt/user/data/lexarr-backups}
@@ -17,6 +19,7 @@ KEEP_PRE_DEPLOY=5
 # Globals, not locals: the rehearsal cleanup trap runs after cmd_rehearse returns.
 REHEARSE_NAME=lexarr-rehearse
 REHEARSE_DIR=/tmp/lexarr-rehearse
+REHEARSE_KEEP=
 # Same hardening deploy.ps1 gives the live container (keep in step), so a
 # rehearsal fails if the new image needs a capability or more memory.
 HARDENING="--cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 --memory=1g"
@@ -110,10 +113,36 @@ cmd_wait_healthy() {
 }
 
 cmd_rehearse() {
-  local image=$1 port=$2 name=$REHEARSE_NAME dir=$REHEARSE_DIR live before after errors
+  local image=$1 port=$2 name=${3:-$REHEARSE_NAME} keep=${4:-} live before after errors
+  local dir=$REHEARSE_DIR
   live=$(db_path lexarr-data)
+
+  if [ "$name" != "$REHEARSE_NAME" ]; then
+    # A custom name must never be able to reach the live container or a
+    # container this script did not create.
+    case "$name" in
+      lexarr | lexarr-*) echo "refusing container name '$name' (reserved for the live container)" >&2; return 1 ;;
+    esac
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "invalid container name '$name'" >&2; return 1; }
+    if docker inspect "$name" >/dev/null 2>&1 &&
+      [ "$(docker inspect -f '{{index .Config.Labels "lexarr.rehearsal"}}' "$name")" != 1 ]; then
+      echo "a container named '$name' already exists and is not a Lexarr rehearsal; not touching it" >&2
+      return 1
+    fi
+    dir=/tmp/$name
+  fi
+  REHEARSE_NAME=$name
+  REHEARSE_DIR=$dir
+  REHEARSE_KEEP=$keep
+
   cleanup() { docker rm -f "$REHEARSE_NAME" >/dev/null 2>&1 || true; rm -rf "$REHEARSE_DIR"; }
-  trap cleanup EXIT
+  # Tear down on exit, except a passing rehearsal the caller asked to keep.
+  on_exit() {
+    local rc=$?
+    if [ "$REHEARSE_KEEP" = keep ] && [ "$rc" = 0 ]; then return; fi
+    cleanup
+  }
+  trap on_exit EXIT
   cleanup
   mkdir -p "$dir/data"
 
@@ -132,7 +161,7 @@ cmd_rehearse() {
 
   echo "Rehearsing $image on port $port against a copy of the live DB ($before)..."
   # shellcheck disable=SC2086 # HARDENING is a list of flags
-  docker run -d --name "$name" -p "$port:5056" --env-file "$dir/env" -v "$dir/data:/app/data" $HARDENING "$image" >/dev/null
+  docker run -d --name "$name" --label lexarr.rehearsal=1 -p "$port:5056" --env-file "$dir/env" -v "$dir/data:/app/data" $HARDENING "$image" >/dev/null
   cmd_wait_healthy "$port" 90 "$name"
 
   docker logs "$name" 2>&1 | grep -E "^Applying migration|successfully applied|No pending migrations" || {
@@ -152,6 +181,10 @@ cmd_rehearse() {
     return 1
   fi
   echo "Rehearsal passed: $after intact, 0 errors."
+  if [ "$keep" = keep ]; then
+    echo "Kept running as '$name' on port $port (dummy keys, notifications off, copy of the DB)."
+    echo "Remove it with: docker rm -f $name && rm -rf $dir"
+  fi
 }
 
 case "${1:-}" in
@@ -159,7 +192,7 @@ case "${1:-}" in
   backup) cmd_backup "$2" "$3" "$4" ;;
   restore) cmd_restore "$2" "$3" ;;
   wait-healthy) cmd_wait_healthy "$2" "$3" "$4" ;;
-  rehearse) cmd_rehearse "$2" "$3" ;;
+  rehearse) cmd_rehearse "$2" "$3" "${4:-}" "${5:-}" ;;
   *)
     echo "usage: $0 migrations|backup|restore|wait-healthy|rehearse ..." >&2
     exit 2

@@ -107,6 +107,9 @@ npx tsc --noEmit     # Type check
 - **How:** `deploy.ps1` is the one release path. Always rehearse first:
   ```powershell
   .\deploy.ps1 -UnraidHost <host> -Rehearse   # port 5059, copy of live DB, dummy keys, notifications off
+  # To keep a rehearsal container for poking at (never named lexarr or lexarr-*):
+  .\deploy.ps1 -UnraidHost <host> -Rehearse -RehearseName TEST4LexArr -KeepRehearsal
+  # remove later: docker rm -f TEST4LexArr && rm -rf /tmp/TEST4LexArr
   .\deploy.ps1 -UnraidHost <host>             # the real deploy
   ```
   It refuses to deploy unless HEAD is `master`, pushed, and green in CI
