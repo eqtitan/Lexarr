@@ -100,9 +100,18 @@ if (-not $UnraidHost) {
         if (Test-Ssh $h) { $UnraidHost = $h; Write-Host "Found your Unraid server at $h" -ForegroundColor Green; break }
     }
     if (-not $UnraidHost) {
-        Write-Host "Couldn't find your Unraid server automatically."
-        $UnraidHost = (Read-Host "Type its IP address or name (shown on the Unraid dashboard)").Trim()
-        if (-not (Test-Ssh $UnraidHost)) { throw "Nothing answers SSH (port 22) at '$UnraidHost'. Check the address and that SSH is enabled in Unraid (Settings > Management Access)." }
+        Write-Host ""
+        Write-Host "  I couldn't find your Unraid server automatically." -ForegroundColor Yellow
+        Write-Host "  Please enter its IP address (for example 192.168.1.50) or name."
+        Write-Host "  You can see it on the Unraid dashboard or in your router's device list."
+        Write-Host "  I'll remember it, so you only have to do this once."
+        for ($try = 1; $try -le 3 -and -not $UnraidHost; $try++) {
+            $answer = (Read-Host "  Unraid IP or name").Trim()
+            if (-not $answer) { Write-Host "  Nothing entered." -ForegroundColor Yellow; continue }
+            if (Test-Ssh $answer) { $UnraidHost = $answer }
+            else { Write-Host "  Nothing answers SSH (port 22) at '$answer'. Check the address, and that SSH is turned on in Unraid (Settings > Management Access)." -ForegroundColor Yellow }
+        }
+        if (-not $UnraidHost) { throw "No reachable Unraid server entered. Run again, or pass it directly: .\deploy.ps1 -UnraidHost <ip> -Rehearse" }
     }
 }
 if ($UnraidHost -notmatch '^[A-Za-z0-9][A-Za-z0-9.:-]*$') { throw "'$UnraidHost' doesn't look like an IP address or host name." }
