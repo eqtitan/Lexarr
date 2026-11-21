@@ -155,6 +155,18 @@ docker run -d \
   lexarr
 ```
 
+#### Prefer a pre-built image?
+
+Releases from 0.32.0 on publish an image, so you can skip the build:
+
+```bash
+docker pull ghcr.io/eqtitan/lexarr:latest   # or a version, e.g. :0.32.0
+```
+
+In `docker-compose.yml`, replace `build: .` with
+`image: ghcr.io/eqtitan/lexarr:latest`; with `docker run`, use that image
+name in place of `lexarr`. The image is `linux/amd64`.
+
 ### 4 · Verify (30 s)
 
 ```bash
@@ -223,9 +235,11 @@ Lexarr tells you when a new release is out, three ways:
 To apply an update, follow [`docs/upgrading.md`](docs/upgrading.md): back up
 the database, pull the new version, `docker compose up -d --build`. Patch
 releases (`0.x.y`) are always safe in place; minor releases may change
-configuration before 1.0, so read the release notes first. A pre-built
-`ghcr.io` image, which would also let Watchtower and Unraid update it for
-you, is on the [roadmap](#roadmap-to-100).
+configuration before 1.0, so read the release notes first. If you run the
+pre-built image (below), `docker compose pull && docker compose up -d`
+does the same, and Watchtower or Unraid's update check can do it for you
+(pin a version tag rather than `latest` if you want to read release notes
+before a minor upgrade).
 
 ## Configuration
 
