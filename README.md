@@ -50,13 +50,40 @@ Lexarr provides a single search bar that searches across all your media sources,
 
 ## Screenshots
 
-| Search | Details and request |
-|--------|-------------|
-| ![Search](docs/screenshots/search.png) | ![Request](docs/screenshots/request.png) |
-| **Your requests** | **Admin approvals** |
-| ![Requests](docs/screenshots/requests.png) | ![Admin approvals](docs/screenshots/admin.png) |
+<table>
+<tr>
+<th>Search</th>
+<th>TV</th>
+<th>Music</th>
+</tr>
+<tr>
+<td><img src="docs/screenshots/search.png" alt="Search" width="250"></td>
+<td><img src="docs/screenshots/request.png" alt="Browse new TV shows and request" width="250"></td>
+<td><img src="docs/screenshots/music.png" alt="Browse popular new albums" width="250"></td>
+</tr>
+<tr>
+<th>Books</th>
+<th>Your requests</th>
+<th>Admin overview</th>
+</tr>
+<tr>
+<td><img src="docs/screenshots/books.png" alt="Browse trending books" width="250"></td>
+<td><img src="docs/screenshots/requests.png" alt="Request list with status" width="250"></td>
+<td><img src="docs/screenshots/overview.png" alt="Admin dashboard overview" width="250"></td>
+</tr>
+<tr>
+<th>Approvals</th>
+<th>Pipeline</th>
+<th>Analytics</th>
+</tr>
+<tr>
+<td><img src="docs/screenshots/admin.png" alt="Admin approvals" width="250"></td>
+<td><img src="docs/screenshots/pipeline.png" alt="Active downloads pipeline" width="250"></td>
+<td><img src="docs/screenshots/analytics.png" alt="Request analytics" width="250"></td>
+</tr>
+</table>
 
-*Screenshots use demo data.*
+*Screenshots are from a v0.31.0 beta instance, captured on mobile.*
 
 ---
 
