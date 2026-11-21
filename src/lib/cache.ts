@@ -81,6 +81,10 @@ export const releasesCache = new TTLCache(24 * 60 * 60 * 1000, 5);
 // appearing in the feed within a minute, not up to a day later.
 export const releasesFilteredCache = new TTLCache(60 * 1000, 5);
 
+// Update check (GitHub's latest release): 24h on success, retried after 1h
+// on failure (the caller passes the shorter TTL). Admin-only, one entry.
+export const updateCheckCache = new TTLCache<unknown>(24 * 60 * 60 * 1000, 2);
+
 // Next.js bundles instrumentation.ts and the API routes separately, so a
 // plain module-level cache exists once per bundle. Caches that the
 // background refresh (instrumentation) fills for the routes to read must

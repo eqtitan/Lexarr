@@ -48,6 +48,8 @@ export default defineConfig({
         TMDB_API_KEY: "e2e",
         TMDB_API_BASE: "http://127.0.0.1:9100",
         DISCOVER_STUB_BASE: "http://127.0.0.1:9100",
+        // The smoke test must not call out to GitHub.
+        LEXARR_UPDATE_CHECK: "false",
       },
     },
   ],

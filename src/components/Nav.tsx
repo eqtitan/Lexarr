@@ -6,6 +6,8 @@ import { useSession, signOut } from "next-auth/react";
 import { useState, useRef, useEffect } from "react";
 import NotificationBell from "./NotificationBell";
 import { APP_VERSION, getChannel } from "@/lib/version";
+import { useApi } from "@/lib/use-api";
+import type { UpdateStatus } from "@/lib/update-check";
 
 const links = [
   { href: "/", label: "Search" },
@@ -24,6 +26,12 @@ export default function Nav() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = session?.user?.role;
+  // Admins only. The server caches GitHub's answer for a day, so an hour-long
+  // client refresh is cheap and a long-open tab still hears about a release.
+  const { data: update } = useApi<UpdateStatus>(role === "admin" ? "/api/admin/update-check" : null, {
+    refreshInterval: 60 * 60 * 1000,
+  });
+  const updateAvailable = update?.enabled && update.updateAvailable ? update : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +102,17 @@ export default function Nav() {
               Admin
             </Link>
           )}
+          {updateAvailable && (
+            <a
+              href={updateAvailable.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Lexarr ${updateAvailable.latest} is available (you have ${updateAvailable.current})`}
+              className="ml-1 hidden rounded-full bg-[var(--accent)]/15 px-2.5 py-1 text-xs font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/25 sm:inline-block"
+            >
+              Update {updateAvailable.latest}
+            </a>
+          )}
           {session ? (
             <>
             <NotificationBell />
@@ -147,6 +166,17 @@ export default function Nav() {
                   </div>
 
                   <div className="py-1">
+                    {updateAvailable && (
+                      <a
+                        href={updateAvailable.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-[var(--accent)] transition-colors hover:bg-[var(--card-hover)]"
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center text-base leading-none">↑</span>
+                        Update available: {updateAvailable.latest}
+                      </a>
+                    )}
                     <Link
                       href="/requests"
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--card-hover)]"

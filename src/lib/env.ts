@@ -47,6 +47,9 @@ const envSchema = z.object({
   AUTH_JELLYFIN_ENABLED: z.string().optional(), // default on; "false" to hide
   JELLYFIN_URL: z.string().optional(),
   REGISTRATION_OPEN: z.string().optional(),
+  // "false" turns off the admin-only "update available" check, which asks
+  // GitHub for the latest release once a day (src/lib/update-check.ts).
+  LEXARR_UPDATE_CHECK: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   // Build provenance baked in by the Dockerfile (see /api/version).
   GIT_SHA: z.string().optional(),
