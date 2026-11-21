@@ -114,6 +114,43 @@ function setVars(): Record<string, string> {
   return out;
 }
 
+/** The six variables Lexarr cannot start without. */
+export const REQUIRED_ENV = [
+  "NEXTAUTH_SECRET",
+  "ARR_HOST",
+  "RADARR_API_KEY",
+  "SONARR_API_KEY",
+  "LIDARR_API_KEY",
+  "TMDB_API_KEY",
+] as const;
+
+export interface EnvIssue {
+  /** Variable name. Never its value: this list is shown to signed-out visitors. */
+  name: string;
+  problem: "missing" | "invalid";
+}
+
+/**
+ * Every configuration problem right now, empty when the config is usable.
+ * Names only, never values. Unlike validateEnvOrThrow() it does not throw,
+ * so the server can start in "setup needed" mode and say what is wrong
+ * (src/proxy.ts, src/app/setup-needed).
+ */
+export function envIssues(): EnvIssue[] {
+  const raw = setVars();
+  const result = envSchema.safeParse(raw);
+  if (result.success) return [];
+  const seen = new Set<string>();
+  const out: EnvIssue[] = [];
+  for (const i of result.error.issues) {
+    const name = String(i.path[0] ?? "");
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, problem: raw[name] === undefined ? "missing" : "invalid" });
+  }
+  return out;
+}
+
 /** The validated config, read now. Never throws (see file comment). */
 export function env(): Env {
   const raw = setVars();

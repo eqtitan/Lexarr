@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { buildCsp, newNonce } from "@/lib/csp";
 import { proxy } from "@/proxy";
 import { NextRequest } from "next/server";
@@ -7,6 +7,18 @@ const directive = (csp: string, name: string) =>
   csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `)) ?? "";
 
 describe("Content-Security-Policy", () => {
+  beforeEach(() => {
+    // The proxy only serves pages once the required config is present.
+    Object.assign(process.env, {
+      NEXTAUTH_SECRET: "s",
+      ARR_HOST: "http://localhost",
+      RADARR_API_KEY: "r",
+      SONARR_API_KEY: "s",
+      LIDARR_API_KEY: "l",
+      TMDB_API_KEY: "t",
+    });
+  });
+
   it("scripts need the nonce; no unsafe-inline or unsafe-eval in production", () => {
     const s = directive(buildCsp("abc123"), "script-src");
     expect(s).toBe("script-src 'self' 'nonce-abc123' 'strict-dynamic'");
