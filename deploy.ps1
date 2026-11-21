@@ -9,6 +9,14 @@
     database backup taken while the old container is stopped, and a rollback
     that also restores that backup if the new image migrated the schema.
 
+    The live container is always "lexarr". Before anything is stopped, the
+    deploy looks for the existing install: if "lexarr" exists it is updated
+    in place (same data volume, backup first); if not, Lexarr is installed
+    fresh as "lexarr". A Lexarr container under another name, or another
+    container on the port, stops the deploy instead of running two side by
+    side. Once the release is live and healthy, every rehearsal container
+    (kept test ones such as TEST4LexArr included) is removed.
+
     Only a commit that is master, pushed, and green in CI is deployed (see
     -Force). The server-side steps live in scripts/deploy-remote.sh, which
     ships with the commit.
@@ -24,9 +32,11 @@
 
 .PARAMETER KeepRehearsal
     With -Rehearse and -RehearseName: leave the container running after the
-    checks pass, so you can open it and look around. It uses dummy keys, has
-    notifications off and a copy of the DB. The live container is never
-    touched; a name that is "lexarr" or starts with "lexarr-" is refused.
+    checks pass, so you can open it and look around before releasing. It uses
+    dummy keys, has notifications off and a copy of the DB, and sign-in works
+    at http://<UnraidHost>:<RehearsePort>. The live container is never
+    touched; a name that is "lexarr" or starts with "lexarr-" is refused. It
+    holds its port until removed, and the next real deploy removes it.
 
 .PARAMETER RehearsePort
     Port for the rehearsal container (default 5059).
@@ -207,24 +217,38 @@ if ($Rehearse) {
     Step "[3/4] Rehearsing..."
     $rehearseArgs = "${IMAGE}:${shaTag} $REHEARSAL_PORT"
     if ($RehearseName) { $rehearseArgs += " $RehearseName" + $(if ($KeepRehearsal) { " keep" } else { "" }) }
-    Remote "$REMOTE_SCRIPT rehearse $rehearseArgs"
-    if ($LASTEXITCODE -ne 0) { Fail "Rehearsal FAILED -- don't deploy this commit. The live container was not touched." }
+    # The address you'll open it at, so sign-in redirects come back there.
+    Remote "LEXARR_REHEARSE_URL=http://${UnraidHost}:$REHEARSAL_PORT $REMOTE_SCRIPT rehearse $rehearseArgs"
+    if ($LASTEXITCODE -ne 0) { Fail "Rehearsal FAILED (reason above) -- don't deploy until it passes. The live container was not touched." }
     Write-Host ""
     Write-Host "  Rehearsal passed. Deploy with: .\deploy.ps1 -UnraidHost $UnraidHost" -ForegroundColor Green
     if ($RehearseName -and $KeepRehearsal) {
-        Write-Host "  $RehearseName is running: http://${UnraidHost}:$REHEARSAL_PORT" -ForegroundColor Green
+        Write-Host "  $RehearseName is running: http://${UnraidHost}:$REHEARSAL_PORT (testing only; the real deploy removes it)" -ForegroundColor Green
     }
     Write-Host ""
     exit 0
 }
 
-# ── 3. Back up the DB with the old container stopped ──────────────────────
-# Stopped first, so no request can land between the backup and the swap.
-Step "[3/4] Stopping $ContainerName and backing up its database..."
+# ── Update or fresh install? Decided before anything is stopped ──────────
 $previous = "$ContainerName-previous"
 if (Remote "docker ps -aq --filter name=^/$previous$") {
     Fail "A '$previous' container already exists (a past deploy didn't finish). Inspect it and remove it before deploying."
 }
+$preflight = Remote "$REMOTE_SCRIPT preflight $ContainerName $HostPort $EnvFile $NETWORK $DataVolume"
+if ($LASTEXITCODE -ne 0) { Fail "Not deploying (reason above). Nothing was changed." }
+$preflight | Select-Object -SkipLast 1 | ForEach-Object { Ok $_ }
+$installState = ($preflight | Select-Object -Last 1)
+$freshInstall = ($installState -eq "fresh")
+if ($freshInstall) {
+    Ok "No existing install: installing Lexarr fresh as '$ContainerName' on :$HostPort."
+} else {
+    Ok "Existing install found: updating '$ContainerName' ($($installState -replace '^update ', '')) in place."
+}
+Write-Host ""
+
+# ── 3. Back up the DB with the old container stopped ──────────────────────
+# Stopped first, so no request can land between the backup and the swap.
+Step "[3/4] Stopping $ContainerName and backing up its database..."
 Remote "docker stop $ContainerName >/dev/null 2>&1; docker rename $ContainerName $previous >/dev/null 2>&1; true"
 
 $backupOut = Remote "$REMOTE_SCRIPT backup $DataVolume $ContainerName-$gitSha $EnvFile"
@@ -253,6 +277,9 @@ if (-not $healthy) {
     Write-Host "  New container failed to start or isn't healthy -- rolling back." -ForegroundColor Red
     Remote "docker logs $ContainerName --tail 30 2>&1"
     Remote "docker rm -f $ContainerName >/dev/null 2>&1; true"
+    if ($freshInstall) {
+        Fail "Fresh install failed to start or isn't healthy (log above). There was no previous install to roll back to; the $DataVolume volume was kept. Check $EnvFile and deploy again."
+    }
     # The new image runs `prisma migrate deploy` before the app starts, so a
     # failed deploy may still have changed the schema. The old app can't be
     # trusted on a newer schema: put the pre-deploy DB back first.
@@ -271,6 +298,9 @@ if (-not $healthy) {
 # Healthy: drop the old container and move the moving tags.
 Remote "docker rm $previous >/dev/null 2>&1; true"
 if ($isProduction) {
+    # Rehearsals (TEST4LexArr and the like) were for testing this release
+    # before it went out. It's out: remove them and their DB copies.
+    Remote "$REMOTE_SCRIPT retire-rehearsals" | ForEach-Object { Ok $_ }
     Remote "docker tag ${IMAGE}:${shaTag} ${IMAGE}:v$version && docker tag ${IMAGE}:${shaTag} ${IMAGE}:latest"
     # Record what's live in git too. Not a v* tag, so it doesn't look like a
     # release.
@@ -292,7 +322,8 @@ keep=$(docker image ls lexarr --format '{{.ID}}' | awk '!s[$1]++' | head -n 3); 
 }
 
 Write-Host ""
-Write-Host "  Lexarr v$version ($gitSha) is live and healthy at http://${UnraidHost}:$HostPort" -ForegroundColor Green
+$installed = if ($freshInstall) { "installed" } else { "updated" }
+Write-Host "  Lexarr v$version ($gitSha) $installed as '$ContainerName', live and healthy at http://${UnraidHost}:$HostPort" -ForegroundColor Green
 Write-Host "  Pre-deploy backup: $backupPath" -ForegroundColor Green
 Write-Host "  Record this deploy in your deploy log." -ForegroundColor Green
 Write-Host ""
