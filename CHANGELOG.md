@@ -10,6 +10,8 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-11-21
+
 ### Added
 - **A pre-built Docker image.** Each release is now published to `ghcr.io/eqtitan/lexarr` (`:X.Y.Z`, `:X.Y` and `:latest`, `linux/amd64`), so you can `docker pull` instead of building from source, and Watchtower or Unraid can update it for you. The release workflow refuses a tag that does not match the app version and starts the image before pushing it. Building from source still works as before.
 - **A first-run setup guide.** On a new or reset install (the guide was never finished or skipped, and no one has made a request yet), the first admin lands on a short guide: it checks the connection to Radarr, Sonarr and Lidarr, explains who can sign in, offers notification channels, shows the webhook URLs to paste into each app, and asks whether to turn on update notices. Every step can be skipped, and it opens by itself once per browser session. An install that upgrades (it already has requests) is never interrupted; run it any time from Admin → Settings → Run setup guide.
