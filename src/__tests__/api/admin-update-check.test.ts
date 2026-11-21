@@ -8,6 +8,7 @@ vi.mock("@/lib/update-check", () => ({ getUpdateStatus: vi.fn() }));
 
 const status = {
   enabled: true,
+  lockedByEnv: false,
   current: "0.31.0",
   latest: "0.32.0",
   updateAvailable: true,

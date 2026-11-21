@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import MusicRegionsSection from "@/components/admin/settings/MusicRegionsSection";
+import UpdateNoticeSection from "@/components/admin/settings/UpdateNoticeSection";
 import NotificationChannelsSection from "@/components/admin/settings/NotificationChannelsSection";
 
 export default function SettingsPage() {
@@ -46,6 +47,7 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <UpdateNoticeSection />
       <MusicRegionsSection />
       <NotificationChannelsSection onError={setActionError} />
     </div>
