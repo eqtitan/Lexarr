@@ -41,5 +41,8 @@ await prisma.user.create({
     autoApprove: false,
   },
 });
+// The first-run guide opens by itself on a fresh install; the existing
+// end-to-end tests log in and expect the home page, so mark it done here.
+await prisma.appSetting.create({ data: { key: "setup.status", value: JSON.stringify("completed") } });
 await prisma.$disconnect();
 console.log(`e2e DB seeded at ${dbFile}`);

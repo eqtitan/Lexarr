@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MusicRegionsSection from "@/components/admin/settings/MusicRegionsSection";
 import UpdateNoticeSection from "@/components/admin/settings/UpdateNoticeSection";
@@ -46,6 +47,19 @@ export default function SettingsPage() {
           {actionError}
         </div>
       )}
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Setup guide</h2>
+        <p className="text-xs text-[var(--muted)]">
+          Walk through connections, sign-in, notifications, webhooks and update notices again.
+        </p>
+        <Link
+          href="/setup"
+          className="inline-block rounded-lg px-4 py-2 text-sm font-medium ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--card-hover)]"
+        >
+          Run setup guide
+        </Link>
+      </section>
 
       <UpdateNoticeSection />
       <MusicRegionsSection />

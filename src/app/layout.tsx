@@ -3,6 +3,7 @@ import Nav from "@/components/Nav";
 import SessionProvider from "@/components/SessionProvider";
 import { ToastProvider } from "@/components/Toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import SetupGate from "@/components/setup/SetupGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({
         <SessionProvider>
           <ToastProvider>
             <Nav />
+            <SetupGate />
             <main className="mx-auto max-w-5xl px-4 py-6">
               <ErrorBoundary>{children}</ErrorBoundary>
             </main>

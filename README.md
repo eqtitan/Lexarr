@@ -175,6 +175,11 @@ account, if you enabled those, or you set `REGISTRATION_OPEN=true` while
 they create accounts. Admins choose per user whether requests need
 approval.
 
+On a fresh install, the first admin lands on a short **setup guide**: it checks
+that Lexarr can reach your apps, explains who can sign in, offers notifications
+and webhooks, and asks whether you want update notices. Skip any step; run it
+again any time from **Admin → Settings → Run setup guide**.
+
 ### 6 · (Optional) Webhooks for instant status updates (2 min)
 
 In each *arr (Radarr / Sonarr / Lidarr), go to Settings → Connect →

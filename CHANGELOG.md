@@ -11,6 +11,7 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 ## [Unreleased]
 
 ### Added
+- **A first-run setup guide.** On a new or reset install (the guide was never finished or skipped, and no one has made a request yet), the first admin lands on a short guide: it checks the connection to Radarr, Sonarr and Lidarr, explains who can sign in, offers notification channels, shows the webhook URLs to paste into each app, and asks whether to turn on update notices. Every step can be skipped, and it opens by itself once per browser session. An install that upgrades (it already has requests) is never interrupted; run it any time from Admin → Settings → Run setup guide.
 - **Admins can be told when a new release is out (opt-in).** Turn on Admin → Settings → Update notices and a badge in the top bar (and a line in the account menu, for phones) links to the release notes when GitHub's latest release is newer than the running version. It is off until you turn it on. Once on, Lexarr checks once a day, sends nothing about the install, and the check fails quietly if GitHub is unreachable. `LEXARR_UPDATE_CHECK=false` forces it off whatever the setting says. The README has a new "Staying up to date" section covering this, GitHub release notifications and the releases feed.
 
 ## [0.31.0] — 2026-11-19
