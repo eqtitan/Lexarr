@@ -12,6 +12,13 @@ change between minor versions. See the README roadmap for what 1.0.0 requires.
 
 ### Added
 - **A rehearsal can be kept running.** `deploy.ps1 -Rehearse -RehearseName <name> -KeepRehearsal` leaves the rehearsal container up under that name (dummy keys, notifications off, a copy of the database) so you can open it and look around, instead of tearing it down once the checks pass. The live container is never touched, and `lexarr` or `lexarr-*` names are refused. `-RehearsePort` changes the port from 5059.
+- **The real deploy finds the existing install, or installs fresh.** Before anything is stopped, `deploy.ps1` checks the server: an existing `lexarr` container is updated in place, and with none Lexarr is installed fresh as `lexarr` (never under a rehearsal name such as TEST4LexArr). It stops with a clear message instead of carrying on if a Lexarr container exists under another name, another container holds the port, the existing install keeps its database outside the `lexarr-data` volume, or a fresh install has no `.env`. It creates the `arrnet` network if it is missing, and a fresh install that fails no longer reports a rollback to a container that never existed.
+- **The release retires rehearsal containers.** Once a production deploy is live and healthy, every rehearsal container (kept test ones such as TEST4LexArr included) and its database copy is removed.
+
+### Fixed
+- **Signing in to a kept rehearsal works.** Sign-in redirects went to the container's own `http://0.0.0.0:5056`, so logging in at `http://<host>:5059` failed. The rehearsal now sets `LEXARR_PUBLIC_URLS` to the address you open it at, and checks that sign-in returns there.
+- **A kept rehearsal no longer breaks the next one.** Rehearsing on a port a kept rehearsal (or any other container) holds now stops before anything starts and names the container, with the command to remove it, instead of failing halfway through `docker run`.
+- **A rehearsal works before the first install.** With no live database yet, the rehearsal runs against an empty one, as a fresh install would, instead of failing.
 
 ## [0.32.0] — 2026-11-21
 

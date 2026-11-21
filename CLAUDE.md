@@ -107,18 +107,30 @@ npx tsc --noEmit     # Type check
 - **How:** `deploy.ps1` is the one release path. Always rehearse first:
   ```powershell
   .\deploy.ps1 -UnraidHost <host> -Rehearse   # port 5059, copy of live DB, dummy keys, notifications off
-  # To keep a rehearsal container for poking at (never named lexarr or lexarr-*):
+  # To keep a rehearsal container for testing before the release (never named lexarr or lexarr-*):
   .\deploy.ps1 -UnraidHost <host> -Rehearse -RehearseName TEST4LexArr -KeepRehearsal
-  # remove later: docker rm -f TEST4LexArr && rm -rf /tmp/TEST4LexArr
+  # sign-in works at http://<host>:5059; the real deploy removes it
   .\deploy.ps1 -UnraidHost <host>             # the real deploy
   ```
+  A kept rehearsal holds its port: another rehearsal on that port is refused
+  with the command to remove it (or use `-RehearsePort`). With no live
+  install yet, the rehearsal runs against an empty DB, as a fresh install
+  would.
   It refuses to deploy unless HEAD is `master`, pushed, and green in CI
-  (`-Force` overrides, emergencies only). It stops the old container, backs
+  (`-Force` overrides, emergencies only). Before stopping anything it looks
+  for the existing install: `lexarr` is updated in place, or with none
+  Lexarr is installed fresh as `lexarr` (never a rehearsal name). It refuses
+  if a Lexarr container exists under another name, another container holds
+  port 5056, the existing `lexarr` keeps its data outside `lexarr-data`, or
+  (fresh install) `/mnt/user/appdata/lexarr/.env` is missing; it creates the
+  `arrnet` network if needed. It stops the old container, backs
   up the DB (`lexarr-backups/pre-deploy-lexarr-<sha>-<time>.db`, newest 5
   kept), starts the new image, and waits up to 90s for `/api/livez` plus
   healthz's DB check (an unreachable *arr only warns). On failure it rolls
   back, and **restores the backup if the new image had migrated the
-  schema**. Server-side steps live in `scripts/deploy-remote.sh`.
+  schema**. Once the release is healthy it removes every rehearsal
+  container (kept ones such as TEST4LexArr too) and its `/tmp` DB copy.
+  Server-side steps live in `scripts/deploy-remote.sh`.
 - **Container:** `lexarr` on Unraid (port 5056), image
   `lexarr:v<package.json version>-<sha>`; `lexarr:v<version>` and
   `lexarr:latest` point at whatever is live. Each production deploy pushes a

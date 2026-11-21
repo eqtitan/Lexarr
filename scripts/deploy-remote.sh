@@ -12,6 +12,15 @@
 #                                        DB with dummy keys; never touches live.
 #                                        With a name and keep=keep, the container
 #                                        stays up under that name after it passes.
+#                                        LEXARR_REHEARSE_URL (default
+#                                        http://localhost:<port>) is the address
+#                                        you open it at, so sign-in works there.
+#   preflight <name> <port> <env-file> <network> <volume>
+#                                        before a real deploy: find the existing
+#                                        install (or confirm a fresh one can go in);
+#                                        prints "update <image>" or "fresh"
+#   retire-rehearsals                    remove every rehearsal container (kept
+#                                        test ones too) and its /tmp copy
 set -euo pipefail
 
 BACKUP_DIR=${LEXARR_BACKUP_DIR:-/mnt/user/data/lexarr-backups}
@@ -24,7 +33,12 @@ REHEARSE_KEEP=
 # rehearsal fails if the new image needs a capability or more memory.
 HARDENING="--cap-drop=ALL --security-opt=no-new-privileges --pids-limit=256 --memory=1g"
 
-db_path() { echo "$(docker volume inspect "$1" -f '{{.Mountpoint}}')/lexarr.db"; }
+is_rehearsal() { [ "$(docker inspect -f '{{index .Config.Labels "lexarr.rehearsal"}}' "$1" 2>/dev/null)" = 1 ]; }
+
+# Running containers that publish host port $1, one name per line.
+port_holders() { docker ps --filter "publish=$1" --format '{{.Names}}'; }
+
+db_path() { echo "$(docker volume inspect "$1" -f '{{.Mountpoint}}' 2>/dev/null)/lexarr.db"; }
 
 # sqlite3 runs as root here. Keep lexarr.db and any -wal/-shm it leaves owned
 # like the DB, or the container (uid 1001) can't write them on its next start.
@@ -113,9 +127,10 @@ cmd_wait_healthy() {
 }
 
 cmd_rehearse() {
-  local image=$1 port=$2 name=${3:-$REHEARSE_NAME} keep=${4:-} live before after errors
-  local dir=$REHEARSE_DIR
+  local image=$1 port=$2 name=${3:-$REHEARSE_NAME} keep=${4:-} live before after errors holder providers
+  local dir=$REHEARSE_DIR url=${LEXARR_REHEARSE_URL:-http://localhost:$2} source="a copy of the live DB"
   live=$(db_path lexarr-data)
+  [[ "$url" =~ ^https?://[A-Za-z0-9._:-]+$ ]] || { echo "invalid LEXARR_REHEARSE_URL '$url'" >&2; return 1; }
 
   if [ "$name" != "$REHEARSE_NAME" ]; then
     # A custom name must never be able to reach the live container or a
@@ -124,8 +139,7 @@ cmd_rehearse() {
       lexarr | lexarr-*) echo "refusing container name '$name' (reserved for the live container)" >&2; return 1 ;;
     esac
     [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "invalid container name '$name'" >&2; return 1; }
-    if docker inspect "$name" >/dev/null 2>&1 &&
-      [ "$(docker inspect -f '{{index .Config.Labels "lexarr.rehearsal"}}' "$name")" != 1 ]; then
+    if docker inspect "$name" >/dev/null 2>&1 && ! is_rehearsal "$name"; then
       echo "a container named '$name' already exists and is not a Lexarr rehearsal; not touching it" >&2
       return 1
     fi
@@ -144,25 +158,57 @@ cmd_rehearse() {
   }
   trap on_exit EXIT
   cleanup
+
+  # Another container on the port (a test rehearsal kept from earlier, or
+  # anything else) would make docker run fail halfway; say which one instead.
+  holder=$(port_holders "$port" | head -n 1)
+  if [ -n "$holder" ]; then
+    if is_rehearsal "$holder"; then
+      echo "port $port is held by the kept rehearsal '$holder'. Remove it first:" >&2
+      echo "  docker rm -f $holder && rm -rf /tmp/$holder" >&2
+      echo "or rehearse on another port (deploy.ps1 -RehearsePort <port>)." >&2
+    else
+      echo "port $port is already used by container '$holder'; rehearse on another port (deploy.ps1 -RehearsePort <port>)." >&2
+    fi
+    return 1
+  fi
   mkdir -p "$dir/data"
 
-  sqlite3 "$live" ".backup '$dir/data/lexarr.db'"
-  fix_owner "$live"
-  # Notifications off: a rehearsal must never message anyone.
-  sqlite3 "$dir/data/lexarr.db" "UPDATE NotificationChannel SET enabled = 0;"
-  before=$(sqlite3 "$dir/data/lexarr.db" "SELECT (SELECT count(*) FROM Request) || ' requests, ' || (SELECT count(*) FROM User) || ' users';")
-  chown -R "$(stat -c '%u:%g' "$live")" "$dir/data"
+  if [ -f "$live" ]; then
+    sqlite3 "$live" ".backup '$dir/data/lexarr.db'"
+    fix_owner "$live"
+    # Notifications off: a rehearsal must never message anyone.
+    sqlite3 "$dir/data/lexarr.db" "UPDATE NotificationChannel SET enabled = 0;"
+    before=$(sqlite3 "$dir/data/lexarr.db" "SELECT (SELECT count(*) FROM Request) || ' requests, ' || (SELECT count(*) FROM User) || ' users';")
+    chown -R "$(stat -c '%u:%g' "$live")" "$dir/data"
+  else
+    # No install yet: rehearse what a fresh install does, from an empty DB.
+    source="an empty DB (no live install yet)"
+    before="0 requests, 0 users"
+    chown -R 1001:1001 "$dir/data" # the image's nextjs user
+  fi
 
   # Dummy keys and an *arr host with nothing listening: the app must start
-  # and migrate without reaching any real service.
+  # and migrate without reaching any real service. LEXARR_PUBLIC_URLS is the
+  # address you open the rehearsal at; without it, sign-in redirects go to
+  # the container's own http://0.0.0.0:5056 and logging in there fails.
   printf '%s\n' "NEXTAUTH_SECRET=$(head -c 24 /dev/urandom | base64)" AUTH_TRUST_HOST=true \
+    "LEXARR_PUBLIC_URLS=$url" \
     ARR_HOST=http://127.0.0.1 RADARR_API_KEY=dummy SONARR_API_KEY=dummy \
     LIDARR_API_KEY=dummy TMDB_API_KEY=dummy >"$dir/env"
 
-  echo "Rehearsing $image on port $port against a copy of the live DB ($before)..."
+  echo "Rehearsing $image on port $port against $source ($before)..."
   # shellcheck disable=SC2086 # HARDENING is a list of flags
   docker run -d --name "$name" --label lexarr.rehearsal=1 -p "$port:5056" --env-file "$dir/env" -v "$dir/data:/app/data" $HARDENING "$image" >/dev/null
   cmd_wait_healthy "$port" 90 "$name"
+
+  # Sign-in must send the browser back to the address the rehearsal is
+  # opened at, not the container's own.
+  providers=$(curl -s "http://localhost:$port/api/auth/providers")
+  if ! grep -qF "\"callbackUrl\":\"$url/api/auth/callback/" <<<"$providers"; then
+    echo "sign-in would not return to $url: $providers" >&2
+    return 1
+  fi
 
   docker logs "$name" 2>&1 | grep -E "^Applying migration|successfully applied|No pending migrations" || {
     echo "no migration result in the container log" >&2
@@ -180,11 +226,91 @@ cmd_rehearse() {
     echo "$errors error line(s) in the container log" >&2
     return 1
   fi
-  echo "Rehearsal passed: $after intact, 0 errors."
+  echo "Rehearsal passed: $after intact, 0 errors, sign-in returns to $url."
   if [ "$keep" = keep ]; then
-    echo "Kept running as '$name' on port $port (dummy keys, notifications off, copy of the DB)."
-    echo "Remove it with: docker rm -f $name && rm -rf $dir"
+    echo "Kept running as '$name' at $url (dummy keys, notifications off, $source)."
+    echo "It is for testing before the release only: the real deploy removes it."
+    echo "Remove it sooner with: docker rm -f $name && rm -rf $dir"
   fi
+}
+
+# Before a real deploy, nothing has been stopped yet. Work out whether this
+# updates an existing install or puts in a fresh one, and refuse anything
+# that would leave two Lexarrs, a rehearsal in the live slot, or a container
+# that can't start. The live container is always <name> (lexarr), never a
+# rehearsal name such as TEST4LexArr.
+cmd_preflight() {
+  local name=$1 port=$2 env_file=$3 network=$4 volume=$5 existing="" others holder data
+  if docker inspect "$name" >/dev/null 2>&1; then
+    if is_rehearsal "$name"; then
+      echo "'$name' is a rehearsal container, not a Lexarr install; refusing to deploy over it" >&2
+      return 1
+    fi
+    existing=$(docker inspect -f '{{.Config.Image}}' "$name")
+    # The new container mounts $volume. If this install keeps its database
+    # anywhere else, the update would start on an empty one.
+    data=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{if .Name}}volume {{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}' "$name")
+    if [ "$data" != "volume $volume" ]; then
+      echo "'$name' keeps its data in ${data:-no mount at /app/data}, not the $volume volume." >&2
+      echo "Updating it would start Lexarr on an empty database. Copy lexarr.db into the" >&2
+      echo "$volume volume first (or deploy with -DataVolume), then deploy again." >&2
+      return 1
+    fi
+  fi
+
+  # A Lexarr installed some other way (an Unraid template, a hand-run
+  # container) under another name. Rehearsals and our own -previous don't
+  # count. Only for the live name: a throwaway -ContainerName used to test
+  # the rollback path sits next to the real lexarr on purpose.
+  others=""
+  [ "$name" = lexarr ] && others=$(docker ps -a --format '{{.Names}} {{.Image}} {{.Label "lexarr.rehearsal"}}' |
+    awk -v n="$name" '$1 != n && $1 != n "-previous" && $3 != "1" &&
+      (tolower($1) == "lexarr" || $2 ~ /^(ghcr\.io\/eqtitan\/)?lexarr(:|@|$)/) { print $1 " (" $2 ")" }')
+  if [ -n "$others" ]; then
+    if [ -z "$existing" ]; then
+      echo "found an existing Lexarr install under another name:" >&2
+      echo "$others" | sed 's/^/  /' >&2
+      echo "deploy.ps1 manages the container named '$name'. Rename that one to '$name'" >&2
+      echo "(docker rename <old> $name) to update it in place, or remove it, then deploy again." >&2
+      return 1
+    fi
+    echo "WARNING: another Lexarr container exists besides '$name':" >&2
+    echo "$others" | sed 's/^/  /' >&2
+  fi
+
+  holder=$(port_holders "$port" | grep -vxF "$name" | head -n 1 || true)
+  if [ -n "$holder" ]; then
+    echo "port $port is already used by container '$holder'; free it before deploying" >&2
+    is_rehearsal "$holder" && echo "  (a kept rehearsal: docker rm -f $holder && rm -rf /tmp/$holder)" >&2
+    return 1
+  fi
+
+  if [ ! -f "$env_file" ]; then
+    echo "$env_file not found. A fresh install needs it: copy the template and fill it in," >&2
+    echo "  cp $(cd "$(dirname "$0")/.." && pwd)/.env.example $env_file" >&2
+    echo "then deploy again (README: Configuration)." >&2
+    return 1
+  fi
+
+  if ! docker network inspect "$network" >/dev/null 2>&1; then
+    docker network create "$network" >/dev/null
+    echo "created docker network $network"
+  fi
+
+  if [ -n "$existing" ]; then echo "update $existing"; else echo "fresh"; fi
+}
+
+# Rehearsal containers are for testing before a release. Once the release is
+# live, remove them all (kept ones such as TEST4LexArr included) and their DB
+# copies. Only containers carrying our rehearsal label are touched.
+cmd_retire_rehearsals() {
+  local name
+  for name in $(docker ps -a --filter label=lexarr.rehearsal=1 --format '{{.Names}}'); do
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || continue
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    rm -rf "/tmp/$name"
+    echo "removed rehearsal container $name"
+  done
 }
 
 case "${1:-}" in
@@ -193,8 +319,10 @@ case "${1:-}" in
   restore) cmd_restore "$2" "$3" ;;
   wait-healthy) cmd_wait_healthy "$2" "$3" "$4" ;;
   rehearse) cmd_rehearse "$2" "$3" "${4:-}" "${5:-}" ;;
+  preflight) cmd_preflight "$2" "$3" "$4" "$5" "$6" ;;
+  retire-rehearsals) cmd_retire_rehearsals ;;
   *)
-    echo "usage: $0 migrations|backup|restore|wait-healthy|rehearse ..." >&2
+    echo "usage: $0 migrations|backup|restore|wait-healthy|rehearse|preflight|retire-rehearsals ..." >&2
     exit 2
     ;;
 esac
