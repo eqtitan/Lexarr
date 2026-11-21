@@ -343,8 +343,8 @@ prisma/
 - [ ] A release runs 7 days in a row with no P0 incident
       *(P0 = data loss, container crash loop, or auth bypass)*
 - [ ] The Quick Start is confirmed by someone who has never seen the repo
-- [ ] A published image on `ghcr.io`, so you can `docker pull` instead of
-      building from source
+- [x] A published image on `ghcr.io`, so you can `docker pull` instead of
+      building from source *(since 0.32.0)*
 - [ ] Health-check failures can be sent to Lexarr's own notification channels
 
 Already in place: the 10-minute Quick Start, every variable documented in
